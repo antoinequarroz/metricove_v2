@@ -7,7 +7,7 @@ Il y a deux façons d'envoyer une vidéo. Les deux la mettent dans la bibliothè
 C'est la meilleure option quand Claude Code tourne sur ton Mac :
 
 ```bash
-curl -X POST https://metricove.antoinequarroz.ch/api/media \
+curl -X POST https://social.antoinequarroz.ch/api/media \
   -H "Authorization: Bearer $METRICOVE_TOKEN" \
   -F "file=@out/teaser.mp4" \
   -F 'post={

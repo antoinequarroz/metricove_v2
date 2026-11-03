@@ -5,7 +5,7 @@ version: 1.0.0
 required_environment_variables:
   - name: METRICOVE_URL
     prompt: "URL de Metricove"
-    help: "Par exemple https://metricove.antoinequarroz.ch"
+    help: "Par exemple https://social.antoinequarroz.ch"
     required_for: "Accès au calendrier"
   - name: METRICOVE_TOKEN
     prompt: "Jeton d'API de Metricove"
