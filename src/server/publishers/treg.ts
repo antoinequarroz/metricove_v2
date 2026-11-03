@@ -69,6 +69,15 @@ async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ dat
   return { data: data as T, headers: res.headers };
 }
 
+const NETWORK_LABEL: Record<Network, string> = {
+  instagram: "Instagram",
+  facebook: "Facebook",
+  linkedin: "LinkedIn",
+  youtube: "YouTube",
+  tiktok: "TikTok",
+  x: "X",
+};
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -82,16 +91,37 @@ async function put(url: string, body: Uint8Array, headers: Record<string, string
   return res;
 }
 
+type Conn = { id?: string | number; name?: string; provider?: string; resource_ref?: string; resource?: { ref?: string; id?: string } };
+
+/** The current team's connections, or undefined when treg does not say. */
+async function connections(): Promise<Conn[] | undefined> {
+  try {
+    const res = await fetch(`${base()}/connections`, { headers: { "X-Treg-Token": token() }, signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) return undefined;
+    const body = (await res.json()) as Conn[] | { connections?: Conn[]; items?: Conn[] };
+    return Array.isArray(body) ? body : (body.connections ?? body.items ?? []);
+  } catch {
+    return undefined;
+  }
+}
+
 /** The Facebook Page selected on the team's Facebook connection, if any. */
 async function facebookPageId(): Promise<string | undefined> {
-  type Conn = { id?: string; secret_id?: string; provider?: string; resource_ref?: string; resource?: { ref?: string; id?: string } };
-  const res = await fetch(`${base()}/connections`, { headers: { "X-Treg-Token": token() }, signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) return undefined;
-  const body = (await res.json()) as Conn[] | { connections?: Conn[]; items?: Conn[] };
-  const list = Array.isArray(body) ? body : (body.connections ?? body.items ?? []);
-  const fb = list.find((c) => c.provider === "facebook");
+  const fb = (await connections())?.find((c) => c.provider === "facebook");
   return fb?.resource_ref ?? fb?.resource?.ref ?? fb?.resource?.id;
 }
+
+/** treg provider name → Metricove network. */
+const PROVIDER_NETWORK: Record<string, Network> = {
+  instagram: "instagram",
+  facebook: "facebook",
+  linkedin: "linkedin",
+  youtube: "youtube",
+  google: "youtube",
+  tiktok: "tiktok",
+  x: "x",
+  twitter: "x",
+};
 const hueOf = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 
 function account(network: Network, externalId: string, name: string, handle: string, extra: Partial<Account> = {}): Account {
@@ -330,21 +360,26 @@ export const tregPublisher: Publisher = {
 
   async syncAccounts() {
     const all: Account[] = [];
-    const errors: string[] = [];
+    const warnings: string[] = [];
     for (const label of tregTokens().keys()) {
       team = label;
-      // One network failing (not connected, expired) must not hide the others.
-      for (const [network, read] of Object.entries(readers)) {
+      // Every network is tried. Failures are only reported for networks the team has connected in treg:
+      // the others just fail with "not connected".
+      const connected = new Set((await connections())?.map((c) => PROVIDER_NETWORK[c.provider ?? ""]).filter(Boolean));
+      // One network failing (quota, expired) must not hide the others.
+      for (const [network, read] of Object.entries(readers) as [Network, () => Promise<Account | undefined>][]) {
         try {
           const a = await read();
           if (a) all.push(a);
+          else if (connected.has(network)) warnings.push(`${NETWORK_LABEL[network]} (équipe ${label}) : connecté dans treg, mais aucun compte trouvé`);
         } catch (e) {
-          errors.push(`${label}/${network} : ${(e as Error).message}`);
+          if (connected.has(network)) warnings.push(`${NETWORK_LABEL[network]} (équipe ${label}) : ${(e as Error).message}`);
         }
       }
     }
-    if (!all.length && errors.length) throw new Error(errors[0]);
-    return all;
+    if (!all.length && warnings.length) throw new Error(warnings[0]);
+    if (!all.length) throw new Error("Aucun compte trouvé dans treg : vérifiez les connexions et les jetons (TREG_TOKENS)");
+    return { accounts: all, warnings };
   },
 
   async publish(post, accounts, media) {

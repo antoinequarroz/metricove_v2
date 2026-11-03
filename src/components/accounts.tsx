@@ -40,8 +40,10 @@ export function AccountsPage() {
   const sync = async () => {
     setSyncing(true);
     try {
-      const n = await syncAccounts();
+      const { count: n, warnings } = await syncAccounts();
       toast.success("Comptes synchronisés", { description: `${n} compte${n > 1 ? "s" : ""} trouvé${n > 1 ? "s" : ""} dans ${service}.` });
+      // Accounts connected in the service but not imported, with the reason (quota, expired…).
+      for (const w of warnings) toast.warning("Compte non importé", { description: w, duration: 12_000 });
     } catch (e) {
       toast.error("Synchronisation impossible", { description: (e as Error).message });
     } finally {
@@ -112,7 +114,10 @@ export function AccountsPage() {
                         <Avatar account={a} size={36} />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[13.5px] font-medium">{a.name}</div>
-                          <div className="text-[12px] text-ink-3">@{a.handle}</div>
+                          <div className="text-[12px] text-ink-3">
+                            @{a.handle}
+                            {a.providerKind?.startsWith("treg:") && <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-px text-[11px]">équipe {a.providerKind.slice(5)}</span>}
+                          </div>
                         </div>
                         <div className="hidden w-28 text-right sm:block">
                           <div className="tabular text-[13.5px] font-semibold">{compact(a.followers)}</div>

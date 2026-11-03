@@ -71,7 +71,7 @@ export const postizPublisher: Publisher = {
 
   async syncAccounts() {
     const list = await call<Integration[]>("/integrations");
-    return list
+    const accounts = list
       .filter((i) => KIND_TO_NETWORK[i.identifier])
       .map(
         (i, n): Account => ({
@@ -87,6 +87,7 @@ export const postizPublisher: Publisher = {
           providerKind: i.identifier,
         }),
       );
+    return { accounts };
   },
 
   async publish(post, accounts, media) {

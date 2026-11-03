@@ -34,7 +34,7 @@ type State = {
   deletePost: (id: string) => Promise<void>;
   movePost: (id: string, dayISO: string) => Promise<Post>;
   retryPost: (id: string) => Promise<void>;
-  syncAccounts: () => Promise<number>;
+  syncAccounts: () => Promise<{ count: number; warnings: string[] }>;
   addAccount: (a: { network: Network; name: string; handle: string }) => Promise<Account>;
   removeAccount: (id: string) => Promise<void>;
   uploadMedia: (file: File, onProgress?: (pct: number) => void) => Promise<Media>;
@@ -157,9 +157,9 @@ export const useStore = create<State>()(
         set((s) => ({ accounts: s.accounts.filter((a) => a.id !== id) }));
       },
       syncAccounts: async () => {
-        const { count } = await api<{ count: number }>("/api/accounts/sync", { method: "POST" });
+        const r = await api<{ count: number; warnings?: string[] }>("/api/accounts/sync", { method: "POST" });
         await get().load();
-        return count;
+        return { count: r.count, warnings: r.warnings ?? [] };
       },
     }),
     {
