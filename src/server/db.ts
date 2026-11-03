@@ -117,6 +117,10 @@ export function upsertAccount(a: Account) {
     .run({ ...a, connected: a.connected ? 1 : 0, avatarUrl: a.avatarUrl ?? null, externalId: a.externalId ?? null, providerKind: a.providerKind ?? null });
 }
 
+export function deleteAccount(id: string) {
+  db().prepare("delete from accounts where id = ?").run(id);
+}
+
 /* ---------- Media ---------- */
 
 type MediaRow = {

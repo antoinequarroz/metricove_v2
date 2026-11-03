@@ -44,7 +44,10 @@ function settingsFor(kind: string, post: Post) {
       return { __type: "x", who_can_reply_post: "everyone", community: "" };
     case "instagram":
     case "instagram-standalone":
-      return { __type: kind, post_type: "post", collaborators: [] };
+      return { __type: kind, post_type: "post", is_trial_reel: false, collaborators: [] };
+    case "linkedin":
+    case "linkedin-page":
+      return { __type: kind, post_as_images_carousel: false };
     default:
       return { __type: kind };
   }

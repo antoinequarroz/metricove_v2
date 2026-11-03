@@ -44,6 +44,8 @@ Pour YouTube, choisir « Vidéo » ou « Short » dans l'éditeur. Un Short est 
 | DELETE | `/api/posts/:id` | Supprimer |
 | POST | `/api/posts/:id/retry` | Relancer un post en échec |
 | POST | `/api/accounts/sync` | Importer les comptes de Postiz |
+| POST | `/api/accounts` | Ajouter un compte à la main (`network`, `handle`, `name`) |
+| DELETE | `/api/accounts/:id` | Retirer un compte ajouté à la main |
 | POST | `/api/media` | Envoyer une vidéo (multipart `file`, plus `post` en JSON en option) |
 | DELETE | `/api/media/:id` | Supprimer une vidéo inutilisée |
 | POST | `/api/hermes/caption` | Demander une légende à Hermes |

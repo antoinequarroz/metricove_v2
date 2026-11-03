@@ -35,6 +35,8 @@ type State = {
   movePost: (id: string, dayISO: string) => Promise<Post>;
   retryPost: (id: string) => Promise<void>;
   syncAccounts: () => Promise<number>;
+  addAccount: (a: { network: Network; name: string; handle: string }) => Promise<Account>;
+  removeAccount: (id: string) => Promise<void>;
   uploadMedia: (file: File, onProgress?: (pct: number) => void) => Promise<Media>;
   deleteMedia: (id: string) => Promise<void>;
 };
@@ -144,6 +146,15 @@ export const useStore = create<State>()(
       deleteMedia: async (id) => {
         await api(`/api/media/${id}`, { method: "DELETE" });
         set((s) => ({ media: s.media.filter((m) => m.id !== id) }));
+      },
+      addAccount: async (input) => {
+        const { account } = await api<{ account: Account }>("/api/accounts", { method: "POST", body: JSON.stringify(input) });
+        set((s) => ({ accounts: [...s.accounts, account] }));
+        return account;
+      },
+      removeAccount: async (id) => {
+        await api(`/api/accounts/${id}`, { method: "DELETE" });
+        set((s) => ({ accounts: s.accounts.filter((a) => a.id !== id) }));
       },
       syncAccounts: async () => {
         const { count } = await api<{ count: number }>("/api/accounts/sync", { method: "POST" });

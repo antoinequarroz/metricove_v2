@@ -5,7 +5,7 @@
 - **https://metricove.antoinequarroz.ch** : le calendrier, protégé par un mot de passe ;
 - **https://postiz.antoinequarroz.ch** : Postiz, qui publie sur tes réseaux.
 
-Il faut compter environ 45 minutes, dont la plus grande partie pour créer les applications développeur des réseaux sociaux (étape 3).
+Il faut compter environ 45 minutes, dont la plus grande partie pour créer les applications développeur des réseaux sociaux (étape 2).
 
 ---
 
@@ -16,7 +16,7 @@ Il faut compter environ 45 minutes, dont la plus grande partie pour créer les a
   ```bash
   curl -fsSL https://get.docker.com | sh
   ```
-- Les ports **80 et 443 libres**. Si un nginx ou un Traefik tourne déjà (par exemple pour Hermes), passe à l'annexe A à l'étape 4.
+- Les ports **80 et 443 libres**. Si un nginx ou un Traefik tourne déjà (par exemple pour Hermes), passe à l'annexe A à l'étape 3.
 
 ## 1. DNS
 
@@ -29,54 +29,11 @@ Chez ton registraire, crée deux enregistrements **A** qui pointent vers l'IP du
 
 Pour vérifier : `dig +short metricove.antoinequarroz.ch` doit renvoyer l'IP.
 
-## 2. Installer Postiz
+## 2. Installer Postiz et connecter les réseaux
 
-```bash
-git clone https://github.com/gitroomhq/postiz-docker-compose ~/postiz
-cd ~/postiz
-nano docker-compose.yaml
-```
+Tout est expliqué dans [POSTIZ.md](POSTIZ.md) : Postiz Cloud ou Postiz sur ton propre serveur, avec les apps développeur réseau par réseau.
 
-Dans la partie `environment` du service `postiz`, mets :
-
-```yaml
-MAIN_URL: "https://postiz.antoinequarroz.ch"
-FRONTEND_URL: "https://postiz.antoinequarroz.ch"
-NEXT_PUBLIC_BACKEND_URL: "https://postiz.antoinequarroz.ch/api"
-JWT_SECRET: "<une longue chaîne aléatoire : openssl rand -hex 32>"
-```
-
-Vérifie que le service `postiz` publie bien son port sur **4007** (ligne `ports:`, par exemple `"4007:5000"`). Si le port est différent, adapte `deploy/Caddyfile`.
-
-```bash
-docker compose up -d
-```
-
-## 3. Connecter les réseaux dans Postiz
-
-Postiz a besoin d'une application développeur par réseau. Chaque page de la doc Postiz explique quelles clés copier et quelle URL de redirection déclarer :
-
-| Réseau | Doc Postiz | Où créer l'app |
-| --- | --- | --- |
-| X | https://docs.postiz.com/providers/x | developer.x.com |
-| LinkedIn | https://docs.postiz.com/providers/linkedin | linkedin.com/developers |
-| Instagram et Facebook | https://docs.postiz.com/providers/instagram et /facebook | developers.facebook.com |
-| YouTube | https://docs.postiz.com/providers/youtube | console.cloud.google.com |
-
-Ajoute les clés dans le `docker-compose.yaml` de Postiz (`X_API_KEY`, `LINKEDIN_CLIENT_ID`, `FACEBOOK_APP_ID`, `YOUTUBE_CLIENT_ID`, etc.), puis :
-
-```bash
-docker compose down && docker compose up -d
-```
-
-Une fois Metricove en ligne (étape 4), ouvre https://postiz.antoinequarroz.ch, crée ton compte et connecte chaque compte social. Plusieurs comptes Instagram ou LinkedIn par réseau, c'est possible.
-
-Pour finir :
-
-- **Réglages → API publique** : copie la clé API, elle servira à l'étape 4 ;
-- ajoute `DISABLE_REGISTRATION: "true"` dans la config de Postiz, pour que personne d'autre ne puisse créer de compte.
-
-## 4. Installer Metricove
+## 3. Installer Metricove
 
 ```bash
 git clone https://github.com/antoinequarroz/metricove_v2 ~/metricove
@@ -107,7 +64,7 @@ docker compose up -d --build
 
 Caddy obtient les certificats HTTPS tout seul, en moins d'une minute.
 
-## 5. Vérifier que tout marche
+## 4. Vérifier que tout marche
 
 1. Ouvre https://metricove.antoinequarroz.ch et connecte-toi.
 2. Va dans **Comptes**, puis clique sur **Synchroniser** : tes comptes Postiz apparaissent.
