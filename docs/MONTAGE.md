@@ -35,6 +35,8 @@ Le serveur refuse les corps de plus de 10 Mo. Tout fichier passe donc par morcea
 2. `PUT /api/uploads/:id?offset=<octets déjà envoyés>` avec le morceau brut en corps → `{ "received" }`
 3. L'`id` sert ensuite dans les autres appels (`upload`). Un envoi non utilisé est effacé après 24 h.
 
+`POST /api/media` accepte aussi `{ "upload", "title"?, "post"? }` en JSON : c'est la voie à prendre pour toute vidéo de plus de 10 Mo (Claude Code, Hermes).
+
 ## Tâches
 
 ```ts
@@ -95,12 +97,14 @@ type Edl = {
 
 - `POST /api/montage/worker/claim` `{ "worker": "mac", "version": "0.1.0" }`
   → `204` s'il n'y a rien, sinon `{ job, action, rushes }`. La tâche passe en `working`.
+  Chaque rush : `{ id, name, origin, size, duration?, path?, createdAt, url? }`. `url` (chemin relatif) n'existe que pour un rush `upload` à télécharger.
+  Une tâche prise sans nouvelles pendant 15 minutes est redonnée (Mac en veille, plantage) : envoyer `step`/`progress` régulièrement.
   Sert aussi de signal de vie : Metricove affiche « Mac connecté » si le dernier appel date de moins de 30 s.
 - `PATCH /api/montage/jobs/:id` `{ "step", "progress" }` pendant le travail, ou `{ "status": "failed", "error" }`.
 - `action: "propose"` : transcrire, demander à Claude une EDL (avec `brief`, `script`, `feedback`, dernière version),
   rendre un aperçu léger (540p), puis
   `POST /api/montage/jobs/:id/versions` `{ "edl", "notes", "upload"? }` → statut `review`.
-- `action: "preview"` : l'utilisateur a modifié l'EDL à la main (dernière version, `by: "edit"`). Rendre seulement l'aperçu,
+- `action: "preview"` : l'utilisateur a modifié l'EDL à la main. C'est toujours la **dernière** version (`by: "edit"`, `preview: false`). Rendre seulement l'aperçu,
   puis `POST /api/montage/jobs/:id/versions/:n/preview` `{ "upload" }`.
 - `action: "final"` : rendu pleine qualité de la version `approved`, puis
   `POST /api/montage/jobs/:id/final` `{ "upload", "title"? }` → la vidéo entre dans la bibliothèque, statut `done`.
