@@ -9,7 +9,7 @@ FROM base AS deps
 # Build tools are only a fallback: better-sqlite3 usually downloads a prebuilt binary.
 ARG SKIP_BUILD_TOOLS=
 RUN [ -n "$SKIP_BUILD_TOOLS" ] || (apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*)
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 FROM base AS build

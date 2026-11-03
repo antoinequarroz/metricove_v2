@@ -15,7 +15,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
-    "lucide-react": "^1.67.0",
+    "lucide-react": "^1.66.0",
     "motion": "^14.9.0",
     "next": "15.5.28",
     "react": "19.1.0",
@@ -37,9 +37,5 @@
     "tailwindcss": "4.3.3",
     "typescript": "^5"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3"
-    ]
-  }
+  "packageManager": "pnpm@12.16.1"
 }
