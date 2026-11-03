@@ -77,6 +77,8 @@ export async function writeScript(cfg, job, cwd) {
 Sujet et consignes : ${b.instructions || job.title}
 ${b.hook ? `Accroche imposée : ${b.hook}\n` : ""}${b.cta ? `Appel à l'action : ${b.cta}\n` : ""}
 Structure : une accroche forte (1 phrase), 3 idées concrètes, un appel à l'action. Ton direct, oral, tutoiement.
-Une phrase courte par ligne (12 mots maximum), sans titres, sans puces, sans emojis, sans didascalies. Rends uniquement le texte.`;
+Une phrase courte par ligne (12 mots maximum), sans titres, sans puces, sans emojis, sans didascalies.
+N'invente aucun fait (lieu, métier, chiffre, nom, expérience) qui n'est pas dans les consignes : reste sur ce qui est donné.
+S'il manque une information indispensable, mets au plus deux trous à compléter, sous la forme [à compléter : …]. Rends uniquement le texte.`;
   return ask(cfg, prompt, null, cwd);
 }
