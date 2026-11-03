@@ -6,7 +6,7 @@ import { addDays, setHours, startOfDay } from "date-fns";
 import { Bot, CalendarClock, Film, ImagePlus, Trash2, X, Hash, Smile } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { NETWORKS, NetworkBadge } from "@/lib/networks";
+import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
 import { ProjectMark } from "./projects";
 import type { Network, Post, YouTubeOptions } from "@/lib/types";
@@ -235,7 +235,7 @@ function ComposerForm() {
                 </div>
               )}
               <div className="flex flex-wrap gap-1.5">
-                {accounts.map((a) => {
+                {[...accounts].sort((x, y) => NETWORK_ORDER.indexOf(x.network) - NETWORK_ORDER.indexOf(y.network)).map((a) => {
                   const on = selected.includes(a.id);
                   return (
                     <button

@@ -5,13 +5,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
+import { NETWORK_ORDER } from "@/lib/networks";
 import { useProjectAccounts, useStore } from "@/lib/store";
+import type { Account, Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Avatar, Kbd } from "./ui";
 import { Logo } from "./logo";
 import { Composer } from "./composer";
 import { CommandMenu } from "./command-menu";
-import { ProjectSwitcher } from "./projects";
+import { ProjectMark, ProjectSwitcher } from "./projects";
 
 const NAV = [
   { href: "/calendar", label: "Calendrier", Icon: CalendarDays },
@@ -98,6 +100,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function Sidebar() {
   const pathname = usePathname();
   const accounts = useProjectAccounts();
+  const projects = useStore((s) => s.projects);
+  const activeProject = useStore((s) => s.activeProject);
+  const setActiveProject = useStore((s) => s.setActiveProject);
+  const groups = groupAccounts(accounts, activeProject === "all" ? projects : []);
   const hidden = useStore((s) => s.hiddenAccounts).filter((id) => accounts.some((a) => a.id === id));
   const toggleAccount = useStore((s) => s.toggleAccount);
   const media = useStore((s) => s.media);
@@ -166,35 +172,51 @@ function Sidebar() {
         <span className="text-[11px] text-ink-3">{accounts.length - hidden.length}/{accounts.length}</span>
       </div>
       <div className="scroll-thin -mx-1 flex min-h-0 flex-col gap-px overflow-y-auto px-1">
-        {accounts.map((a) => {
-          const off = hidden.includes(a.id);
-          return (
-            <button
-              key={a.id}
-              onClick={() => toggleAccount(a.id)}
-              title={off ? "Afficher dans le calendrier" : "Masquer du calendrier"}
-              className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-ink/[0.04]"
-            >
-              <Avatar account={a} size={26} dim={off} />
-              <span className={cn("min-w-0 flex-1 transition-opacity duration-150", off && "opacity-45")}>
-                <span className="block truncate text-[13px] leading-tight">{a.name}</span>
-                <span className="block truncate text-[11.5px] leading-tight text-ink-3">@{a.handle}</span>
-              </span>
-              <span
-                className={cn(
-                  "flex size-4 items-center justify-center rounded-[5px] border transition-colors duration-150",
-                  off ? "border-line-strong" : "border-accent bg-accent text-white",
-                )}
+        {groups.map((g) => (
+          <div key={g.key} className={cn("flex flex-col gap-px", g.project !== undefined && "mb-2")}>
+            {g.project !== undefined && (
+              <button
+                onClick={() => g.project && setActiveProject(g.project.id)}
+                disabled={!g.project}
+                title={g.project ? `Afficher seulement ${g.project.name}` : undefined}
+                className="flex items-center gap-1.5 rounded-md px-2 pt-1 pb-0.5 text-left text-[11.5px] font-medium text-ink-2 enabled:hover:text-ink"
               >
-                {!off && (
-                  <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2.2">
-                    <path d="M2.5 6.2 5 8.5l4.5-5" />
-                  </svg>
-                )}
-              </span>
-            </button>
-          );
-        })}
+                {g.project ? <ProjectMark project={g.project} size={14} /> : <span className="size-3.5 rounded-[4px] border border-dashed border-line-strong" />}
+                <span className="truncate">{g.project?.name ?? "Sans projet"}</span>
+                <span className="ml-auto text-[11px] font-normal text-ink-3">{g.accounts.length}</span>
+              </button>
+            )}
+            {g.accounts.map((a) => {
+              const off = hidden.includes(a.id);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => toggleAccount(a.id)}
+                  title={off ? "Afficher dans le calendrier" : "Masquer du calendrier"}
+                  className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-ink/[0.04]"
+                >
+                  <Avatar account={a} size={26} dim={off} />
+                  <span className={cn("min-w-0 flex-1 transition-opacity duration-150", off && "opacity-45")}>
+                    <span className="block truncate text-[13px] leading-tight">{a.name}</span>
+                    <span className="block truncate text-[11.5px] leading-tight text-ink-3">@{a.handle}</span>
+                  </span>
+                  <span
+                    className={cn(
+                      "flex size-4 items-center justify-center rounded-[5px] border transition-colors duration-150",
+                      off ? "border-line-strong" : "border-accent bg-accent text-white",
+                    )}
+                  >
+                    {!off && (
+                      <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2.2">
+                        <path d="M2.5 6.2 5 8.5l4.5-5" />
+                      </svg>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       <div className="mt-auto flex flex-col gap-1.5 rounded-xl border border-line bg-surface/60 p-2.5">
@@ -242,4 +264,21 @@ function Integration({ name, detail, ok, warn }: { name: string; detail: string;
       <span className="ml-auto truncate text-ink-3">{detail}</span>
     </div>
   );
+}
+
+const byNetwork = (a: Account, b: Account) => NETWORK_ORDER.indexOf(a.network) - NETWORK_ORDER.indexOf(b.network) || a.handle.localeCompare(b.handle);
+
+/**
+ * Sidebar groups: one per project, then the accounts in no project.
+ * Without projects (or inside one project), a single group with no title.
+ */
+function groupAccounts(accounts: Account[], projects: Project[]) {
+  const sorted = [...accounts].sort(byNetwork);
+  if (!projects.length) return [{ key: "all", project: undefined as Project | null | undefined, accounts: sorted }];
+  const groups: { key: string; project: Project | null | undefined; accounts: Account[] }[] = projects
+    .map((p) => ({ key: p.id, project: p as Project | null, accounts: sorted.filter((a) => p.accountIds.includes(a.id)) }))
+    .filter((g) => g.accounts.length);
+  const loose = sorted.filter((a) => !projects.some((p) => p.accountIds.includes(a.id)));
+  if (loose.length) groups.push({ key: "none", project: null, accounts: loose });
+  return groups;
 }
