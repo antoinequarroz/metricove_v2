@@ -1,0 +1,188 @@
+@import "tailwindcss";
+
+/* Design tokens. Light is the default, dark follows the system. */
+:root {
+  --bg: #efede8;
+  --bg-2: #e7e4dd;
+  --surface: #fbfaf8;
+  --surface-2: #f4f2ee;
+  --line: rgba(23, 22, 20, 0.09);
+  --line-strong: rgba(23, 22, 20, 0.16);
+  --ink: #181715;
+  --ink-2: #57544e;
+  --ink-3: #8c8880;
+  --accent: #ff5a1f;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(255, 90, 31, 0.12);
+  --ok: #1f9d55;
+  --warn: #c98a04;
+  --danger: #dc3a2f;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 1px 2px rgba(20, 18, 14, 0.06), 0 8px 24px -12px rgba(20, 18, 14, 0.18);
+  --grain-opacity: 0.11;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f0f0e;
+    --bg-2: #151513;
+    --surface: #1a1a18;
+    --surface-2: #222220;
+    --line: rgba(255, 252, 245, 0.07);
+    --line-strong: rgba(255, 252, 245, 0.14);
+    --ink: #f3f1ec;
+    --ink-2: #b2aea6;
+    --ink-3: #75726b;
+    --accent-soft: rgba(255, 90, 31, 0.16);
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+    --grain-opacity: 0.07;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-2: var(--bg-2);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-display-serif), Georgia, serif;
+  --shadow-card: var(--shadow);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Film grain over the whole app. Fixed, so it never repaints on scroll. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: -50%;
+  z-index: 100;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  mix-blend-mode: multiply;
+}
+
+@media (prefers-color-scheme: dark) {
+  body::after {
+    mix-blend-mode: screen;
+    filter: invert(1);
+  }
+}
+
+/* Soft warm glow behind the app so the grain has something to sit on. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 40rem at 85% -10%, var(--accent-soft), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 110%, rgba(120, 110, 255, 0.07), transparent 60%);
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Pressable elements give instant feedback. */
+.press {
+  transition: transform 160ms var(--ease-out), background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stagger in for lists that load once. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 320ms var(--ease-out) both;
+}
+
+/* Base UI dialog motion */
+.dialog-backdrop {
+  transition: opacity 200ms var(--ease-out);
+}
+.dialog-backdrop[data-starting-style],
+.dialog-backdrop[data-ending-style] {
+  opacity: 0;
+}
+.dialog-popup {
+  transition: transform 240ms var(--ease-out), opacity 200ms var(--ease-out);
+}
+.dialog-popup[data-starting-style],
+.dialog-popup[data-ending-style] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+.dialog-popup[data-ending-style] {
+  transition-duration: 150ms;
+}
+
+.popover-popup {
+  transform-origin: var(--transform-origin);
+  transition: transform 160ms var(--ease-out), opacity 160ms var(--ease-out);
+}
+.popover-popup[data-starting-style],
+.popover-popup[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+  .dialog-popup[data-starting-style],
+  .dialog-popup[data-ending-style] {
+    transform: none;
+  }
+  .press:active {
+    transform: none;
+  }
+}
