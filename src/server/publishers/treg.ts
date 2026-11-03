@@ -54,7 +54,12 @@ async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ dat
     signal: AbortSignal.timeout(120_000),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`treg ${res.status} sur ${id} : ${text.slice(0, 300)}`);
+  if (!res.ok) {
+    if (/quotaExceeded/i.test(text)) throw new Error("Quota YouTube du jour épuisé (app Google partagée de treg). Relancez après 9h, ou branchez votre propre app Google dans treg.");
+    if (res.status === 409 && /ambiguous/i.test(text)) throw new Error(`Plusieurs comptes du même réseau dans la même équipe treg : gardez-en un seul par équipe (${id})`);
+    if (res.status === 428) throw new Error(`Compte à reconnecter dans treg (${id.split(".")[0]})`);
+    throw new Error(`treg ${res.status} sur ${id} : ${text.slice(0, 300)}`);
+  }
   let data: unknown = undefined;
   try {
     data = text ? JSON.parse(text) : undefined;
