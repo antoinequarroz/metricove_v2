@@ -25,6 +25,8 @@ type State = {
   networkFilter: Network | "all";
   composer: ComposerState;
   commandOpen: boolean;
+  /** Id of the video open in the player. */
+  playing?: string;
 
   load: () => Promise<void>;
   setView: (v: CalendarView) => void;
@@ -33,6 +35,7 @@ type State = {
   setNetworkFilter: (n: Network | "all") => void;
   openComposer: (c?: Omit<ComposerState, "open">) => void;
   closeComposer: () => void;
+  playMedia: (id?: string) => void;
   setCommandOpen: (o: boolean) => void;
   savePost: (post: Post) => Promise<Post>;
   deletePost: (id: string) => Promise<void>;
@@ -93,6 +96,7 @@ export const useStore = create<State>()(
       setNetworkFilter: (networkFilter) => set({ networkFilter }),
       openComposer: (c = {}) => set({ composer: { open: true, ...c }, commandOpen: false }),
       closeComposer: () => set((s) => ({ composer: { ...s.composer, open: false } })),
+      playMedia: (playing) => set({ playing }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
 
       savePost: async (post) => {

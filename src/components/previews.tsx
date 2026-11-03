@@ -36,7 +36,7 @@ export function InstagramPreview({ account, caption, media }: Props) {
         <MoreHorizontal className="ml-auto size-4" />
       </div>
       {media ? (
-        <MediaThumb media={media} className={cn("w-full rounded-none", media.aspect === "16:9" ? "aspect-video" : media.aspect === "1:1" ? "aspect-square" : "aspect-[4/5]")} />
+        <MediaThumb media={media} playable className={cn("w-full rounded-none", media.aspect === "16:9" ? "aspect-video" : media.aspect === "1:1" ? "aspect-square" : "aspect-[4/5]")} />
       ) : (
         <div className="flex aspect-[4/5] items-center justify-center bg-surface-2 text-[12px] text-ink-3">Instagram exige une image ou une vidéo</div>
       )}
@@ -75,7 +75,7 @@ export function XPreview({ account, caption, media, date }: Props) {
               <Caption text={caption} />
             )}
           </p>
-          {media && <MediaThumb media={media} className="mt-2.5 aspect-video w-full rounded-xl border border-line" />}
+          {media && <MediaThumb media={media} playable className="mt-2.5 aspect-video w-full rounded-xl border border-line" />}
           <div className="mt-2.5 flex justify-between pr-6 text-ink-3">
             <MessageCircle className="size-[17px]" />
             <Repeat2 className="size-[17px]" />
@@ -105,7 +105,7 @@ export function LinkedInPreview({ account, caption, media }: Props) {
       <p className="px-3 pb-3 leading-relaxed">
         <Caption text={caption} />
       </p>
-      {media && <MediaThumb media={media} className="aspect-video w-full rounded-none" />}
+      {media && <MediaThumb media={media} playable className="aspect-video w-full rounded-none" />}
       <div className="flex justify-around border-t border-line py-2 text-[12.5px] font-medium text-ink-2">
         <span className="flex items-center gap-1.5"><ThumbsUp className="size-4" />J&apos;aime</span>
         <span className="flex items-center gap-1.5"><MessageCircle className="size-4" />Commenter</span>
@@ -132,7 +132,7 @@ export function FacebookPreview({ account, caption, media, date }: Props) {
       <p className="px-3 pb-3 leading-snug">
         <Caption text={caption} />
       </p>
-      {media && <MediaThumb media={media} className="aspect-video w-full rounded-none" />}
+      {media && <MediaThumb media={media} playable className="aspect-video w-full rounded-none" />}
       <div className="flex justify-around border-t border-line py-2 text-[13px] font-medium text-ink-2">
         <span className="flex items-center gap-1.5"><ThumbsUp className="size-4" />J&apos;aime</span>
         <span className="flex items-center gap-1.5"><MessageCircle className="size-4" />Commenter</span>
@@ -147,7 +147,7 @@ export function YouTubePreview({ account, caption, media, youtube }: Props) {
   if (youtube?.format === "short") {
     return (
       <div className="relative mx-auto aspect-[9/16] w-[260px] overflow-hidden rounded-[22px] bg-black text-white shadow-card ring-1 ring-line">
-        {media ? <MediaThumb media={media} showMeta={false} className="absolute inset-0 rounded-none" /> : <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/60">Ajoutez une vidéo verticale</div>}
+        {media ? <MediaThumb media={media} playable showMeta={false} className="absolute inset-0 rounded-none" /> : <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/60">Ajoutez une vidéo verticale</div>}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3.5 pt-16">
           <div className="flex items-center gap-2 text-[12.5px] font-semibold">
             <Avatar account={account} size={24} badge={false} />@{account.handle}
@@ -167,7 +167,7 @@ export function YouTubePreview({ account, caption, media, youtube }: Props) {
   }
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-surface text-[13.5px] shadow-card">
-      {media ? <MediaThumb media={media} className="aspect-video w-full rounded-none" /> : <div className="flex aspect-video items-center justify-center bg-surface-2 text-[12px] text-ink-3">YouTube exige une vidéo</div>}
+      {media ? <MediaThumb media={media} playable className="aspect-video w-full rounded-none" /> : <div className="flex aspect-video items-center justify-center bg-surface-2 text-[12px] text-ink-3">YouTube exige une vidéo</div>}
       <div className="flex gap-3 p-3">
         <Avatar account={account} size={36} badge={false} />
         <div className="min-w-0">
@@ -185,7 +185,7 @@ export function YouTubePreview({ account, caption, media, youtube }: Props) {
 export function TikTokPreview({ account, caption, media }: Props) {
   return (
     <div className="relative mx-auto aspect-[9/16] w-[260px] overflow-hidden rounded-[22px] bg-black text-white shadow-card ring-1 ring-line">
-      {media ? <MediaThumb media={media} showMeta={false} className="absolute inset-0 rounded-none" /> : <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/60">TikTok exige une vidéo</div>}
+      {media ? <MediaThumb media={media} playable showMeta={false} className="absolute inset-0 rounded-none" /> : <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/60">TikTok exige une vidéo</div>}
       <div className="absolute inset-x-0 top-3 flex justify-center gap-4 text-[12.5px] font-semibold">
         <span className="text-white/60">Abonnements</span>
         <span className="border-b-2 border-white pb-0.5">Pour toi</span>

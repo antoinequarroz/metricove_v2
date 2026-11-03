@@ -3,6 +3,7 @@
 import { Play, Sparkles, Bot, Upload } from "lucide-react";
 import { forwardRef } from "react";
 import { NetworkBadge } from "@/lib/networks";
+import { useStore } from "@/lib/store";
 import type { Account, Media, PostStatus } from "@/lib/types";
 import { cn, duration } from "@/lib/utils";
 
@@ -96,8 +97,21 @@ export function SourceTag({ source, className, onMedia }: { source: keyof typeof
 }
 
 /** Placeholder thumbnail with a gradient until real video frames exist. */
-export function MediaThumb({ media, className, showMeta = true }: { media: Media; className?: string; showMeta?: boolean }) {
+export function MediaThumb({
+  media,
+  className,
+  showMeta = true,
+  playable = false,
+}: {
+  media: Media;
+  className?: string;
+  showMeta?: boolean;
+  /** Clicking the thumbnail opens the video player. */
+  playable?: boolean;
+}) {
   const [h1, h2] = media.hues;
+  const play = useStore((s) => s.playMedia);
+  const canPlay = playable && !!media.url;
   return (
     <div
       className={cn("relative overflow-hidden rounded-lg", className)}
@@ -111,12 +125,29 @@ export function MediaThumb({ media, className, showMeta = true }: { media: Media
       ) : (
         <div className="absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,.15) 0 1px, transparent 1px 3px)" }} />
       )}
-      {showMeta && (
-        <>
-          <span className="absolute top-1/2 left-1/2 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 text-white ring-1 ring-white/30 backdrop-blur-md">
+      {canPlay && (
+        <button
+          type="button"
+          aria-label={`Lire « ${media.title} »`}
+          onClick={(e) => {
+            e.stopPropagation();
+            play(media.id);
+          }}
+          className="group/play absolute inset-0 flex items-center justify-center outline-none"
+        >
+          <span className="flex size-10 items-center justify-center rounded-full bg-black/35 text-white ring-1 ring-white/40 backdrop-blur-md transition-transform duration-150 group-hover/play:scale-110 group-focus-visible/play:ring-2 group-focus-visible/play:ring-accent group-active/play:scale-95">
             <Play className="ml-0.5 size-4 fill-current" />
           </span>
-          <span className="tabular absolute right-1.5 bottom-1.5 rounded-md bg-black/45 px-1.5 py-px font-mono text-[10.5px] text-white backdrop-blur">
+        </button>
+      )}
+      {showMeta && (
+        <>
+          {!canPlay && (
+            <span className="absolute top-1/2 left-1/2 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 text-white ring-1 ring-white/30 backdrop-blur-md">
+              <Play className="ml-0.5 size-4 fill-current" />
+            </span>
+          )}
+          <span className="tabular pointer-events-none absolute right-1.5 bottom-1.5 rounded-md bg-black/45 px-1.5 py-px font-mono text-[10.5px] text-white backdrop-blur">
             {duration(media.duration)}
           </span>
         </>

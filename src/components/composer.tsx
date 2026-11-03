@@ -304,7 +304,7 @@ function ComposerForm() {
               <Label>Vidéo</Label>
               {m ? (
                 <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-2.5">
-                  <MediaThumb media={m} showMeta={false} className="h-16 w-12 rounded-md" />
+                  <MediaThumb media={m} showMeta={false} playable className="h-16 w-12 rounded-md" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13.5px] font-medium">{m.title}</div>
                     <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
