@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Self-contained server for the Docker image.
+  output: "standalone",
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default nextConfig;

@@ -50,7 +50,7 @@ Pour YouTube, choisir « Vidéo » ou « Short » dans l'éditeur. Un Short est 
 1. ✅ **Base et design** : calendrier mois / semaine / liste, glisser-déposer, éditeur avec aperçu par réseau, bibliothèque vidéo, recherche ⌘K.
 2. ✅ **Publication** : base SQLite, mot de passe, planificateur, publication via Postiz (Instagram, Facebook, X, LinkedIn, YouTube et Shorts).
 3. **Vidéos et Hermes** : import automatique des vidéos générées par Claude Code, légendes proposées par Hermes (avec treg).
-4. **Mise en ligne** : Docker sur le VPS, sous-domaine de antoinequarroz.ch.
+4. ✅ **Mise en ligne** : Docker + Caddy (HTTPS) + Postiz sur le VPS. Voir [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md).
 
 ## Stack
 
