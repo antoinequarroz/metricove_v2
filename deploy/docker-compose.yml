@@ -30,7 +30,7 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      METRICOVE_DOMAIN: ${METRICOVE_DOMAIN:-metricove.antoinequarroz.ch}
+      METRICOVE_DOMAIN: ${METRICOVE_DOMAIN:-social.antoinequarroz.ch}
       POSTIZ_DOMAIN: ${POSTIZ_DOMAIN:-postiz.antoinequarroz.ch}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

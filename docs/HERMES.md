@@ -55,7 +55,7 @@ treg login
 Copie le dossier `docs/hermes-skill/metricove` dans `~/.hermes/skills/social/metricove/`, puis ajoute dans `~/.hermes/.env` :
 
 ```env
-METRICOVE_URL=https://metricove.antoinequarroz.ch
+METRICOVE_URL=https://social.antoinequarroz.ch
 METRICOVE_TOKEN=<API_TOKEN de Metricove>
 ```
 
