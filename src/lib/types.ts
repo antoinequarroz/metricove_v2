@@ -1,4 +1,4 @@
-export type Network = "instagram" | "facebook" | "x" | "linkedin" | "youtube";
+export type Network = "instagram" | "facebook" | "x" | "linkedin" | "youtube" | "tiktok";
 
 export type YouTubeOptions = {
   title: string;

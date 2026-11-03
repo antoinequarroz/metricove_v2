@@ -19,3 +19,10 @@ export function safeEqual(a: string, b: string) {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
+
+/** Checks a signed video URL (see server/media-url.ts), used by platforms that fetch our videos. */
+export async function validMediaSignature(id: string, exp: string | null, sig: string | null) {
+  const secret = process.env.MEDIA_URL_SECRET || process.env.API_TOKEN || process.env.APP_PASSWORD || "";
+  if (!secret || !exp || !sig || Number(exp) * 1000 < Date.now()) return false;
+  return safeEqual(sig, await hmac(secret, `media:${id}:${exp}`));
+}

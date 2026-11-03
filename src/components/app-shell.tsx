@@ -204,7 +204,7 @@ function Sidebar() {
       </div>
 
       <div className="mt-auto flex flex-col gap-1.5 rounded-xl border border-line bg-surface/60 p-2.5">
-        <Integration name={publisher.name === "postiz" ? "Postiz" : "Publication"} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
+        <Integration name={publisher.name === "demo" ? "Publication" : publisher.label} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
         <Integration name="Hermes · treg" detail={integrations.hermes ? "antoine-vps" : "À configurer"} ok={integrations.hermes} />
         <Integration name="Claude Code" detail={integrations.inbox ? "Dossier surveillé" : "Envoi par API"} ok />
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">

@@ -75,7 +75,8 @@ function ComposerForm() {
   const networks = [...new Set(selectedAccounts.map((a) => a.network))] as Network[];
   const tooLong = networks.filter((n) => caption.length > NETWORKS[n].limit);
   const hasYoutube = networks.includes("youtube");
-  const needsMedia = (networks.includes("instagram") || hasYoutube) && !m;
+  const videoOnly = networks.filter((n) => n === "instagram" || n === "tiktok" || n === "youtube").map((n) => NETWORKS[n].label);
+  const needsMedia = videoOnly.length > 0 && !m;
   const shortProblem =
     hasYoutube && yt.format === "short" && m ? (m.aspect !== "9:16" ? "Un Short doit être une vidéo verticale (9:16)." : m.duration > 180 ? "Un Short dure 3 minutes maximum." : "") : "";
 
@@ -86,7 +87,7 @@ function ComposerForm() {
     if (status === "scheduled") {
       if (!caption.trim() && !m) return toast.error("Ajoutez un texte ou une vidéo");
       if (tooLong.length) return toast.error(`Texte trop long pour ${tooLong.map((n) => NETWORKS[n].label).join(", ")}`);
-      if (needsMedia) return toast.error(hasYoutube ? "YouTube exige une vidéo" : "Instagram exige une vidéo ou une image");
+      if (needsMedia) return toast.error(`${videoOnly.join(", ")} : ajoutez une vidéo`);
       if (hasYoutube && yt.title.trim().length < 2) return toast.error("Ajoutez un titre pour YouTube");
       if (shortProblem) return toast.error(shortProblem);
       if (!now && when < new Date()) return toast.error("Choisissez une date dans le futur");
@@ -172,6 +173,23 @@ function ComposerForm() {
                   }
                 >
                   Relancer
+                </Button>
+              </div>
+            )}
+
+            {existing && Object.values(existing.results ?? {}).some((r) => r.externalId?.startsWith("inbox:")) && (
+              <div className="rounded-xl border border-line bg-surface-2/70 px-3.5 py-3 text-[12.5px]">
+                <p className="font-medium">Vidéo envoyée dans l&apos;app TikTok</p>
+                <p className="mt-1 text-ink-2">
+                  Ouvre TikTok, puis Boîte de réception (ou Brouillons). Colle la légende et publie dans les 24 h.
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-2.5"
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(existing.caption).then(() => toast.success("Légende copiée"))}
+                >
+                  Copier la légende
                 </Button>
               </div>
             )}
@@ -359,7 +377,7 @@ function ComposerForm() {
 
             {(needsMedia || tooLong.length > 0) && !locked && (
               <div className="rounded-xl border border-warn/30 bg-warn/10 px-3.5 py-2.5 text-[12.5px] text-ink">
-                {needsMedia && <p>{hasYoutube ? "YouTube" : "Instagram"} ne publie pas de texte seul : ajoutez une vidéo.</p>}
+                {needsMedia && <p>{videoOnly.join(", ")} ne publie{videoOnly.length > 1 ? "nt" : ""} pas de texte seul : ajoutez une vidéo.</p>}
                 {tooLong.length > 0 && <p>Le texte dépasse la limite de {tooLong.map((n) => NETWORKS[n].label).join(", ")}.</p>}
               </div>
             )}

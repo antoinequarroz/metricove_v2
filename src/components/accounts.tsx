@@ -17,14 +17,16 @@ export function AccountsPage() {
   const removeAccount = useStore((s) => s.removeAccount);
   const [syncing, setSyncing] = useState(false);
   const [adding, setAdding] = useState<Network | null>(null);
-  const isPostiz = publisher.name === "postiz";
+  const isPostiz = publisher.name !== "demo"; // a real publishing service: Postiz or treg
+  const service = publisher.label;
+  const serviceUrl = publisher.name === "treg" ? "https://treg.to" : publisher.detail ? `https://${publisher.detail}` : undefined;
 
-  // With Postiz, accounts are connected there. Before that, they can be added by hand to plan posts.
+  // With Postiz or treg, accounts are connected there. Before that, they can be added by hand to plan posts.
   const add = (network: Network = "instagram") =>
     isPostiz && publisher.ready
-      ? toast("Ajoutez le compte dans Postiz", { description: "Puis cliquez sur « Synchroniser » pour le voir ici." })
+      ? toast(`Connectez le compte dans ${service}`, { description: "Puis cliquez sur « Synchroniser » pour le voir ici." })
       : setAdding(network);
-  const reconnect = () => toast("Reconnectez le compte dans Postiz", { description: "Puis cliquez sur « Synchroniser »." });
+  const reconnect = () => toast(`Reconnectez le compte dans ${service}`, { description: "Puis cliquez sur « Synchroniser »." });
 
   const remove = async (a: Account) => {
     try {
@@ -39,7 +41,7 @@ export function AccountsPage() {
     setSyncing(true);
     try {
       const n = await syncAccounts();
-      toast.success("Comptes synchronisés", { description: `${n} compte${n > 1 ? "s" : ""} trouvé${n > 1 ? "s" : ""} dans Postiz.` });
+      toast.success("Comptes synchronisés", { description: `${n} compte${n > 1 ? "s" : ""} trouvé${n > 1 ? "s" : ""} dans ${service}.` });
     } catch (e) {
       toast.error("Synchronisation impossible", { description: (e as Error).message });
     } finally {
@@ -72,18 +74,18 @@ export function AccountsPage() {
           <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 px-4 py-3 text-[13px]">
             <span className={`size-2 shrink-0 rounded-full ${publisher.ready && isPostiz ? "bg-ok" : "bg-warn"}`} />
             <div className="min-w-0 flex-1">
-              <p className="font-medium">{isPostiz ? `Publication via Postiz${publisher.ready ? ` · ${publisher.detail}` : ""}` : "Mode démo : aucune publication réelle"}</p>
+              <p className="font-medium">{isPostiz ? `Publication via ${service}${publisher.ready && publisher.detail ? ` · ${publisher.detail}` : ""}` : "Mode démo : aucune publication réelle"}</p>
               <p className="text-ink-3">
                 {isPostiz
                   ? publisher.ready
-                    ? "Les comptes se connectent dans Postiz, puis se synchronisent ici."
+                    ? `Les comptes se connectent dans ${service}, puis se synchronisent ici.`
                     : publisher.detail
                   : "Ajoutez vos comptes pour préparer le calendrier. Les posts passent en « Publié » à l'heure prévue, sans rien envoyer aux réseaux."}
               </p>
             </div>
-            {isPostiz && publisher.ready && publisher.detail && (
-              <a href={`https://${publisher.detail}`} target="_blank" rel="noreferrer" className="press inline-flex items-center gap-1 text-[12.5px] font-medium text-accent">
-                Ouvrir Postiz <ExternalLink className="size-3.5" />
+            {isPostiz && publisher.ready && serviceUrl && (
+              <a href={serviceUrl} target="_blank" rel="noreferrer" className="press inline-flex items-center gap-1 text-[12.5px] font-medium text-accent">
+                Ouvrir {service} <ExternalLink className="size-3.5" />
               </a>
             )}
           </div>
@@ -123,7 +125,7 @@ export function AccountsPage() {
                         <div className="w-40 text-right">
                           {!a.externalId ? (
                             <span className="inline-flex items-center gap-1">
-                              <span className="text-[12px] text-ink-3">{isPostiz ? "Non relié à Postiz" : "Ajouté à la main"}</span>
+                              <span className="text-[12px] text-ink-3">{isPostiz ? `Non relié à ${service}` : "Ajouté à la main"}</span>
                               <button
                                 onClick={() => remove(a)}
                                 title="Retirer ce compte"
@@ -205,7 +207,7 @@ function AddAccountForm({ network: initial, onDone }: { network: Network; onDone
         </Button>
       </div>
       <p className="mt-2.5 text-[12px] text-ink-3">
-        Ce compte sert à préparer le calendrier. Il publiera pour de vrai une fois Postiz branché et le compte connecté là-bas.
+        Ce compte sert à préparer le calendrier. Il publiera pour de vrai une fois treg branché et le compte connecté là-bas.
       </p>
     </form>
   );

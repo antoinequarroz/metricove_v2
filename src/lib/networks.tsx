@@ -1,4 +1,4 @@
-import { siFacebook, siInstagram, siX, siYoutube } from "simple-icons";
+import { siFacebook, siInstagram, siTiktok, siX, siYoutube } from "simple-icons";
 import clsx from "clsx";
 import type { Network } from "./types";
 
@@ -8,15 +8,17 @@ export const NETWORKS: Record<Network, { label: string; color: string; limit: nu
   x: { label: "X", color: "#111111", limit: 280 },
   linkedin: { label: "LinkedIn", color: "#0A66C2", limit: 3000 },
   youtube: { label: "YouTube", color: "#FF0000", limit: 5000 },
+  tiktok: { label: "TikTok", color: "#000000", limit: 2200 },
 };
 
-export const NETWORK_ORDER: Network[] = ["instagram", "facebook", "x", "linkedin", "youtube"];
+export const NETWORK_ORDER: Network[] = ["instagram", "tiktok", "facebook", "x", "linkedin", "youtube"];
 
 const PATHS: Partial<Record<Network, string>> = {
   instagram: siInstagram.path,
   facebook: siFacebook.path,
   x: siX.path,
   youtube: siYoutube.path,
+  tiktok: siTiktok.path,
 };
 
 export function NetworkGlyph({ network, className }: { network: Network; className?: string }) {
