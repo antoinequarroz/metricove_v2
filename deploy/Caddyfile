@@ -1,0 +1,12 @@
+# Caddy obtient et renouvelle les certificats HTTPS tout seul.
+
+{$METRICOVE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy metricove:3000
+}
+
+{$POSTIZ_DOMAIN} {
+	encode zstd gzip
+	# Postiz publie son interface sur le port 4007 de l'hôte
+	reverse_proxy host.docker.internal:4007
+}

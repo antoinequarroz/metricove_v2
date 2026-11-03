@@ -1,0 +1,43 @@
+# Metricove + Caddy (HTTPS automatique) sur le VPS.
+# Postiz tourne dans son propre docker compose (voir docs/DEPLOIEMENT.md).
+#
+#   cd deploy && docker compose up -d --build
+
+services:
+  metricove:
+    build: ..
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - metricove-data:/data
+      # Dossier où Claude Code dépose les vidéos (étape 3)
+      - ${VIDEO_INBOX:-./inbox}:/inbox
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      METRICOVE_DOMAIN: ${METRICOVE_DOMAIN:-metricove.antoinequarroz.ch}
+      POSTIZ_DOMAIN: ${POSTIZ_DOMAIN:-postiz.antoinequarroz.ch}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    # Pour joindre Postiz, qui publie son port sur l'hôte
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - metricove
+
+volumes:
+  metricove-data:
+  caddy-data:
+  caddy-config:
