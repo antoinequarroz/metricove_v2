@@ -1,6 +1,7 @@
 "use client";
 
-import { Plus, RefreshCw } from "lucide-react";
+import { ExternalLink, Plus, RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
@@ -10,7 +11,27 @@ import { Avatar, Button } from "./ui";
 export function AccountsPage() {
   const accounts = useStore((s) => s.accounts);
   const posts = useStore((s) => s.posts);
-  const soon = () => toast("Bientôt disponible", { description: "La connexion des comptes via treg arrive à l'étape 2." });
+  const publisher = useStore((s) => s.publisher);
+  const syncAccounts = useStore((s) => s.syncAccounts);
+  const [syncing, setSyncing] = useState(false);
+  const isPostiz = publisher.name === "postiz";
+
+  const soon = () =>
+    isPostiz
+      ? toast("Ajoutez le compte dans Postiz", { description: "Puis cliquez sur « Synchroniser » pour le voir ici." })
+      : toast("Mode démo", { description: "Configurez Postiz (PUBLISHER=postiz) pour connecter vos vrais comptes." });
+
+  const sync = async () => {
+    setSyncing(true);
+    try {
+      const n = await syncAccounts();
+      toast.success("Comptes synchronisés", { description: `${n} compte${n > 1 ? "s" : ""} trouvé${n > 1 ? "s" : ""} dans Postiz.` });
+    } catch (e) {
+      toast.error("Synchronisation impossible", { description: (e as Error).message });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <>
@@ -19,13 +40,39 @@ export function AccountsPage() {
           <p className="text-[12px] font-medium text-ink-3">Réseaux sociaux</p>
           <h1 className="font-display text-[34px] leading-[1.05]">Comptes</h1>
         </div>
-        <Button variant="primary" className="ml-auto" onClick={soon}>
-          <Plus className="size-4" />
-          Connecter un compte
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {isPostiz && (
+            <Button onClick={sync} disabled={syncing || !publisher.ready}>
+              <RefreshCw className={syncing ? "size-4 animate-spin" : "size-4"} />
+              Synchroniser
+            </Button>
+          )}
+          <Button variant="primary" onClick={soon}>
+            <Plus className="size-4" />
+            Connecter un compte
+          </Button>
+        </div>
       </header>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
         <div className="mx-auto flex max-w-4xl flex-col gap-6">
+          <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 px-4 py-3 text-[13px]">
+            <span className={`size-2 shrink-0 rounded-full ${publisher.ready && isPostiz ? "bg-ok" : "bg-warn"}`} />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">{isPostiz ? `Publication via Postiz${publisher.ready ? ` · ${publisher.detail}` : ""}` : "Mode démo : aucune publication réelle"}</p>
+              <p className="text-ink-3">
+                {isPostiz
+                  ? publisher.ready
+                    ? "Les comptes se connectent dans Postiz, puis se synchronisent ici."
+                    : publisher.detail
+                  : "Les posts programmés passent en « Publié » à l'heure prévue, sans rien envoyer aux réseaux."}
+              </p>
+            </div>
+            {isPostiz && publisher.ready && publisher.detail && (
+              <a href={`https://${publisher.detail}`} target="_blank" rel="noreferrer" className="press inline-flex items-center gap-1 text-[12.5px] font-medium text-accent">
+                Ouvrir Postiz <ExternalLink className="size-3.5" />
+              </a>
+            )}
+          </div>
           {NETWORK_ORDER.map((n, gi) => {
             const list = accounts.filter((a) => a.network === n);
             return (

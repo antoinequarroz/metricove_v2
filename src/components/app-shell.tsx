@@ -8,6 +8,7 @@ import { Toaster } from "sonner";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Avatar, Kbd } from "./ui";
+import { Logo } from "./logo";
 import { Composer } from "./composer";
 import { CommandMenu } from "./command-menu";
 
@@ -21,9 +22,26 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.resolve(useStore.persist.rehydrate()).finally(() => setReady(true));
+    const load = () =>
+      useStore
+        .getState()
+        .load()
+        .then(() => setError(""))
+        .catch((e: Error) => setError(e.message));
+    Promise.resolve(useStore.persist.rehydrate())
+      .then(load)
+      .finally(() => setReady(true));
+    // Refresh statuses while the tab is visible (published, failed...).
+    const id = setInterval(() => document.visibilityState === "visible" && load(), 20_000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   useEffect(() => {
@@ -48,7 +66,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex min-w-0 flex-1 flex-col p-2 pl-0 max-md:p-0">
         <MobileBar />
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-surface/70 shadow-card backdrop-blur-xl max-md:rounded-none max-md:border-0">
-          {ready ? children : <div className="flex-1" />}
+          {error && !useStore.getState().loaded ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+              <p className="text-[15px] font-medium">Impossible de charger les données</p>
+              <p className="text-[13px] text-ink-3">{error}</p>
+            </div>
+          ) : ready ? (
+            children
+          ) : (
+            <div className="flex-1" />
+          )}
         </div>
       </main>
       {ready && (
@@ -76,6 +103,7 @@ function Sidebar() {
   const posts = useStore((s) => s.posts);
   const openComposer = useStore((s) => s.openComposer);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
+  const publisher = useStore((s) => s.publisher);
   const unused = media.filter((m) => !posts.some((p) => p.mediaId === m.id)).length;
 
   return (
@@ -175,9 +203,9 @@ function Sidebar() {
       </div>
 
       <div className="mt-auto flex flex-col gap-1.5 rounded-xl border border-line bg-surface/60 p-2.5">
-        <Integration name="treg" detail="Publication" ok />
-        <Integration name="Hermes" detail="antoine-vps" ok />
-        <Integration name="Claude Code" detail="Dossier vidéos" />
+        <Integration name={publisher.name === "postiz" ? "Postiz" : "Publication"} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
+        <Integration name="Hermes · treg" detail="À configurer" />
+        <Integration name="Claude Code" detail="À configurer" />
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
           <Kbd>⌘</Kbd>
           <Kbd>K</Kbd>
@@ -211,23 +239,12 @@ function MobileBar() {
   );
 }
 
-function Integration({ name, detail, ok }: { name: string; detail: string; ok?: boolean }) {
+function Integration({ name, detail, ok, warn }: { name: string; detail: string; ok?: boolean; warn?: boolean }) {
   return (
-    <div className="flex items-center gap-2 text-[12px]">
-      <span className={cn("size-1.5 rounded-full", ok ? "bg-ok shadow-[0_0_0_3px_color-mix(in_oklab,var(--ok)_18%,transparent)]" : "bg-warn")} />
-      <span className="font-medium">{name}</span>
-      <span className="ml-auto truncate text-ink-3">{ok ? detail : "À configurer"}</span>
+    <div className="flex items-center gap-2 text-[12px]" title={detail}>
+      <span className={cn("size-1.5 shrink-0 rounded-full", ok && !warn ? "bg-ok shadow-[0_0_0_3px_color-mix(in_oklab,var(--ok)_18%,transparent)]" : "bg-warn")} />
+      <span className="shrink-0 font-medium">{name}</span>
+      <span className="ml-auto truncate text-ink-3">{detail}</span>
     </div>
-  );
-}
-
-export function Logo({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 28 28" className={cn("size-7", className)} aria-hidden>
-      <rect width="28" height="28" rx="8" fill="var(--ink)" />
-      <rect x="6" y="15" width="3.6" height="7" rx="1.2" fill="var(--bg)" opacity=".55" />
-      <rect x="12.2" y="10.5" width="3.6" height="11.5" rx="1.2" fill="var(--bg)" opacity=".8" />
-      <rect x="18.4" y="6" width="3.6" height="16" rx="1.2" fill="var(--accent)" />
-    </svg>
   );
 }

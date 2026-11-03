@@ -1,11 +1,12 @@
 "use client";
 
 import { Bookmark, Heart, MessageCircle, MoreHorizontal, Repeat2, Send, Share, ThumbsUp, BarChart2, Globe2 } from "lucide-react";
-import type { Account, Media } from "@/lib/types";
+import { ThumbsDown } from "lucide-react";
+import type { Account, Media, YouTubeOptions } from "@/lib/types";
 import { cn, fmt } from "@/lib/utils";
 import { Avatar, MediaThumb } from "./ui";
 
-type Props = { account: Account; caption: string; media?: Media; date: Date };
+type Props = { account: Account; caption: string; media?: Media; date: Date; youtube?: YouTubeOptions };
 
 function Caption({ text, className }: { text: string; className?: string }) {
   if (!text.trim()) return <span className="text-ink-3 italic">Votre texte apparaîtra ici…</span>;
@@ -141,8 +142,50 @@ export function FacebookPreview({ account, caption, media, date }: Props) {
   );
 }
 
+export function YouTubePreview({ account, caption, media, youtube }: Props) {
+  const title = youtube?.title.trim() || "Titre de la vidéo";
+  if (youtube?.format === "short") {
+    return (
+      <div className="relative mx-auto aspect-[9/16] w-[260px] overflow-hidden rounded-[22px] bg-black text-white shadow-card ring-1 ring-line">
+        {media ? <MediaThumb media={media} showMeta={false} className="absolute inset-0 rounded-none" /> : <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/60">Ajoutez une vidéo verticale</div>}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3.5 pt-16">
+          <div className="flex items-center gap-2 text-[12.5px] font-semibold">
+            <Avatar account={account} size={24} badge={false} />@{account.handle}
+            <span className="ml-1 rounded-full bg-white px-2 py-0.5 text-[11px] text-black">S&apos;abonner</span>
+          </div>
+          <p className="mt-2 line-clamp-2 text-[12.5px] leading-snug">{title}</p>
+        </div>
+        <div className="absolute right-2.5 bottom-24 flex flex-col items-center gap-4 text-[10.5px]">
+          <span className="flex flex-col items-center gap-1"><ThumbsUp className="size-5" />J&apos;aime</span>
+          <span className="flex flex-col items-center gap-1"><ThumbsDown className="size-5" />Je n&apos;aime pas</span>
+          <span className="flex flex-col items-center gap-1"><MessageCircle className="size-5" />0</span>
+          <span className="flex flex-col items-center gap-1"><Share className="size-5" />Partager</span>
+        </div>
+        <span className="absolute top-3 left-3 rounded-md bg-black/40 px-1.5 py-0.5 text-[11px] font-semibold backdrop-blur">Shorts</span>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-xl border border-line bg-surface text-[13.5px] shadow-card">
+      {media ? <MediaThumb media={media} className="aspect-video w-full rounded-none" /> : <div className="flex aspect-video items-center justify-center bg-surface-2 text-[12px] text-ink-3">YouTube exige une vidéo</div>}
+      <div className="flex gap-3 p-3">
+        <Avatar account={account} size={36} badge={false} />
+        <div className="min-w-0">
+          <p className="line-clamp-2 font-semibold leading-snug">{title}</p>
+          <p className="mt-0.5 text-[12px] text-ink-3">{account.name} · 0 vue · à l&apos;instant</p>
+        </div>
+      </div>
+      <p className="mx-3 mb-3 line-clamp-3 rounded-lg bg-surface-2 p-2.5 text-[12.5px] leading-snug">
+        <Caption text={caption} />
+      </p>
+    </div>
+  );
+}
+
 export function PostPreview(props: Props) {
   switch (props.account.network) {
+    case "youtube":
+      return <YouTubePreview {...props} />;
     case "instagram":
       return <InstagramPreview {...props} />;
     case "x":

@@ -175,8 +175,11 @@ function useDnd() {
       toast.error("Ce post est déjà publié", { description: "Il ne peut plus être déplacé." });
       return;
     }
-    movePost(post.id, day);
-    toast.success("Post déplacé", { description: `Programmé le ${fmt(day, "EEEE d MMMM")} à ${fmt(post.scheduledAt, "HH:mm")}.` });
+    if (post.status === "publishing") return;
+    movePost(post.id, day).then(
+      (p) => toast.success("Post déplacé", { description: `Programmé le ${fmt(p.scheduledAt, "EEEE d MMMM 'à' HH:mm")}.` }),
+      (err: Error) => toast.error("Déplacement impossible", { description: err.message }),
+    );
   };
   return { sensors, onDragEnd };
 }
