@@ -32,11 +32,6 @@ export function Composer() {
   );
 }
 
-const SUGGESTIONS = [
-  "Nouvelle vidéo en ligne 🎬 Je vous montre comment j'automatise toute ma création de contenu, du montage à la publication.\n\nVous utilisez quoi de votre côté ? 👇\n\n#automatisation #creatorlife #ia",
-  "3 minutes pour comprendre comment je planifie un mois de contenu en une seule matinée. Sauvegardez pour plus tard 📌\n\n#contentstrategy #productivite",
-];
-
 function ComposerForm() {
   const { postId, date, mediaId: presetMedia } = useStore((s) => s.composer);
   const posts = useStore((s) => s.posts);
@@ -66,7 +61,12 @@ function ComposerForm() {
   const [day, setDay] = useState(fmt(initialDate, "yyyy-MM-dd"));
   const [time, setTime] = useState(fmt(initialDate, "HH:mm"));
   const [previewId, setPreviewId] = useState<string | undefined>(undefined);
-  const [yt, setYt] = useState<YouTubeOptions>(existing?.youtube ?? { title: "", format: "video", privacy: "public" });
+  const [yt, setYt] = useState<YouTubeOptions>(() => {
+    if (existing?.youtube) return existing.youtube;
+    // A vertical video of 3 minutes or less becomes a Short by default.
+    const preset = media.find((x) => x.id === (existing?.mediaId ?? presetMedia));
+    return { title: "", format: preset && preset.aspect === "9:16" && preset.duration <= 180 ? "short" : "video", privacy: "public" };
+  });
 
   const selectedAccounts = accounts.filter((a) => selected.includes(a.id));
   const previewAccount = selectedAccounts.find((a) => a.id === previewId) ?? selectedAccounts[0];
@@ -116,10 +116,28 @@ function ComposerForm() {
     }
   };
 
-  const suggest = () => {
-    const next = SUGGESTIONS[(SUGGESTIONS.indexOf(caption) + 1) % SUGGESTIONS.length];
-    setCaption(next);
-    toast("Légende proposée par Hermes", { description: "Démo : la vraie connexion à ton agent arrive à l'étape 3.", icon: <Bot className="size-4" /> });
+  const hermesOn = useStore((s) => s.integrations.hermes);
+  const [thinking, setThinking] = useState(false);
+  const suggest = async () => {
+    if (!hermesOn) return toast("Hermes n'est pas encore branché", { description: "Ajoutez HERMES_URL et HERMES_API_KEY (voir docs/HERMES.md).", icon: <Bot className="size-4" /> });
+    if (!networks.length) return toast.error("Choisissez d'abord les comptes");
+    setThinking(true);
+    try {
+      const res = await fetch("/api/hermes/caption", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ networks, draft: caption, mediaId: m?.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      setCaption(data.caption);
+      if (data.youtubeTitle && hasYoutube && !yt.title.trim()) setYt((y) => ({ ...y, title: data.youtubeTitle }));
+      toast("Légende proposée par Hermes", { icon: <Bot className="size-4" /> });
+    } catch (e) {
+      toast.error("Hermes n'a pas pu répondre", { description: (e as Error).message });
+    } finally {
+      setThinking(false);
+    }
   };
 
   return (
@@ -190,10 +208,11 @@ function ComposerForm() {
                 <button
                   type="button"
                   onClick={suggest}
-                  className="press ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft"
+                  disabled={thinking}
+                  className="press ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft disabled:opacity-70"
                 >
-                  <Bot className="size-3.5" />
-                  Proposer avec Hermes
+                  <Bot className={cn("size-3.5", thinking && "animate-pulse")} />
+                  {thinking ? "Hermes réfléchit…" : "Proposer avec Hermes"}
                 </button>
               </div>
               <div className="rounded-xl border border-line-strong bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_var(--accent-soft)]">

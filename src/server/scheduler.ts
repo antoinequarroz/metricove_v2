@@ -1,6 +1,7 @@
 import "server-only";
 import path from "node:path";
 import { claimDuePosts, DATA_DIR, getMediaRow, listAccounts, releaseStuckPosts, savePost } from "./db";
+import { scanInbox } from "./media";
 import { getPublisher } from "./publishers";
 import type { MediaFile } from "./publishers/types";
 import type { Post } from "@/lib/types";
@@ -17,6 +18,7 @@ export async function tick() {
   g.__metricoveBusy = true;
   try {
     releaseStuckPosts();
+    scanInbox();
     do {
       g.__metricoveAgain = false;
       for (const post of claimDuePosts()) await publishOne(post);
@@ -55,7 +57,7 @@ function mimeOf(file?: string | null) {
   return ext === "mov" ? "video/quicktime" : ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "video/mp4";
 }
 
-export function startScheduler(intervalMs = 30_000) {
+export function startScheduler(intervalMs = 15_000) {
   if (g.__metricoveTimer) return;
   g.__metricoveTimer = setInterval(tick, intervalMs);
   setTimeout(tick, 2_000);

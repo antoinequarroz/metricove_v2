@@ -44,12 +44,15 @@ Pour YouTube, choisir « Vidéo » ou « Short » dans l'éditeur. Un Short est 
 | DELETE | `/api/posts/:id` | Supprimer |
 | POST | `/api/posts/:id/retry` | Relancer un post en échec |
 | POST | `/api/accounts/sync` | Importer les comptes de Postiz |
+| POST | `/api/media` | Envoyer une vidéo (multipart `file`, plus `post` en JSON en option) |
+| DELETE | `/api/media/:id` | Supprimer une vidéo inutilisée |
+| POST | `/api/hermes/caption` | Demander une légende à Hermes |
 
 ## Où en est le projet
 
 1. ✅ **Base et design** : calendrier mois / semaine / liste, glisser-déposer, éditeur avec aperçu par réseau, bibliothèque vidéo, recherche ⌘K.
 2. ✅ **Publication** : base SQLite, mot de passe, planificateur, publication via Postiz (Instagram, Facebook, X, LinkedIn, YouTube et Shorts).
-3. **Vidéos et Hermes** : import automatique des vidéos générées par Claude Code, légendes proposées par Hermes (avec treg).
+3. ✅ **Vidéos et Hermes** : import des vidéos de Claude Code (API ou dossier surveillé), légendes proposées par Hermes (avec treg), skill Hermes pour remplir le calendrier. Voir [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md) et [docs/HERMES.md](docs/HERMES.md).
 4. ✅ **Mise en ligne** : Docker + Caddy (HTTPS) + Postiz sur le VPS. Voir [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md).
 
 ## Stack

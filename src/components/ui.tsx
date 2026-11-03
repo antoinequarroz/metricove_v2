@@ -105,7 +105,12 @@ export function MediaThumb({ media, className, showMeta = true }: { media: Media
         background: `radial-gradient(120% 90% at 20% 10%, oklch(0.78 0.15 ${h1}), transparent 60%), radial-gradient(120% 100% at 90% 100%, oklch(0.45 0.17 ${h2}), transparent 65%), oklch(0.3 0.06 ${h2})`,
       }}
     >
-      <div className="absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,.15) 0 1px, transparent 1px 3px)" }} />
+      {media.url ? (
+        // First frame of the real video, loaded lazily.
+        <video src={`${media.url}#t=0.5`} muted playsInline preload="metadata" className="absolute inset-0 size-full object-cover" />
+      ) : (
+        <div className="absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,.15) 0 1px, transparent 1px 3px)" }} />
+      )}
       {showMeta && (
         <>
           <span className="absolute top-1/2 left-1/2 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 text-white ring-1 ring-white/30 backdrop-blur-md">

@@ -104,6 +104,7 @@ function Sidebar() {
   const openComposer = useStore((s) => s.openComposer);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const publisher = useStore((s) => s.publisher);
+  const integrations = useStore((s) => s.integrations);
   const unused = media.filter((m) => !posts.some((p) => p.mediaId === m.id)).length;
 
   return (
@@ -204,8 +205,8 @@ function Sidebar() {
 
       <div className="mt-auto flex flex-col gap-1.5 rounded-xl border border-line bg-surface/60 p-2.5">
         <Integration name={publisher.name === "postiz" ? "Postiz" : "Publication"} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
-        <Integration name="Hermes · treg" detail="À configurer" />
-        <Integration name="Claude Code" detail="À configurer" />
+        <Integration name="Hermes · treg" detail={integrations.hermes ? "antoine-vps" : "À configurer"} ok={integrations.hermes} />
+        <Integration name="Claude Code" detail={integrations.inbox ? "Dossier surveillé" : "Envoi par API"} ok />
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
           <Kbd>⌘</Kbd>
           <Kbd>K</Kbd>
