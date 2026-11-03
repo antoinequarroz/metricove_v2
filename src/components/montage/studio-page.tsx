@@ -171,6 +171,8 @@ export function StudioPage() {
   }, []);
 
   // ---- Script by Claude ----
+  // Texts Claude wrote earlier, even if the page was closed while it worked.
+  const recentScripts = (data?.jobs ?? []).filter((j) => j.kind === "script" && j.status === "done" && j.script).slice(0, 6);
   const pending = data?.jobs.find((j) => j.id === scriptJob);
   useEffect(() => {
     if (pending?.status === "done" && pending.script) {
@@ -372,6 +374,24 @@ export function StudioPage() {
                   Claude
                 </Button>
               </div>
+              {recentScripts.length > 0 && !scriptJob && (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  {recentScripts.map((j) => (
+                    <button
+                      key={j.id}
+                      onClick={() => {
+                        setScript(j.script ?? "");
+                        setOffset(0);
+                      }}
+                      title={j.script}
+                      className="press max-w-full truncate rounded-full border border-line-strong bg-surface px-2.5 py-0.5 text-[11.5px] text-ink-2 hover:text-ink"
+                    >
+                      <Sparkles className="mr-1 inline size-3 text-accent" />
+                      {j.title}
+                    </button>
+                  ))}
+                </div>
+              )}
               {scriptJob && <p className="mb-2 text-[12px] text-ink-3">{data?.worker.online ? "Claude écrit ton texte sur ton Mac…" : "En attente de ton Mac pour écrire le texte…"}</p>}
               <textarea
                 value={script}
