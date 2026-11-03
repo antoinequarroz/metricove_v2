@@ -1,0 +1,29 @@
+# Builds the Docker image on GitHub, so the VPS only has to load the finished image.
+name: Image Docker
+
+on:
+  push:
+    branches: [main, feat/build-github]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Construire l'image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: metricove-v2:latest
+          outputs: type=docker,dest=/tmp/metricove-v2.tar
+      - name: Compresser
+        run: gzip -9 /tmp/metricove-v2.tar && ls -lh /tmp/metricove-v2.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metricove-image
+          path: /tmp/metricove-v2.tar.gz
+          compression-level: 0
+          retention-days: 7
