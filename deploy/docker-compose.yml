@@ -10,12 +10,17 @@ services:
     env_file: ../.env
     environment:
       DATA_DIR: /data
+      INBOX_DIR: /inbox
+      TZ: Europe/Zurich
     volumes:
       - metricove-data:/data
       # Dossier où Claude Code dépose les vidéos (étape 3)
       - ${VIDEO_INBOX:-./inbox}:/inbox
     expose:
       - "3000"
+    # Pour joindre Hermes, qui tourne directement sur le VPS
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   caddy:
     image: caddy:2.10

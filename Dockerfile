@@ -20,6 +20,8 @@ RUN pnpm build
 
 FROM node:22-bookworm-slim AS run
 WORKDIR /app
+# Time zone data, so "tomorrow 18:00" means Zurich time
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 DATA_DIR=/data
 RUN groupadd -g 1001 app && useradd -u 1001 -g app -m app && mkdir -p /data && chown app:app /data
 COPY --from=build --chown=app:app /app/.next/standalone ./

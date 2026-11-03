@@ -69,4 +69,5 @@ export type AppState = {
   media: Media[];
   posts: Post[];
   publisher: { name: string; label: string; ready: boolean; detail?: string };
+  integrations: { hermes: boolean; inbox: boolean };
 };

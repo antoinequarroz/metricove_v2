@@ -14,6 +14,7 @@ type State = {
   media: Media[];
   posts: Post[];
   publisher: AppState["publisher"];
+  integrations: AppState["integrations"];
   view: CalendarView;
   cursor: string;
   hiddenAccounts: string[];
@@ -34,6 +35,8 @@ type State = {
   movePost: (id: string, dayISO: string) => Promise<Post>;
   retryPost: (id: string) => Promise<void>;
   syncAccounts: () => Promise<number>;
+  uploadMedia: (file: File, onProgress?: (pct: number) => void) => Promise<Media>;
+  deleteMedia: (id: string) => Promise<void>;
 };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -55,6 +58,7 @@ export const useStore = create<State>()(
       media: [],
       posts: [],
       publisher: { name: "demo", label: "Mode démo", ready: true },
+      integrations: { hermes: false, inbox: false },
       view: "month",
       cursor: new Date().toISOString(),
       hiddenAccounts: [],
@@ -114,6 +118,32 @@ export const useStore = create<State>()(
         await api(`/api/posts/${id}/retry`, { method: "POST" });
         set((s) => ({ posts: s.posts.map((p) => (p.id === id ? { ...p, status: "publishing" } : p)) }));
         setTimeout(() => get().load(), 2500);
+      },
+      uploadMedia: (file, onProgress) =>
+        // XHR rather than fetch, to report upload progress.
+        new Promise<Media>((resolve, reject) => {
+          const form = new FormData();
+          form.append("file", file);
+          form.append("source", "upload");
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/api/media");
+          xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100));
+          xhr.onerror = () => reject(new Error("Connexion perdue pendant l'envoi"));
+          xhr.onload = () => {
+            let data: { media?: Media; error?: string } = {};
+            try {
+              data = JSON.parse(xhr.responseText);
+            } catch {}
+            if (xhr.status === 401) window.location.href = "/login";
+            if (xhr.status >= 400 || !data.media) return reject(new Error(data.error ?? `Erreur ${xhr.status}`));
+            set((s) => ({ media: [data.media!, ...s.media] }));
+            resolve(data.media);
+          };
+          xhr.send(form);
+        }),
+      deleteMedia: async (id) => {
+        await api(`/api/media/${id}`, { method: "DELETE" });
+        set((s) => ({ media: s.media.filter((m) => m.id !== id) }));
       },
       syncAccounts: async () => {
         const { count } = await api<{ count: number }>("/api/accounts/sync", { method: "POST" });
