@@ -9,7 +9,10 @@ import { renderEdl, timeline } from "./render.mjs";
 
 export async function handle(api, cfg, { job, action, rushes = [] }) {
   const dir = ensureDir(join(cfg.workDir, "taches", job.id));
-  const step = (s, p) => { log(`[${job.id.slice(0, 8)}] ${s}`); return api.step(job.id, s, p); };
+  // Metricove redonne une tâche sans nouvelles depuis 15 min : on renvoie la dernière étape chaque minute.
+  let last = { s: "Démarrage…", p: 0 };
+  const step = (s, p) => { last = { s, p }; log(`[${job.id.slice(0, 8)}] ${s}`); return api.step(job.id, s, p); };
+  const beat = setInterval(() => api.step(job.id, last.s, last.p), 60_000);
   try {
     if (action === "script") {
       await step("Écriture du texte du prompteur…", 0.3);
@@ -71,6 +74,8 @@ export async function handle(api, cfg, { job, action, rushes = [] }) {
   } catch (e) {
     log(`[${job.id.slice(0, 8)}] échec :`, e.message);
     await api.fail(job.id, e.message).catch(() => {});
+  } finally {
+    clearInterval(beat);
   }
 }
 
