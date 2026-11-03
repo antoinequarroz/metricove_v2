@@ -47,7 +47,12 @@ export function Avatar({ account, size = 28, badge = true, dim = false }: { acco
           fontSize: size * 0.36,
         }}
       >
-        {initials}
+        {account.avatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={account.avatarUrl} alt="" className="size-full rounded-full object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          initials
+        )}
       </span>
       {badge && (
         <span className="absolute -right-1.5 -bottom-1" style={{ width: Math.max(12, Math.round(size * 0.48)), height: Math.max(12, Math.round(size * 0.48)) }}>
@@ -118,6 +123,7 @@ export function MediaThumb({ media, className, showMeta = true }: { media: Media
 export const STATUS_META: Record<PostStatus, { label: string; dot: string; text: string }> = {
   draft: { label: "Brouillon", dot: "bg-ink-3", text: "text-ink-2" },
   scheduled: { label: "Programmé", dot: "bg-accent", text: "text-accent" },
+  publishing: { label: "Publication…", dot: "bg-accent animate-pulse", text: "text-accent" },
   published: { label: "Publié", dot: "bg-ok", text: "text-ok" },
   failed: { label: "Échec", dot: "bg-danger", text: "text-danger" },
 };

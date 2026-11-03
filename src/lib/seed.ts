@@ -10,6 +10,7 @@ export const seedAccounts: Account[] = [
   { id: "fb-page", network: "facebook", name: "Metricove", handle: "metricove", hue: 220, followers: 5420, connected: true },
   { id: "x-main", network: "x", name: "Antoine", handle: "antoinequarroz", hue: 200, followers: 2210, connected: true },
   { id: "li-main", network: "linkedin", name: "Antoine Quarroz", handle: "antoine-quarroz", hue: 210, followers: 4870, connected: true },
+  { id: "yt-main", network: "youtube", name: "Antoine Quarroz", handle: "antoinequarroz", hue: 5, followers: 1830, connected: true },
   { id: "li-company", network: "linkedin", name: "Metricove SA", handle: "metricove", hue: 160, followers: 960, connected: false },
 ];
 
@@ -46,7 +47,7 @@ export function seedPosts(now = new Date()): Post[] {
     p("p1", ["ig-main", "fb-page"], "Nouvelle vidéo : comment j'automatise mes contenus avec Claude Code 🎬", -9, 9, 0, "published", "claude-code", "m7"),
     p("p2", ["li-main"], "Ce que j'ai appris en lançant un outil interne en 2 semaines. Thread 👇", -7, 8, 30, "published", "manual"),
     p("p3", ["x-main"], "Hot take : un calendrier éditorial vaut mieux que 10 idées géniales.", -6, 12, 15, "published", "hermes"),
-    p("p4", ["ig-studio"], "Coulisses du studio, saison 2.", -4, 18, 0, "failed", "manual", "m6"),
+    { ...p("p4", ["ig-studio"], "Coulisses du studio, saison 2.", -4, 18, 0, "failed", "manual", "m6"), error: "metricove.studio : le jeton d'accès Instagram a expiré, reconnectez le compte." },
     p("p5", ["ig-main", "x-main", "li-main"], "Metricove v2 arrive. Toutes vos publications, un seul calendrier.", -2, 10, 0, "published", "claude-code", "m4"),
     p("p6", ["fb-page"], "Merci pour les 5000 abonnés ! 🧡", -1, 17, 30, "published", "manual"),
     p("p7", ["ig-main"], "Teaser : l'agent Hermes prend le relais pour les légendes.", 0, 18, 0, "scheduled", "claude-code", "m1"),
@@ -59,6 +60,8 @@ export function seedPosts(now = new Date()): Post[] {
     p("p14", ["fb-page"], "Sondage : quel format préférez-vous ?", 8, 12, 0, "draft", "manual"),
     p("p15", ["ig-main"], "Timelapse du montage de la semaine.", 10, 18, 30, "scheduled", "claude-code", "m7"),
     p("p16", ["li-main", "x-main"], "On recrute un·e content designer.", 12, 9, 0, "draft", "manual"),
+    { ...p("p18", ["yt-main", "ig-main"], "Comment j'automatise mes vidéos avec Claude Code, du script à la publication.", 4, 17, 0, "scheduled", "claude-code", "m4"), youtube: { title: "J'automatise toute ma création de contenu avec Claude Code", format: "video", privacy: "public" } },
+    { ...p("p19", ["yt-main"], "Le setup VPS en 30 secondes.", 7, 12, 0, "scheduled", "claude-code", "m2"), youtube: { title: "Mon setup VPS en 30 secondes", format: "short", privacy: "public" } },
     p("p17", ["ig-studio"], "Moodboard du mois.", 15, 20, 0, "scheduled", "manual"),
   ];
 }

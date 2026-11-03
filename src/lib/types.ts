@@ -1,6 +1,13 @@
-export type Network = "instagram" | "facebook" | "x" | "linkedin";
+export type Network = "instagram" | "facebook" | "x" | "linkedin" | "youtube";
 
-export type PostStatus = "draft" | "scheduled" | "published" | "failed";
+export type YouTubeOptions = {
+  title: string;
+  /** A Short is a vertical video of 3 minutes or less. */
+  format: "video" | "short";
+  privacy: "public" | "unlisted" | "private";
+};
+
+export type PostStatus = "draft" | "scheduled" | "publishing" | "published" | "failed";
 
 export type Account = {
   id: string;
@@ -11,6 +18,11 @@ export type Account = {
   hue: number;
   followers: number;
   connected: boolean;
+  avatarUrl?: string;
+  /** Id of the account on the publishing service (Postiz integration id, etc.). */
+  externalId?: string;
+  /** Provider type on the publishing service, e.g. "instagram-standalone" or "linkedin-page". */
+  providerKind?: string;
 };
 
 export type MediaSource = "claude-code" | "upload" | "hermes";
@@ -23,8 +35,18 @@ export type Media = {
   aspect: "9:16" | "1:1" | "16:9";
   source: MediaSource;
   createdAt: string;
-  /** Two hues for the generated thumbnail until real files exist. */
+  /** Two hues for the generated thumbnail when there is no poster image. */
   hues: [number, number];
+  /** Public URL of the file, served by the app. */
+  url?: string;
+};
+
+/** Result of publishing a post on one account. */
+export type TargetResult = {
+  status: "published" | "failed";
+  error?: string;
+  externalId?: string;
+  at: string;
 };
 
 export type Post = {
@@ -36,4 +58,15 @@ export type Post = {
   status: PostStatus;
   /** Who created the post. */
   origin: "manual" | "claude-code" | "hermes";
+  /** Only used when a YouTube channel is selected. */
+  youtube?: YouTubeOptions;
+  results?: Record<string, TargetResult>;
+  error?: string;
+};
+
+export type AppState = {
+  accounts: Account[];
+  media: Media[];
+  posts: Post[];
+  publisher: { name: string; label: string; ready: boolean; detail?: string };
 };

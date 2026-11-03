@@ -8,9 +8,10 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
-import type { Network, Post } from "@/lib/types";
+import type { Network, Post, YouTubeOptions } from "@/lib/types";
 import { cn, duration, fmt, uid } from "@/lib/utils";
 import { PostPreview } from "./previews";
+import { Segmented } from "./calendar";
 import { Avatar, Button, MediaThumb, SourceTag, StatusPill } from "./ui";
 
 export function Composer() {
@@ -45,7 +46,9 @@ function ComposerForm() {
   const deletePost = useStore((s) => s.deletePost);
   const close = useStore((s) => s.closeComposer);
   const existing = posts.find((p) => p.id === postId);
-  const locked = existing?.status === "published";
+  const retryPost = useStore((s) => s.retryPost);
+  const locked = existing?.status === "published" || existing?.status === "publishing";
+  const [busy, setBusy] = useState(false);
 
   const initialDate = useMemo(() => {
     if (existing) return new Date(existing.scheduledAt);
@@ -57,12 +60,13 @@ function ComposerForm() {
     return setHours(startOfDay(addDays(new Date(), 1)), 18);
   }, [existing, date]);
 
-  const [selected, setSelected] = useState<string[]>(existing?.accountIds ?? ["ig-main"]);
+  const [selected, setSelected] = useState<string[]>(existing?.accountIds ?? accounts.filter((a) => a.connected).slice(0, 1).map((a) => a.id));
   const [caption, setCaption] = useState(existing?.caption ?? "");
   const [mediaId, setMediaId] = useState<string | undefined>(existing?.mediaId ?? presetMedia);
   const [day, setDay] = useState(fmt(initialDate, "yyyy-MM-dd"));
   const [time, setTime] = useState(fmt(initialDate, "HH:mm"));
   const [previewId, setPreviewId] = useState<string | undefined>(undefined);
+  const [yt, setYt] = useState<YouTubeOptions>(existing?.youtube ?? { title: "", format: "video", privacy: "public" });
 
   const selectedAccounts = accounts.filter((a) => selected.includes(a.id));
   const previewAccount = selectedAccounts.find((a) => a.id === previewId) ?? selectedAccounts[0];
@@ -70,34 +74,46 @@ function ComposerForm() {
   const when = new Date(`${day}T${time}`);
   const networks = [...new Set(selectedAccounts.map((a) => a.network))] as Network[];
   const tooLong = networks.filter((n) => caption.length > NETWORKS[n].limit);
-  const needsMedia = networks.includes("instagram") && !m;
+  const hasYoutube = networks.includes("youtube");
+  const needsMedia = (networks.includes("instagram") || hasYoutube) && !m;
+  const shortProblem =
+    hasYoutube && yt.format === "short" && m ? (m.aspect !== "9:16" ? "Un Short doit être une vidéo verticale (9:16)." : m.duration > 180 ? "Un Short dure 3 minutes maximum." : "") : "";
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
-  const submit = (status: Post["status"]) => {
+  const submit = async (status: Post["status"], now = false) => {
     if (selected.length === 0) return toast.error("Choisissez au moins un compte");
     if (status === "scheduled") {
       if (!caption.trim() && !m) return toast.error("Ajoutez un texte ou une vidéo");
       if (tooLong.length) return toast.error(`Texte trop long pour ${tooLong.map((n) => NETWORKS[n].label).join(", ")}`);
-      if (needsMedia) return toast.error("Instagram exige une vidéo ou une image");
-      if (when < new Date()) return toast.error("Choisissez une date dans le futur");
+      if (needsMedia) return toast.error(hasYoutube ? "YouTube exige une vidéo" : "Instagram exige une vidéo ou une image");
+      if (hasYoutube && yt.title.trim().length < 2) return toast.error("Ajoutez un titre pour YouTube");
+      if (shortProblem) return toast.error(shortProblem);
+      if (!now && when < new Date()) return toast.error("Choisissez une date dans le futur");
     }
-    savePost({
-      id: existing?.id ?? uid(),
-      accountIds: selected,
-      caption,
-      mediaId: m?.id,
-      scheduledAt: when.toISOString(),
-      status,
-      origin: existing?.origin ?? (m?.source === "claude-code" ? "claude-code" : "manual"),
-    });
-    close();
-    toast.success(status === "draft" ? "Brouillon enregistré" : "Post programmé", {
-      description:
-        status === "draft"
-          ? undefined
-          : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${selectedAccounts.length} compte${selectedAccounts.length > 1 ? "s" : ""}.`,
-    });
+    if (isNaN(when.getTime())) return toast.error("Date invalide");
+    setBusy(true);
+    try {
+      await savePost({
+        id: existing?.id ?? uid(),
+        accountIds: selected,
+        caption,
+        mediaId: m?.id,
+        scheduledAt: (now ? new Date() : when).toISOString(),
+        status,
+        origin: existing?.origin ?? (m?.source === "claude-code" ? "claude-code" : "manual"),
+        youtube: hasYoutube ? { ...yt, title: yt.title.trim() } : undefined,
+      });
+      close();
+      const n = selectedAccounts.length;
+      toast.success(status === "draft" ? "Brouillon enregistré" : now ? "Publication lancée" : "Post programmé", {
+        description: status === "draft" ? undefined : now ? `Sur ${n} compte${n > 1 ? "s" : ""}.` : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${n} compte${n > 1 ? "s" : ""}.`,
+      });
+    } catch (e) {
+      toast.error("Enregistrement impossible", { description: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const suggest = () => {
@@ -119,6 +135,29 @@ function ComposerForm() {
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_420px] max-lg:grid-cols-1">
         {/* Editor */}
         <div className="scroll-thin flex min-h-0 flex-col gap-5 overflow-y-auto p-5">
+            {existing?.status === "failed" && existing.error && (
+              <div className="rounded-xl border border-danger/25 bg-danger/[0.07] px-3.5 py-3 text-[12.5px]">
+                <p className="font-medium text-danger">La publication a échoué</p>
+                <p className="mt-1 whitespace-pre-wrap text-ink-2">{existing.error}</p>
+                <Button
+                  size="sm"
+                  className="mt-2.5"
+                  type="button"
+                  onClick={() =>
+                    retryPost(existing.id).then(
+                      () => {
+                        close();
+                        toast("Nouvelle tentative lancée");
+                      },
+                      (e: Error) => toast.error(e.message),
+                    )
+                  }
+                >
+                  Relancer
+                </Button>
+              </div>
+            )}
+
           <fieldset disabled={locked} className="contents">
             <section>
               <Label>Publier sur</Label>
@@ -216,6 +255,52 @@ function ComposerForm() {
               )}
             </section>
 
+            {hasYoutube && (
+              <section className="rise rounded-xl border border-line bg-surface-2/50 p-3.5">
+                <div className="mb-3 flex items-center gap-2">
+                  <NetworkBadge network="youtube" />
+                  <span className="text-[13px] font-medium">YouTube</span>
+                  <div className="ml-auto">
+                    <Segmented<YouTubeOptions["format"]>
+                      value={yt.format}
+                      onChange={(format) => setYt((y) => ({ ...y, format }))}
+                      options={[
+                        { value: "video", label: "Vidéo" },
+                        { value: "short", label: "Short" },
+                      ]}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 max-sm:flex-col">
+                  <div className="relative flex-1">
+                    <input
+                      value={yt.title}
+                      maxLength={100}
+                      onChange={(e) => setYt((y) => ({ ...y, title: e.target.value }))}
+                      placeholder="Titre de la vidéo"
+                      className="h-9 w-full rounded-lg border border-line-strong bg-surface pr-12 pl-3 text-[13.5px] outline-none focus:border-accent/60"
+                    />
+                    <span className="tabular pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 font-mono text-[11px] text-ink-3">{100 - yt.title.length}</span>
+                  </div>
+                  <select
+                    value={yt.privacy}
+                    onChange={(e) => setYt((y) => ({ ...y, privacy: e.target.value as YouTubeOptions["privacy"] }))}
+                    className="h-9 rounded-lg border border-line-strong bg-surface px-2.5 text-[13px] outline-none focus:border-accent/60"
+                  >
+                    <option value="public">Publique</option>
+                    <option value="unlisted">Non répertoriée</option>
+                    <option value="private">Privée</option>
+                  </select>
+                </div>
+                <p className={cn("mt-2 text-[12px]", shortProblem ? "text-danger" : "text-ink-3")}>
+                  {shortProblem ||
+                    (yt.format === "short"
+                      ? "Vidéo verticale de 3 minutes maximum. Le tag #Shorts est ajouté automatiquement. Le texte sert de description."
+                      : "Le texte ci-dessus sert de description.")}
+                </p>
+              </section>
+            )}
+
             <section>
               <Label>Date de publication</Label>
               <div className="flex flex-wrap items-center gap-2">
@@ -255,7 +340,7 @@ function ComposerForm() {
 
             {(needsMedia || tooLong.length > 0) && !locked && (
               <div className="rounded-xl border border-warn/30 bg-warn/10 px-3.5 py-2.5 text-[12.5px] text-ink">
-                {needsMedia && <p>Instagram ne publie pas de texte seul : ajoutez une vidéo.</p>}
+                {needsMedia && <p>{hasYoutube ? "YouTube" : "Instagram"} ne publie pas de texte seul : ajoutez une vidéo.</p>}
                 {tooLong.length > 0 && <p>Le texte dépasse la limite de {tooLong.map((n) => NETWORKS[n].label).join(", ")}.</p>}
               </div>
             )}
@@ -282,7 +367,7 @@ function ComposerForm() {
           <div className="p-5">
             {previewAccount ? (
               <div key={previewAccount.id} className="rise mx-auto max-w-[360px]">
-                <PostPreview account={previewAccount} caption={caption} media={m} date={isNaN(when.getTime()) ? new Date() : when} />
+                <PostPreview account={previewAccount} caption={caption} media={m} date={isNaN(when.getTime()) ? new Date() : when} youtube={yt} />
                 <p className="mt-3 text-center text-[11.5px] text-ink-3">
                   Aperçu {NETWORKS[previewAccount.network].label} · @{previewAccount.handle}
                 </p>
@@ -300,9 +385,11 @@ function ComposerForm() {
             variant="ghost"
             className="text-danger hover:bg-danger/10 hover:text-danger"
             onClick={() => {
-              deletePost(existing.id);
               close();
-              toast("Post supprimé");
+              deletePost(existing.id).then(
+                () => toast("Post supprimé"),
+                (e: Error) => toast.error("Suppression impossible", { description: e.message }),
+              );
             }}
           >
             <Trash2 className="size-4" />
@@ -311,11 +398,18 @@ function ComposerForm() {
         )}
         <span className="ml-auto" />
         {locked ? (
-          <span className="text-[12.5px] text-ink-3">Ce post est publié. Il ne peut plus être modifié.</span>
+          <span className="text-[12.5px] text-ink-3">
+            {existing?.status === "publishing" ? "Publication en cours…" : "Ce post est publié. Il ne peut plus être modifié."}
+          </span>
         ) : (
           <>
-            <Button onClick={() => submit("draft")}>Enregistrer en brouillon</Button>
-            <Button variant="primary" onClick={() => submit("scheduled")}>
+            <Button disabled={busy} onClick={() => submit("draft")}>
+              Enregistrer en brouillon
+            </Button>
+            <Button disabled={busy} onClick={() => submit("scheduled", true)}>
+              Publier maintenant
+            </Button>
+            <Button variant="primary" disabled={busy} onClick={() => submit("scheduled")}>
               Programmer
             </Button>
           </>

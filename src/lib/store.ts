@@ -2,17 +2,18 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { seedAccounts, seedMedia, seedPosts } from "./seed";
-import type { Account, Media, Network, Post } from "./types";
+import type { Account, AppState, Media, Network, Post } from "./types";
 
 export type CalendarView = "month" | "week" | "list";
 
 type ComposerState = { open: boolean; postId?: string; date?: string; mediaId?: string };
 
 type State = {
+  loaded: boolean;
   accounts: Account[];
   media: Media[];
   posts: Post[];
+  publisher: AppState["publisher"];
   view: CalendarView;
   cursor: string;
   hiddenAccounts: string[];
@@ -20,6 +21,7 @@ type State = {
   composer: ComposerState;
   commandOpen: boolean;
 
+  load: () => Promise<void>;
   setView: (v: CalendarView) => void;
   setCursor: (d: Date) => void;
   toggleAccount: (id: string) => void;
@@ -27,18 +29,32 @@ type State = {
   openComposer: (c?: Omit<ComposerState, "open">) => void;
   closeComposer: () => void;
   setCommandOpen: (o: boolean) => void;
-  savePost: (post: Post) => void;
-  deletePost: (id: string) => void;
-  movePost: (id: string, dayISO: string) => void;
-  resetDemo: () => void;
+  savePost: (post: Post) => Promise<Post>;
+  deletePost: (id: string) => Promise<void>;
+  movePost: (id: string, dayISO: string) => Promise<Post>;
+  retryPost: (id: string) => Promise<void>;
+  syncAccounts: () => Promise<number>;
 };
+
+async function api<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("Session expirée");
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+  return data as T;
+}
 
 export const useStore = create<State>()(
   persist(
-    (set) => ({
-      accounts: seedAccounts,
-      media: seedMedia(),
-      posts: seedPosts(),
+    (set, get) => ({
+      loaded: false,
+      accounts: [],
+      media: [],
+      posts: [],
+      publisher: { name: "demo", label: "Mode démo", ready: true },
       view: "month",
       cursor: new Date().toISOString(),
       hiddenAccounts: [],
@@ -46,42 +62,71 @@ export const useStore = create<State>()(
       composer: { open: false },
       commandOpen: false,
 
+      load: async () => {
+        const s = await api<AppState>("/api/state");
+        set({ ...s, loaded: true });
+      },
       setView: (view) => set({ view }),
       setCursor: (d) => set({ cursor: d.toISOString() }),
       toggleAccount: (id) =>
         set((s) => ({
-          hiddenAccounts: s.hiddenAccounts.includes(id)
-            ? s.hiddenAccounts.filter((a) => a !== id)
-            : [...s.hiddenAccounts, id],
+          hiddenAccounts: s.hiddenAccounts.includes(id) ? s.hiddenAccounts.filter((a) => a !== id) : [...s.hiddenAccounts, id],
         })),
       setNetworkFilter: (networkFilter) => set({ networkFilter }),
       openComposer: (c = {}) => set({ composer: { open: true, ...c }, commandOpen: false }),
       closeComposer: () => set((s) => ({ composer: { ...s.composer, open: false } })),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
-      savePost: (post) =>
-        set((s) => {
-          const exists = s.posts.some((p) => p.id === post.id);
-          return { posts: exists ? s.posts.map((p) => (p.id === post.id ? post : p)) : [...s.posts, post] };
-        }),
-      deletePost: (id) => set((s) => ({ posts: s.posts.filter((p) => p.id !== id) })),
-      movePost: (id, dayISO) =>
-        set((s) => ({
-          posts: s.posts.map((p) => {
-            if (p.id !== id) return p;
-            const from = new Date(p.scheduledAt);
-            const to = new Date(dayISO);
-            to.setHours(from.getHours(), from.getMinutes(), 0, 0);
-            return { ...p, scheduledAt: to.toISOString() };
-          }),
-        })),
-      resetDemo: () =>
-        set({ accounts: seedAccounts, media: seedMedia(), posts: seedPosts(), hiddenAccounts: [], networkFilter: "all" }),
+
+      savePost: async (post) => {
+        const saved = await api<Post>("/api/posts", { method: "POST", body: JSON.stringify(post) });
+        set((s) => ({ posts: s.posts.some((p) => p.id === saved.id) ? s.posts.map((p) => (p.id === saved.id ? saved : p)) : [...s.posts, saved] }));
+        // The server may publish right away when the date is past.
+        if (new Date(saved.scheduledAt) <= new Date()) setTimeout(() => get().load(), 1500);
+        return saved;
+      },
+      deletePost: async (id) => {
+        const before = get().posts;
+        set({ posts: before.filter((p) => p.id !== id) });
+        try {
+          await api(`/api/posts/${id}`, { method: "DELETE" });
+        } catch (e) {
+          set({ posts: before });
+          throw e;
+        }
+      },
+      movePost: async (id, dayISO) => {
+        const before = get().posts;
+        const post = before.find((p) => p.id === id);
+        if (!post) throw new Error("Post introuvable");
+        const from = new Date(post.scheduledAt);
+        const to = new Date(dayISO);
+        to.setHours(from.getHours(), from.getMinutes(), 0, 0);
+        const next = { ...post, scheduledAt: to.toISOString() };
+        set({ posts: before.map((p) => (p.id === id ? next : p)) });
+        try {
+          return await api<Post>(`/api/posts/${id}`, { method: "PATCH", body: JSON.stringify({ scheduledAt: next.scheduledAt }) });
+        } catch (e) {
+          set({ posts: before });
+          throw e;
+        }
+      },
+      retryPost: async (id) => {
+        await api(`/api/posts/${id}/retry`, { method: "POST" });
+        set((s) => ({ posts: s.posts.map((p) => (p.id === id ? { ...p, status: "publishing" } : p)) }));
+        setTimeout(() => get().load(), 2500);
+      },
+      syncAccounts: async () => {
+        const { count } = await api<{ count: number }>("/api/accounts/sync", { method: "POST" });
+        await get().load();
+        return count;
+      },
     }),
     {
-      name: "metricove-demo",
-      version: 1,
+      name: "metricove-ui",
+      version: 2,
       skipHydration: true,
-      partialize: (s) => ({ posts: s.posts, media: s.media, view: s.view, hiddenAccounts: s.hiddenAccounts }),
+      // Only view preferences live in the browser. Data comes from the server.
+      partialize: (s) => ({ view: s.view, hiddenAccounts: s.hiddenAccounts }),
     },
   ),
 );

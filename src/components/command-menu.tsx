@@ -15,7 +15,7 @@ export function CommandMenu() {
   const posts = useStore((s) => s.posts);
   const openComposer = useStore((s) => s.openComposer);
   const setView = useStore((s) => s.setView);
-  const resetDemo = useStore((s) => s.resetDemo);
+  const load = useStore((s) => s.load);
   const router = useRouter();
 
   const run = (fn: () => void) => {
@@ -56,8 +56,8 @@ export function CommandMenu() {
           <Item onSelect={() => run(() => router.push("/accounts"))} icon={<Users className="size-4" />}>
             Comptes connectés
           </Item>
-          <Item onSelect={() => run(() => { resetDemo(); toast("Données de démo réinitialisées"); })} icon={<RotateCcw className="size-4" />}>
-            Réinitialiser la démo
+          <Item onSelect={() => run(() => { load().then(() => toast("Données actualisées"), (e: Error) => toast.error(e.message)); })} icon={<RotateCcw className="size-4" />}>
+            Actualiser
           </Item>
         </Command.Group>
         <Command.Group heading="Posts">
