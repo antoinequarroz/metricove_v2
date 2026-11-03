@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Account, AppState, Media, Network, Post } from "./types";
+import type { Account, AppState, Media, Network, Post, Project } from "./types";
 
 export type CalendarView = "month" | "week" | "list";
 
@@ -11,6 +11,9 @@ type ComposerState = { open: boolean; postId?: string; date?: string; mediaId?: 
 type State = {
   loaded: boolean;
   accounts: Account[];
+  projects: Project[];
+  /** Project the app is narrowed to, or "all". */
+  activeProject: string;
   media: Media[];
   posts: Post[];
   publisher: AppState["publisher"];
@@ -37,6 +40,10 @@ type State = {
   syncAccounts: () => Promise<{ count: number; warnings: string[] }>;
   addAccount: (a: { network: Network; name: string; handle: string }) => Promise<Account>;
   removeAccount: (id: string) => Promise<void>;
+  setActiveProject: (id: string) => void;
+  createProject: (p: { name: string; accountIds: string[] }) => Promise<Project>;
+  updateProject: (id: string, p: Partial<Omit<Project, "id">>) => Promise<Project>;
+  deleteProject: (id: string) => Promise<void>;
   uploadMedia: (file: File, onProgress?: (pct: number) => void) => Promise<Media>;
   deleteMedia: (id: string) => Promise<void>;
 };
@@ -57,6 +64,8 @@ export const useStore = create<State>()(
     (set, get) => ({
       loaded: false,
       accounts: [],
+      projects: [],
+      activeProject: "all",
       media: [],
       posts: [],
       publisher: { name: "demo", label: "Mode démo", ready: true },
@@ -70,7 +79,9 @@ export const useStore = create<State>()(
 
       load: async () => {
         const s = await api<AppState>("/api/state");
-        set({ ...s, loaded: true });
+        // Forget a project that was deleted elsewhere.
+        const active = get().activeProject;
+        set({ ...s, loaded: true, activeProject: s.projects.some((p) => p.id === active) ? active : "all" });
       },
       setView: (view) => set({ view }),
       setCursor: (d) => set({ cursor: d.toISOString() }),
@@ -156,6 +167,21 @@ export const useStore = create<State>()(
         await api(`/api/accounts/${id}`, { method: "DELETE" });
         set((s) => ({ accounts: s.accounts.filter((a) => a.id !== id) }));
       },
+      setActiveProject: (activeProject) => set({ activeProject }),
+      createProject: async (input) => {
+        const { project } = await api<{ project: Project }>("/api/projects", { method: "POST", body: JSON.stringify(input) });
+        set((s) => ({ projects: [...s.projects, project] }));
+        return project;
+      },
+      updateProject: async (id, input) => {
+        const { project } = await api<{ project: Project }>(`/api/projects/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+        set((s) => ({ projects: s.projects.map((p) => (p.id === id ? project : p)) }));
+        return project;
+      },
+      deleteProject: async (id) => {
+        await api(`/api/projects/${id}`, { method: "DELETE" });
+        set((s) => ({ projects: s.projects.filter((p) => p.id !== id), activeProject: s.activeProject === id ? "all" : s.activeProject }));
+      },
       syncAccounts: async () => {
         const r = await api<{ count: number; warnings?: string[] }>("/api/accounts/sync", { method: "POST" });
         await get().load();
@@ -167,19 +193,29 @@ export const useStore = create<State>()(
       version: 2,
       skipHydration: true,
       // Only view preferences live in the browser. Data comes from the server.
-      partialize: (s) => ({ view: s.view, hiddenAccounts: s.hiddenAccounts }),
+      partialize: (s) => ({ view: s.view, hiddenAccounts: s.hiddenAccounts, activeProject: s.activeProject }),
     },
   ),
 );
 
-/** Posts after the sidebar filters are applied. */
+/** Accounts of the active project, or all accounts. */
+export function useProjectAccounts() {
+  const accounts = useStore((s) => s.accounts);
+  const projects = useStore((s) => s.projects);
+  const active = useStore((s) => s.activeProject);
+  const project = projects.find((p) => p.id === active);
+  return project ? accounts.filter((a) => project.accountIds.includes(a.id)) : accounts;
+}
+
+/** Posts after the project and sidebar filters are applied. */
 export function useVisiblePosts() {
   const posts = useStore((s) => s.posts);
   const accounts = useStore((s) => s.accounts);
   const hidden = useStore((s) => s.hiddenAccounts);
   const filter = useStore((s) => s.networkFilter);
+  const scope = useProjectAccounts();
   return posts.filter((p) => {
-    const accs = p.accountIds.filter((id) => !hidden.includes(id));
+    const accs = p.accountIds.filter((id) => !hidden.includes(id) && scope.some((a) => a.id === id));
     if (accs.length === 0) return false;
     if (filter === "all") return true;
     return accs.some((id) => accounts.find((a) => a.id === id)?.network === filter);

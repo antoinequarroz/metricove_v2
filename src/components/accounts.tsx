@@ -7,6 +7,7 @@ import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import type { Account, Network } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { compact } from "@/lib/utils";
+import { ProjectsSection } from "./projects";
 import { Avatar, Button } from "./ui";
 
 export function AccountsPage() {
@@ -92,6 +93,7 @@ export function AccountsPage() {
             )}
           </div>
           {adding && <AddAccountForm network={adding} onDone={() => setAdding(null)} />}
+          {accounts.length > 0 && <ProjectsSection />}
           {NETWORK_ORDER.map((n, gi) => {
             const list = accounts.filter((a) => a.network === n);
             return (

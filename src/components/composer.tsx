@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
+import { ProjectMark } from "./projects";
 import type { Network, Post, YouTubeOptions } from "@/lib/types";
 import { cn, duration, fmt, uid } from "@/lib/utils";
 import { PostPreview } from "./previews";
@@ -36,6 +37,8 @@ function ComposerForm() {
   const { postId, date, mediaId: presetMedia } = useStore((s) => s.composer);
   const posts = useStore((s) => s.posts);
   const accounts = useStore((s) => s.accounts);
+  const projects = useStore((s) => s.projects);
+  const activeProject = useStore((s) => s.activeProject);
   const media = useStore((s) => s.media);
   const savePost = useStore((s) => s.savePost);
   const deletePost = useStore((s) => s.deletePost);
@@ -55,7 +58,16 @@ function ComposerForm() {
     return setHours(startOfDay(addDays(new Date(), 1)), 18);
   }, [existing, date]);
 
-  const [selected, setSelected] = useState<string[]>(existing?.accountIds ?? accounts.filter((a) => a.connected).slice(0, 1).map((a) => a.id));
+  const projectAccounts = (id: string) => {
+    const p = projects.find((x) => x.id === id);
+    return p ? accounts.filter((a) => a.connected && p.accountIds.includes(a.id)).map((a) => a.id) : [];
+  };
+  // A new post starts with the accounts of the project being viewed.
+  const [selected, setSelected] = useState<string[]>(() => {
+    if (existing) return existing.accountIds;
+    const fromProject = projectAccounts(activeProject);
+    return fromProject.length ? fromProject : accounts.filter((a) => a.connected).slice(0, 1).map((a) => a.id);
+  });
   const [caption, setCaption] = useState(existing?.caption ?? "");
   const [mediaId, setMediaId] = useState<string | undefined>(existing?.mediaId ?? presetMedia);
   const [day, setDay] = useState(fmt(initialDate, "yyyy-MM-dd"));
@@ -197,6 +209,31 @@ function ComposerForm() {
           <fieldset disabled={locked} className="contents">
             <section>
               <Label>Publier sur</Label>
+              {projects.length > 0 && (
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-0.5 text-[12px] text-ink-3">Projet :</span>
+                  {projects.map((p) => {
+                    const ids = projectAccounts(p.id);
+                    const on = ids.length > 0 && ids.length === selected.length && ids.every((id) => selected.includes(id));
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={!ids.length}
+                        onClick={() => setSelected(ids)}
+                        title={ids.length ? `Sélectionner les ${ids.length} comptes de ${p.name}` : "Aucun compte connecté dans ce projet"}
+                        className={cn(
+                          "press flex items-center gap-1.5 rounded-lg border py-1 pr-2.5 pl-1 text-[12.5px] disabled:opacity-40",
+                          on ? "border-accent bg-accent-soft text-ink" : "border-line-strong bg-surface text-ink-2 hover:text-ink",
+                        )}
+                      >
+                        <ProjectMark project={p} size={20} />
+                        {p.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="flex flex-wrap gap-1.5">
                 {accounts.map((a) => {
                   const on = selected.includes(a.id);

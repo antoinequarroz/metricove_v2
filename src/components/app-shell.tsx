@@ -1,16 +1,17 @@
 "use client";
 
-import { CalendarDays, Clapperboard, Users, BarChart3, Settings, Search, ChevronsUpDown, Plus } from "lucide-react";
+import { CalendarDays, Clapperboard, Users, BarChart3, Settings, Search, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
-import { useStore } from "@/lib/store";
+import { useProjectAccounts, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Avatar, Kbd } from "./ui";
 import { Logo } from "./logo";
 import { Composer } from "./composer";
 import { CommandMenu } from "./command-menu";
+import { ProjectSwitcher } from "./projects";
 
 const NAV = [
   { href: "/calendar", label: "Calendrier", Icon: CalendarDays },
@@ -96,8 +97,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 function Sidebar() {
   const pathname = usePathname();
-  const accounts = useStore((s) => s.accounts);
-  const hidden = useStore((s) => s.hiddenAccounts);
+  const accounts = useProjectAccounts();
+  const hidden = useStore((s) => s.hiddenAccounts).filter((id) => accounts.some((a) => a.id === id));
   const toggleAccount = useStore((s) => s.toggleAccount);
   const media = useStore((s) => s.media);
   const posts = useStore((s) => s.posts);
@@ -115,14 +116,7 @@ function Sidebar() {
         <span className="ml-auto rounded-md border border-line px-1.5 py-px font-mono text-[10px] text-ink-3">v2</span>
       </div>
 
-      <button className="press mb-2 flex items-center gap-2.5 rounded-xl border border-line bg-surface/70 px-2.5 py-2 text-left shadow-card hover:bg-surface">
-        <span className="flex size-7 items-center justify-center rounded-lg bg-ink text-[12px] font-semibold text-bg">AQ</span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium">Antoine Quarroz</span>
-          <span className="block text-[11.5px] text-ink-3">Espace personnel</span>
-        </span>
-        <ChevronsUpDown className="size-3.5 text-ink-3" />
-      </button>
+      <ProjectSwitcher />
 
       <div className="mb-2 flex gap-1.5">
         <button

@@ -46,6 +46,10 @@ Pour YouTube, choisir « Vidéo » ou « Short » dans l'éditeur. Un Short est 
 | POST | `/api/accounts/sync` | Importer les comptes de Postiz |
 | POST | `/api/accounts` | Ajouter un compte à la main (`network`, `handle`, `name`) |
 | DELETE | `/api/accounts/:id` | Retirer un compte ajouté à la main |
+| GET | `/api/projects` | Lister les projets (groupes de comptes) |
+| POST | `/api/projects` | Créer un projet (`name`, `accountIds`) |
+| PATCH | `/api/projects/:id` | Renommer un projet ou changer ses comptes |
+| DELETE | `/api/projects/:id` | Supprimer un projet (les comptes et les posts restent) |
 | POST | `/api/media` | Envoyer une vidéo (multipart `file`, plus `post` en JSON en option) |
 | DELETE | `/api/media/:id` | Supprimer une vidéo inutilisée |
 | POST | `/api/hermes/caption` | Demander une légende à Hermes |

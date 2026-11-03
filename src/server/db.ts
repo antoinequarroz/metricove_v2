@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { seedAccounts, seedMedia, seedPosts } from "@/lib/seed";
-import type { Account, Media, Post } from "@/lib/types";
+import type { Account, Media, Post, Project } from "@/lib/types";
 
 export const DATA_DIR = path.resolve(process.env.DATA_DIR ?? "./data");
 
@@ -51,6 +51,13 @@ export function db() {
       updated_at text not null
     );
     create index if not exists posts_due on posts (status, scheduled_at);
+    create table if not exists projects (
+      id text primary key,
+      name text not null,
+      hue integer not null default 20,
+      account_ids text not null default '[]',
+      position integer not null default 0
+    );
   `);
   // Columns added after the first release.
   const cols = (conn.prepare("pragma table_info(posts)").all() as { name: string }[]).map((c) => c.name);
@@ -119,6 +126,31 @@ export function upsertAccount(a: Account) {
 
 export function deleteAccount(id: string) {
   db().prepare("delete from accounts where id = ?").run(id);
+  for (const p of listProjects()) if (p.accountIds.includes(id)) saveProject({ ...p, accountIds: p.accountIds.filter((a) => a !== id) });
+}
+
+/* ---------- Projects ---------- */
+
+type ProjectRow = { id: string; name: string; hue: number; account_ids: string; position: number };
+
+const toProject = (r: ProjectRow): Project => ({ id: r.id, name: r.name, hue: r.hue, accountIds: JSON.parse(r.account_ids) });
+
+export function listProjects(): Project[] {
+  return (db().prepare("select * from projects order by position, name").all() as ProjectRow[]).map(toProject);
+}
+
+export function saveProject(p: Project) {
+  db()
+    .prepare(
+      `insert into projects (id, name, hue, account_ids, position)
+       values (@id, @name, @hue, @accountIds, (select coalesce(max(position), 0) + 1 from projects))
+       on conflict(id) do update set name=excluded.name, hue=excluded.hue, account_ids=excluded.account_ids`,
+    )
+    .run({ id: p.id, name: p.name, hue: p.hue, accountIds: JSON.stringify(p.accountIds) });
+}
+
+export function deleteProject(id: string) {
+  db().prepare("delete from projects where id = ?").run(id);
 }
 
 /* ---------- Media ---------- */
