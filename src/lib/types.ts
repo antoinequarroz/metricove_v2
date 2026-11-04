@@ -39,6 +39,8 @@ export type Media = {
   hues: [number, number];
   /** Public URL of the file, served by the app. */
   url?: string;
+  /** Feed cover image (thumbnail shown on the profile grid), when there is one. */
+  cover?: string;
 };
 
 /** Result of publishing a post on one account. */

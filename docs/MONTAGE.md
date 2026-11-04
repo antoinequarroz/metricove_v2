@@ -42,12 +42,12 @@ Le serveur refuse les corps de plus de 10 Mo. Tout fichier passe donc par morcea
 ```ts
 type Job = {
   id: string;
-  kind: "montage" | "script" | "caption";
+  kind: "montage" | "script" | "caption" | "cover";
   title: string;
   projectId?: string;
   status: "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
   /** Ce que le worker doit faire maintenant (null = rien). */
-  action: null | "propose" | "preview" | "final" | "script" | "caption";
+  action: null | "propose" | "preview" | "final" | "script" | "caption" | "cover";
   step?: string;          // « Transcription… », affiché tel quel
   progress?: number;      // 0..1
   error?: string;
@@ -117,6 +117,18 @@ type Edl = {
   transcrire. Répondre vite (l'interface attend au plus 4 min), avec `step` pour l'avancement, puis
   `PATCH /api/montage/jobs/:id` `{ "status": "done", "caption", "youtubeTitle"? }`. L'interface
   supprime la tâche une fois la description lue.
+- `action: "cover"` (`kind: "cover"`) : faire la couverture du feed (image JPEG 1080×1920) de la vidéo
+  `job.cover.mediaId`, dans le style du projet `job.cover.project` (consignes éventuelles dans
+  `job.cover.instructions`). Le claim renvoie `media` (avec `url` de la vidéo). Le texte clé doit rester
+  entre y 420 et 1500 (recadrage 3:4, 4:5 et 1:1 de la grille Instagram). Envoyer l'image brute en
+  `PUT /api/media/:id/cover` (JPEG ou PNG, 8 Mo au plus), puis `PATCH /api/montage/jobs/:id`
+  `{ "status": "done" }`. L'interface attend 5 min au plus.
+
+## Couverture du feed
+
+- `PUT /api/media/:id/cover` (corps = image JPEG ou PNG), `GET` pour la lire, `DELETE` pour la retirer.
+- À la publication Instagram, Metricove envoie `cover_url` (lien signé). Sans couverture, Instagram
+  prend la 1re image de la vidéo. TikTok (envoi dans l'app) ne prend pas de couverture.
 
 ### Côté interface
 

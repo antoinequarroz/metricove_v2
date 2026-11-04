@@ -69,6 +69,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
     job.script = (b.script ?? "").slice(0, 10_000);
     return NextResponse.json({ job: release(job, "done") });
   }
+  if (b.status === "done" && job.kind === "cover") {
+    // The image itself was sent to /api/media/:id/cover just before.
+    return NextResponse.json({ job: release(job, "done") });
+  }
   if (b.status === "done" && job.kind === "caption" && job.caption) {
     const text = (b.caption ?? "").trim().slice(0, 5000);
     if (!text) return NextResponse.json({ error: "Description vide" }, { status: 400 });

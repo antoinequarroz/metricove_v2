@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import type { Account, Network, Post, TargetResult } from "@/lib/types";
-import { signedMediaUrl } from "../media-url";
+import { signedCoverUrl, signedMediaUrl } from "../media-url";
 import type { MediaFile, Publisher } from "./types";
 
 // treg (https://treg.to) relays calls to each network's API with its own OAuth apps,
@@ -205,7 +205,14 @@ const LINKEDIN_HEADERS = { "LinkedIn-Version": "202601", "X-Restli-Protocol-Vers
 const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
   async instagram({ post, account: a, media }) {
     if (!media?.path) throw new Error("Instagram exige une vidéo");
-    const query = { ig_user_id: a.externalId, media_type: "REELS", video_url: signedMediaUrl(media.id), caption: post.caption };
+    const query = {
+      ig_user_id: a.externalId,
+      media_type: "REELS",
+      video_url: signedMediaUrl(media.id),
+      caption: post.caption,
+      // The image shown on the profile grid. Without it, Instagram takes the first frame.
+      cover_url: media.cover ? signedCoverUrl(media.id) : undefined,
+    };
     // treg's "Instagram login" app is not reviewed by Meta yet: it reads but cannot publish (code 10).
     // The "Facebook Page" method uses approved permissions, so we fall back to it.
     let headers: Record<string, string> = {};

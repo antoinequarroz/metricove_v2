@@ -4,6 +4,7 @@ import { Dialog } from "@base-ui-components/react/dialog";
 import { CalendarPlus, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { duration, fmt } from "@/lib/utils";
+import { CoverControl } from "./cover";
 import { Button, SourceTag } from "./ui";
 
 /** Plays a library video in a window. Opened with useStore().playMedia(id). */
@@ -33,8 +34,8 @@ export function VideoPlayer() {
                 playsInline
                 className={
                   wide
-                    ? "max-h-[calc(100dvh-140px)] w-[min(960px,100%)] rounded-xl bg-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
-                    : "max-h-[calc(100dvh-140px)] w-auto max-w-full rounded-xl bg-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
+                    ? "max-h-[calc(100dvh-200px)] w-[min(960px,100%)] rounded-xl bg-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
+                    : "max-h-[calc(100dvh-200px)] w-auto max-w-full rounded-xl bg-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
                 }
                 style={wide ? undefined : { aspectRatio: m.aspect === "1:1" ? "1 / 1" : "9 / 16" }}
               />
@@ -63,6 +64,9 @@ export function VideoPlayer() {
                 <Dialog.Close aria-label="Fermer" className="press flex size-8 items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white">
                   <X className="size-4" />
                 </Dialog.Close>
+              </div>
+              <div className="w-full max-w-[min(960px,100%)] rounded-xl border border-white/10 bg-[rgba(20,19,17,0.85)] px-3 py-2 backdrop-blur">
+                <CoverControl media={m} tone="dark" />
               </div>
             </>
           )}

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { MontageFormat, MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
-import { listAccounts, listMedia, listProjects } from "@/server/db";
+import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
 import { getRushRow, listJobs, saveJob } from "@/server/montage";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +31,7 @@ type Body = {
 export async function POST(req: Request) {
   const b = (await req.json().catch(() => ({}))) as Body;
   if (b.kind === "caption") return captionJob(b);
+  if (b.kind === "cover") return coverJob(b);
   const kind = b.kind === "script" ? "script" : "montage";
   const format: MontageFormat = ["9:16", "4:5", "1:1", "16:9"].includes(b.brief?.format as string) ? (b.brief!.format as MontageFormat) : "9:16";
   const rushIds = [...new Set(b.rushIds ?? [])].filter((id) => getRushRow(id));
@@ -84,6 +85,37 @@ function captionJob(b: Body) {
       draft: typeof b.draft === "string" && b.draft.trim() ? b.draft.trim().slice(0, 5000) : undefined,
       mediaId: media?.id,
       youtube: networks.includes("youtube"),
+    },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/** Asks the Mac for a feed cover in the project's style. */
+function coverJob(b: Body) {
+  const media = listMedia().find((m) => m.id === b.mediaId);
+  if (!media) return NextResponse.json({ error: "Vidéo introuvable" }, { status: 404 });
+  // The project of the posts that use this video, else the one asked for.
+  const projects = listProjects();
+  const ids = new Set(b.accountIds ?? listPosts().filter((p) => p.mediaId === media.id).flatMap((p) => p.accountIds));
+  const project =
+    projects.find((p) => p.id === b.projectId) ?? (ids.size ? projects.find((p) => [...ids].every((id) => p.accountIds.includes(id))) : undefined);
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "cover",
+    title: `Couverture : ${media.title}`.slice(0, 120),
+    projectId: project?.id,
+    status: "queued",
+    action: "cover",
+    brief: { format: media.aspect },
+    cover: {
+      mediaId: media.id,
+      project: project?.name,
+      instructions: typeof b.draft === "string" && b.draft.trim() ? b.draft.trim().slice(0, 2000) : undefined,
     },
     rushIds: [],
     versions: [],

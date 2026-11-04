@@ -119,7 +119,11 @@ export function MediaThumb({
         background: `radial-gradient(120% 90% at 20% 10%, oklch(0.78 0.15 ${h1}), transparent 60%), radial-gradient(120% 100% at 90% 100%, oklch(0.45 0.17 ${h2}), transparent 65%), oklch(0.3 0.06 ${h2})`,
       }}
     >
-      {media.url ? (
+      {media.cover ? (
+        // The feed cover, as Instagram will show it on the grid.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={media.cover} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
+      ) : media.url ? (
         // First frame of the real video, loaded lazily.
         <video src={`${media.url}#t=0.5`} muted playsInline preload="metadata" className="absolute inset-0 size-full object-cover" />
       ) : (

@@ -15,3 +15,10 @@ export function signedMediaUrl(id: string, hours = 24) {
   const base = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
   return `${base}/api/media/${id}/file?exp=${exp}&sig=${mediaSignature(id, exp)}`;
 }
+
+/** Public URL of a video's cover image, valid for `hours`. */
+export function signedCoverUrl(id: string, hours = 24) {
+  const exp = Math.floor(Date.now() / 1000) + hours * 3600;
+  const base = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
+  return `${base}/api/media/${id}/cover?exp=${exp}&sig=${mediaSignature(`${id}:cover`, exp)}`;
+}

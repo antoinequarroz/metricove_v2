@@ -62,6 +62,8 @@ export function db() {
   // Columns added after the first release.
   const cols = (conn.prepare("pragma table_info(posts)").all() as { name: string }[]).map((c) => c.name);
   if (!cols.includes("youtube")) conn.exec("alter table posts add column youtube text");
+  const mediaCols = (conn.prepare("pragma table_info(media)").all() as { name: string }[]).map((c) => c.name);
+  if (!mediaCols.includes("cover")) conn.exec("alter table media add column cover text");
   globalForDb.__metricoveDb = conn;
   maybeSeed(conn);
   return conn;
@@ -164,6 +166,8 @@ type MediaRow = {
   created_at: string;
   hues: string;
   file: string | null;
+  /** Feed cover image (file name in data/media), when there is one. */
+  cover?: string | null;
 };
 
 const toMedia = (r: MediaRow): Media => ({
@@ -175,7 +179,13 @@ const toMedia = (r: MediaRow): Media => ({
   createdAt: r.created_at,
   hues: JSON.parse(r.hues),
   url: r.file ? `/api/media/${r.id}/file` : undefined,
+  // The file name changes with each new cover, so browsers never show an old one.
+  cover: r.cover ? `/api/media/${r.id}/cover?v=${encodeURIComponent(r.cover)}` : undefined,
 });
+
+export function setMediaCover(id: string, cover: string | null) {
+  db().prepare("update media set cover = ? where id = ?").run(cover, id);
+}
 
 export function listMedia(): Media[] {
   return (db().prepare("select * from media order by created_at desc").all() as MediaRow[]).map(toMedia);

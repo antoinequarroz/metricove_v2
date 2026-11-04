@@ -17,7 +17,11 @@ export async function POST(req: Request) {
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));
   // A description request comes with its video, so the Mac can transcribe it.
-  const m = job.caption?.mediaId ? listMedia().find((x) => x.id === job.caption!.mediaId) : undefined;
-  const media = m ? { id: m.id, title: m.title, duration: m.duration, aspect: m.aspect, url: `/api/media/${m.id}/file` } : undefined;
+  // A cover request too: the Mac can pick a frame or read the subtitles from it.
+  const mediaId = job.caption?.mediaId ?? job.cover?.mediaId;
+  const m = mediaId ? listMedia().find((x) => x.id === mediaId) : undefined;
+  const media = m
+    ? { id: m.id, title: m.title, duration: m.duration, aspect: m.aspect, url: `/api/media/${m.id}/file`, coverUrl: `/api/media/${m.id}/cover` }
+    : undefined;
   return NextResponse.json({ job, action: job.action, rushes, media });
 }

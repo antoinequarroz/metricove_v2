@@ -13,6 +13,7 @@ import { useStore } from "@/lib/store";
 import { ProjectMark } from "./projects";
 import type { Network, Post, YouTubeOptions } from "@/lib/types";
 import { cn, duration, fmt, uid } from "@/lib/utils";
+import { CoverControl } from "./cover";
 import { PostPreview } from "./previews";
 import { Segmented } from "./calendar";
 import { Avatar, Button, MediaThumb, SourceTag, StatusPill } from "./ui";
@@ -409,7 +410,13 @@ function ComposerForm() {
                     <X className="size-3.5" />
                   </Button>
                 </div>
-              ) : (
+              ) : null}
+              {m && networks.includes("instagram") && (
+                <div className="mt-2 rounded-xl border border-line bg-surface-2/60 p-2.5">
+                  <CoverControl media={m} accountIds={selected} />
+                </div>
+              )}
+              {!m && (
                 <MediaPicker onPick={setMediaId} block>
                   <ImagePlus className="size-5 text-ink-3" />
                   <span className="text-[13px] text-ink-2">Choisir une vidéo de la bibliothèque</span>

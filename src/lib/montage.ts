@@ -50,7 +50,7 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover";
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -66,7 +66,7 @@ export type CaptionRequest = {
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption";
+  kind: "montage" | "script" | "caption" | "cover";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -77,6 +77,8 @@ export type MontageJob = {
   brief: { format: MontageFormat; seconds?: number; instructions?: string; hook?: string; cta?: string };
   script?: string;
   caption?: CaptionRequest;
+  /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
+  cover?: { mediaId: string; project?: string; instructions?: string };
   rushIds: string[];
   feedback?: string;
   versions: MontageVersion[];
