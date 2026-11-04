@@ -355,7 +355,9 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
         );
       }
     }
-    for (let i = 0; i < 15; i++) {
+    // TikTok sometimes takes several minutes. The file is already uploaded, so after the wait it
+    // counts as sent: marking it failed would make a retry send a duplicate to the inbox.
+    for (let i = 0; i < 30; i++) {
       await sleep(10_000);
       const { data: s } = await call<{ data?: { status?: string; fail_reason?: string } }>("tiktok.tiktok.publish.status", {
         method: "POST",
@@ -366,7 +368,8 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
       if (status === "SEND_TO_USER_INBOX" || status === "PUBLISH_COMPLETE") return { externalId: `inbox:${init.data.publish_id}` };
       if (status === "FAILED") throw new Error(`TikTok a refusé la vidéo : ${s.data?.fail_reason ?? "raison inconnue"}`);
     }
-    throw new Error("TikTok traite encore la vidéo après 2 minutes 30");
+    console.warn(`[treg] tiktok ${init.data.publish_id} still processing after 5 min, counted as sent to the inbox`);
+    return { externalId: `inbox:${init.data.publish_id}` };
   },
 
   async x({ post }) {
