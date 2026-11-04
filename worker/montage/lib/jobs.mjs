@@ -6,8 +6,9 @@ import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
 import { proposeEdit, writeScript } from "./claude.mjs";
 import { renderEdl, timeline } from "./render.mjs";
+import { writeCaption } from "./caption.mjs";
 
-export async function handle(api, cfg, { job, action, rushes = [] }) {
+export async function handle(api, cfg, { job, action, rushes = [], media }) {
   const dir = ensureDir(join(cfg.workDir, "taches", job.id));
   // Metricove redonne une tâche sans nouvelles depuis 15 min : on renvoie la dernière étape chaque minute.
   let last = { s: "Démarrage…", p: 0 };
@@ -18,6 +19,14 @@ export async function handle(api, cfg, { job, action, rushes = [] }) {
       await step("Écriture du texte du prompteur…", 0.3);
       const script = await writeScript(cfg, job, dir);
       await api.patch(job.id, { script, status: "done" });
+      return;
+    }
+    if (action === "caption") {
+      const t0 = Date.now();
+      const { caption, youtubeTitle } = await writeCaption(api, cfg, { job, media }, step);
+      await api.patch(job.id, { status: "done", caption, ...(youtubeTitle ? { youtubeTitle } : {}) });
+      log(`[${job.id.slice(0, 8)}] description envoyée (${caption.length} car., ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+      rmSync(dir, { recursive: true, force: true });
       return;
     }
     assertSpace(cfg);

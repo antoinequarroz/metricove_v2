@@ -73,7 +73,12 @@ export function run(cmd, args, { cwd, input, quiet = true, env, binary = false }
     p.on("error", rej);
     p.on("close", (code) => {
       const out = binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8");
-      code === 0 ? res(out) : rej(new Error(`${cmd} a échoué (${code}) : ${err.slice(-800)}`));
+      if (code === 0) return res(out);
+      // Claude Code en mode -p écrit son erreur dans le JSON de sortie, pas dans stderr.
+      let detail = err.trim();
+      if (!detail) { try { detail = JSON.parse(String(out)).result || ""; } catch { detail = String(out).trim(); } }
+      if (/OAuth|authenticate|login/i.test(detail)) detail = `Claude Code n'est plus connecté sur le Mac (${detail}). Ouvrez un Terminal, lancez « claude » puis /login.`;
+      rej(new Error(`${cmd.split("/").pop()} a échoué (${code}) : ${detail.slice(-800)}`));
     });
     if (input != null) p.stdin.end(input); else p.stdin.end();
   });

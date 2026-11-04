@@ -17,7 +17,7 @@ const PROPOSAL_SCHEMA = {
   },
 };
 
-async function ask(cfg, prompt, schema, cwd) {
+export async function ask(cfg, prompt, schema, cwd) {
   const args = ["-p", "--output-format", "json", "--disallowedTools", "Bash", "Edit", "Write", "WebFetch", "WebSearch", "NotebookEdit"];
   if (schema) args.push("--json-schema", JSON.stringify(schema));
   if (cfg.claude.model) args.push("--model", cfg.claude.model);
