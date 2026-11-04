@@ -23,11 +23,20 @@ export async function POST(req: Request) {
   if (existing && (existing.status === "published" || existing.status === "publishing"))
     return NextResponse.json({ error: "Ce post est déjà publié" }, { status: 409 });
 
+  // Accounts that already got this video keep their result, so publishing again (after a
+  // failure on another network) never sends a duplicate. A new video starts from scratch.
+  const mediaId = body.mediaId || undefined;
+  const kept =
+    existing?.results && existing.mediaId === mediaId
+      ? Object.fromEntries(Object.entries(existing.results).filter(([id, r]) => r.status === "published" && accountIds.includes(id)))
+      : {};
+
   const post: Post = {
     id: existing?.id ?? body.id ?? crypto.randomUUID(),
+    results: Object.keys(kept).length ? kept : undefined,
     accountIds,
     caption: String(body.caption ?? "").slice(0, 70_000),
-    mediaId: body.mediaId || undefined,
+    mediaId,
     scheduledAt: when.toISOString(),
     status,
     origin: ORIGINS.find((o) => o === body.origin) ?? existing?.origin ?? "manual",

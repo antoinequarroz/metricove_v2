@@ -107,6 +107,19 @@ function ComposerForm() {
       if (!now && when < new Date()) return toast.error("Choisissez une date dans le futur");
     }
     if (isNaN(when.getTime())) return toast.error("Date invalide");
+    // The same video already waits in the TikTok app: sending it again only makes a duplicate (or a 404).
+    if (status === "scheduled" && m && networks.includes("tiktok")) {
+      const day = Date.now() - 24 * 3600_000;
+      const waiting = posts.some(
+        (p) =>
+          p.mediaId === m.id &&
+          Object.entries(p.results ?? {}).some(
+            // On this same post, accounts already sent are skipped by the server.
+            ([, r]) => r.externalId?.startsWith("inbox:") && new Date(r.at).getTime() > day && p.id !== existing?.id,
+          ),
+      );
+      if (waiting && !confirm("Cette vidéo attend déjà dans ton app TikTok. La renvoyer crée un doublon, et TikTok peut la refuser. Continuer quand même ?")) return;
+    }
     setBusy(true);
     try {
       const saved = await savePost({

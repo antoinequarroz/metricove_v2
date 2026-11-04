@@ -331,17 +331,29 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
     const MB = 1024 * 1024;
     const chunk = bytes.length <= 64 * MB ? bytes.length : 10 * MB;
     const count = Math.max(1, Math.floor(bytes.length / chunk));
-    const { data: init } = await call<{ data?: { publish_id: string; upload_url: string }; error?: { message?: string } }>("tiktok.tiktok.video.inbox.init", {
+    const { data: init } = await call<{ data?: { publish_id: string; upload_url: string }; error?: { code?: string; message?: string } }>("tiktok.tiktok.video.inbox.init", {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=UTF-8" },
       body: { source_info: { source: "FILE_UPLOAD", video_size: bytes.length, chunk_size: chunk, total_chunk_count: count } },
     });
-    if (!init.data) throw new Error(`TikTok a refusé l'envoi : ${init.error?.message ?? "réponse inattendue"}`);
+    if (init.error?.code && init.error.code !== "ok") {
+      if (/pending_share|spam_risk/i.test(init.error.code)) throw new Error("TikTok refuse un nouvel envoi : trop de vidéos attendent déjà dans ton app TikTok. Finalise-les ou supprime-les, puis relance.");
+      throw new Error(`TikTok a refusé l'envoi : ${init.error.code}${init.error.message ? ` (${init.error.message})` : ""}`);
+    }
+    if (!init.data?.upload_url) throw new Error(`TikTok a refusé l'envoi : ${init.error?.message ?? "réponse inattendue"}`);
     for (let i = 0; i < count; i++) {
       const start = i * chunk;
       const end = i === count - 1 ? bytes.length - 1 : start + chunk - 1; // the last chunk takes the rest
       const res = await put(init.data.upload_url, bytes.subarray(start, end + 1), { "Content-Type": "video/mp4", "Content-Range": `bytes ${start}-${end}/${bytes.length}` });
-      if (!res.ok) throw new Error(`Envoi de la vidéo à TikTok refusé (${res.status})`);
+      if (!res.ok) {
+        const text = (await res.text().catch(() => "")).slice(0, 300);
+        console.error(`[treg] tiktok upload ${res.status} on ${new URL(init.data.upload_url).host}: ${text}`);
+        throw new Error(
+          res.status === 404
+            ? "TikTok a refusé l'envoi (404). Ça arrive quand la même vidéo attend déjà dans ton app TikTok : finalise-la ou supprime-la, puis relance."
+            : `Envoi de la vidéo à TikTok refusé (${res.status})${text ? ` : ${text}` : ""}`,
+        );
+      }
     }
     for (let i = 0; i < 15; i++) {
       await sleep(10_000);
