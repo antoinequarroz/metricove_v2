@@ -7,6 +7,7 @@ import { transcribe, sentences } from "./transcribe.mjs";
 import { proposeEdit, writeScript } from "./claude.mjs";
 import { renderEdl, timeline } from "./render.mjs";
 import { writeCaption } from "./caption.mjs";
+import { makeCover } from "./cover.mjs";
 
 export async function handle(api, cfg, { job, action, rushes = [], media }) {
   const dir = ensureDir(join(cfg.workDir, "taches", job.id));
@@ -27,6 +28,11 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       await api.patch(job.id, { status: "done", caption, ...(youtubeTitle ? { youtubeTitle } : {}) });
       log(`[${job.id.slice(0, 8)}] description envoyée (${caption.length} car., ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
       rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (action === "cover") {
+      await makeCover(api, cfg, { job, media }, step);
+      await api.patch(job.id, { status: "done" });
       return;
     }
     assertSpace(cfg);
