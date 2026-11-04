@@ -22,6 +22,8 @@ type Body = {
   status?: "failed" | "done";
   error?: string;
   script?: string;
+  caption?: string;
+  youtubeTitle?: string;
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -65,6 +67,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   if (b.status === "done" && job.kind === "script") {
     job.script = (b.script ?? "").slice(0, 10_000);
+    return NextResponse.json({ job: release(job, "done") });
+  }
+  if (b.status === "done" && job.kind === "caption" && job.caption) {
+    const text = (b.caption ?? "").trim().slice(0, 5000);
+    if (!text) return NextResponse.json({ error: "Description vide" }, { status: 400 });
+    job.caption.result = { caption: text, youtubeTitle: b.youtubeTitle?.trim().slice(0, 100) || undefined };
     return NextResponse.json({ job: release(job, "done") });
   }
   if (b.step !== undefined || b.progress !== undefined) {

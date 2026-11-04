@@ -50,11 +50,23 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption";
+
+/** What the Mac needs to write a post description, and what it wrote. */
+export type CaptionRequest = {
+  networks: string[];
+  accounts: { network: string; handle: string }[];
+  project?: string;
+  /** What the user already typed: a draft or instructions. */
+  draft?: string;
+  mediaId?: string;
+  youtube: boolean;
+  result?: { caption: string; youtubeTitle?: string };
+};
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script";
+  kind: "montage" | "script" | "caption";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -64,6 +76,7 @@ export type MontageJob = {
   error?: string;
   brief: { format: MontageFormat; seconds?: number; instructions?: string; hook?: string; cta?: string };
   script?: string;
+  caption?: CaptionRequest;
   rushIds: string[];
   feedback?: string;
   versions: MontageVersion[];

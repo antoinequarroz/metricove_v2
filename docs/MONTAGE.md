@@ -42,12 +42,12 @@ Le serveur refuse les corps de plus de 10 Mo. Tout fichier passe donc par morcea
 ```ts
 type Job = {
   id: string;
-  kind: "montage" | "script";
+  kind: "montage" | "script" | "caption";
   title: string;
   projectId?: string;
   status: "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
   /** Ce que le worker doit faire maintenant (null = rien). */
-  action: null | "propose" | "preview" | "final" | "script";
+  action: null | "propose" | "preview" | "final" | "script" | "caption";
   step?: string;          // « Transcription… », affiché tel quel
   progress?: number;      // 0..1
   error?: string;
@@ -110,10 +110,18 @@ type Edl = {
   `POST /api/montage/jobs/:id/final` `{ "upload", "title"? }` → la vidéo entre dans la bibliothèque, statut `done`.
 - `action: "script"` (`kind: "script"`) : écrire un texte de prompteur à partir de `brief.instructions`,
   puis `PATCH /api/montage/jobs/:id` `{ "script", "status": "done" }`.
+- `action: "caption"` (`kind: "caption"`) : écrire la description d'un post. `job.caption` donne
+  `{ networks, accounts: [{ network, handle }], project?, draft?, mediaId?, youtube }`. `draft` est ce
+  qu'Antoine a déjà tapé : un brouillon à réécrire ou une consigne. Quand il y a une vidéo, le claim
+  renvoie aussi `media: { id, title, duration, aspect, url }` (`url` relative, avec le jeton) pour la
+  transcrire. Répondre vite (l'interface attend au plus 4 min), avec `step` pour l'avancement, puis
+  `PATCH /api/montage/jobs/:id` `{ "status": "done", "caption", "youtubeTitle"? }`. L'interface
+  supprime la tâche une fois la description lue.
 
 ### Côté interface
 
 - `POST /api/montage/jobs` `{ kind, title, projectId?, brief, rushIds?, script? }` → `queued`, action `propose` (ou `script`).
+- `POST /api/montage/jobs` `{ kind: "caption", accountIds, draft?, mediaId?, projectId? }` → action `caption`.
 - `PATCH /api/montage/jobs/:id`
   - `{ "revise": "plus court, garde la prise 2" }` → action `propose`
   - `{ "edl": {…} }` → nouvelle version `by: "edit"`, action `preview`

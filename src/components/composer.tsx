@@ -3,9 +3,10 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Popover } from "@base-ui-components/react/popover";
 import { addDays, setHours, startOfDay } from "date-fns";
-import { Bot, CalendarClock, Film, ImagePlus, Trash2, X, Hash, Smile } from "lucide-react";
+import { Bot, CalendarClock, Film, ImagePlus, Sparkles, Trash2, X, Hash, Smile } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import type { MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
 import { ProjectMark } from "./projects";
@@ -130,26 +131,67 @@ function ComposerForm() {
   };
 
   const hermesOn = useStore((s) => s.integrations.hermes);
-  const [thinking, setThinking] = useState(false);
+  const [thinking, setThinking] = useState<string | null>(null);
+
+  const applySuggestion = (text: string, youtubeTitle?: string) => {
+    setCaption(text);
+    if (youtubeTitle && hasYoutube && !yt.title.trim()) setYt((y) => ({ ...y, title: youtubeTitle }));
+  };
+
+  /** Hermes on the VPS, used only when the Mac is off. */
+  const suggestWithHermes = async () => {
+    const res = await fetch("/api/hermes/caption", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ networks, draft: caption, mediaId: m?.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+    applySuggestion(data.caption, data.youtubeTitle);
+    toast("Description proposée par Hermes", { icon: <Bot className="size-4" /> });
+  };
+
+  /** Claude on the Mac (Antoine's subscription): listens to the video and writes the description. */
   const suggest = async () => {
-    if (!hermesOn) return toast("Hermes n'est pas encore branché", { description: "Ajoutez HERMES_URL et HERMES_API_KEY (voir docs/HERMES.md).", icon: <Bot className="size-4" /> });
-    if (!networks.length) return toast.error("Choisissez d'abord les comptes");
-    setThinking(true);
-    try {
-      const res = await fetch("/api/hermes/caption", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ networks, draft: caption, mediaId: m?.id }),
-      });
-      const data = await res.json();
+    if (!selectedAccounts.length) return toast.error("Choisissez d'abord les comptes");
+    setThinking("Claude écrit…");
+    const call = async <T,>(url: string, init?: RequestInit) => {
+      const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-      setCaption(data.caption);
-      if (data.youtubeTitle && hasYoutube && !yt.title.trim()) setYt((y) => ({ ...y, title: data.youtubeTitle }));
-      toast("Légende proposée par Hermes", { icon: <Bot className="size-4" /> });
+      return data as T;
+    };
+    let jobId: string | undefined;
+    try {
+      const { worker } = await call<{ worker: { online: boolean } }>("/api/montage");
+      if (!worker.online) {
+        if (hermesOn) return await suggestWithHermes();
+        throw new Error("Ton Mac est éteint ou en veille : allume-le, puis réessaie.");
+      }
+      const { job } = await call<{ job: MontageJob }>("/api/montage/jobs", {
+        method: "POST",
+        body: JSON.stringify({ kind: "caption", accountIds: selected, draft: caption, mediaId: m?.id }),
+      });
+      jobId = job.id;
+      const until = Date.now() + 4 * 60_000;
+      while (Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const { job: j } = await call<{ job: MontageJob }>(`/api/montage/jobs/${job.id}`);
+        if (j.step) setThinking(j.step);
+        if (j.status === "failed") throw new Error(j.error ?? "Le Mac n'a pas pu écrire la description");
+        if (j.status === "done" && j.caption?.result) {
+          applySuggestion(j.caption.result.caption, j.caption.result.youtubeTitle);
+          toast("Description proposée par Claude", { description: "Relis-la et modifie-la si besoin.", icon: <Sparkles className="size-4" /> });
+          return;
+        }
+      }
+      throw new Error("Le Mac met trop de temps à répondre");
     } catch (e) {
-      toast.error("Hermes n'a pas pu répondre", { description: (e as Error).message });
+      toast.error("Pas de description", { description: (e as Error).message });
     } finally {
-      setThinking(false);
+      // The request was only a means: remove it from the Mac's list.
+      if (jobId) fetch(`/api/montage/jobs/${jobId}`, { method: "DELETE" }).catch(() => {});
+      setThinking(null);
     }
   };
 
@@ -263,11 +305,12 @@ function ComposerForm() {
                 <button
                   type="button"
                   onClick={suggest}
-                  disabled={thinking}
-                  className="press ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft disabled:opacity-70"
+                  disabled={!!thinking || locked}
+                  title={caption.trim() ? "Claude se sert de ton texte comme consigne" : "Claude écoute la vidéo et écrit la description"}
+                  className="press ml-auto inline-flex max-w-[60%] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft disabled:opacity-70"
                 >
-                  <Bot className={cn("size-3.5", thinking && "animate-pulse")} />
-                  {thinking ? "Hermes réfléchit…" : "Proposer avec Hermes"}
+                  <Sparkles className={cn("size-3.5 shrink-0", thinking && "animate-pulse")} />
+                  <span className="truncate">{thinking ?? (caption.trim() ? "Réécrire avec Claude" : "Proposer avec Claude")}</span>
                 </button>
               </div>
               <div className="rounded-xl border border-line-strong bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_var(--accent-soft)]">
