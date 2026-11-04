@@ -84,14 +84,40 @@ type Edl = {
     text: string;         // phrase dite
     kept: boolean;        // false = coupé (reste visible, barré, dans l'interface)
     reason?: string;      // « raté », « doublon », « silence »… (pour les coupés)
-    words?: { t0: number; t1: number; w: string }[]; // sous-titres karaoké, temps dans le rush
+    words?: {
+      t0: number; t1: number; w: string;   // sous-titres karaoké, temps dans le rush
+      cut?: boolean;   // mot retiré de la vidéo (« euh », bégaiement) : image et son coupés, la phrase reste
+      hl?: boolean;    // mot clé : couleur captions.highlight
+      emoji?: string;  // emoji affiché avec le sous-titre pendant ce mot
+    }[];
   }[];
   title?: { text: string; until: number } | null;   // accroche en ouverture (until = secondes de timeline)
   endCard?: { text: string } | null;                 // carton de fin
   zooms?: { at: number; dur: number; scale: number }[]; // temps de timeline
   crop?: "face" | "center";
+  hooks?: string[];                // autres accroches proposées (title.text = celle retenue). Claude en propose 3.
+  captions?: {                     // absent = job.style, sinon le style par défaut
+    on: boolean;
+    position: "auto" | "top" | "middle" | "bottom"; // auto = au-dessus ou en dessous du visage (suivi du visage)
+    look: "karaoke" | "pop" | "simple";
+    size: "s" | "m" | "l";
+    highlight?: string;            // #rrggbb, sinon l'accent du projet
+    emoji: boolean;                // Claude peut ajouter des emojis (words[].emoji)
+  };
+  audio?: {                        // absent = { denoise: true, silences: "tight", music: { on: false } }
+    denoise: boolean;              // débruitage de la voix (DeepFilterNet), puis loudnorm −14 LUFS
+    silences: "keep" | "tight" | "cut"; // tight = silences > 0,3 s ramenés à 0,15 s ; cut = retirés
+    music: { on: boolean; track?: string; volume: number; duck: boolean }; // track = fichier du dossier musique du Mac ; duck = baisse sous la voix
+  };
+  exports?: ("9:16" | "4:5" | "1:1" | "16:9")[]; // formats en plus, rendus avec la version finale
 };
 ```
+
+Durée d'un segment sur la timeline = `out − in − (durée des mots cut entre in et out)`.
+
+Les mots d'un segment peuvent dépasser `in`/`out` (plan raccourci dans la timeline) : ne garder que la partie entre `in` et `out`.
+
+Un segment peut être coupé en deux dans la timeline : les deux moitiés gardent le même `rush`, la 2e reçoit un nouvel `id`.
 
 ### Côté worker
 
@@ -101,7 +127,7 @@ type Edl = {
   Une tâche prise sans nouvelles pendant 15 minutes est redonnée (Mac en veille, plantage) : envoyer `step`/`progress` régulièrement.
   Sert aussi de signal de vie : Metricove affiche « Mac connecté » si le dernier appel date de moins de 30 s.
 - `PATCH /api/montage/jobs/:id` `{ "step", "progress" }` pendant le travail, ou `{ "status": "failed", "error" }`.
-- `action: "propose"` : transcrire, demander à Claude une EDL (avec `brief`, `script`, `feedback`, dernière version),
+- `action: "propose"` : transcrire, demander à Claude une EDL (avec `brief`, `script`, `feedback`, `marks`, dernière version),
   rendre un aperçu léger (540p), puis
   `POST /api/montage/jobs/:id/versions` `{ "edl", "notes", "upload"? }` → statut `review`.
 - `action: "preview"` : l'utilisateur a modifié l'EDL à la main. C'est toujours la **dernière** version (`by: "edit"`, `preview: false`). Rendre seulement l'aperçu,
@@ -130,12 +156,24 @@ type Edl = {
 - À la publication Instagram, Metricove envoie `cover_url` (lien signé). Sans couverture, Instagram
   prend la 1re image de la vidéo. TikTok (envoi dans l'app) ne prend pas de couverture.
 
+### Notes dessinées (`job.marks`)
+
+Envoyées avec une demande de nouvelle version : `{ id, version, t, text, image? }`.
+`t` = seconde de la timeline de la version `version` ; `image` = JPEG (data URL) de l'image à ce moment avec le dessin d'Antoine
+(flèches, cadres, traits). Le worker écrit chaque image dans le dossier de travail et demande à Claude de la lire
+(outil Read) avec le texte : c'est une demande précise sur ce passage. Les marks sont remplacées à chaque demande.
+
+### Style du projet
+
+`GET|PUT /api/montage/styles/:projectId` (corps = `captions`). Un nouveau montage d'un projet reçoit `job.style`
+(copie du style au moment de la création) : le worker l'utilise quand l'EDL n'a pas de `captions`.
+
 ### Côté interface
 
 - `POST /api/montage/jobs` `{ kind, title, projectId?, brief, rushIds?, script? }` → `queued`, action `propose` (ou `script`).
 - `POST /api/montage/jobs` `{ kind: "caption", accountIds, draft?, mediaId?, projectId? }` → action `caption`.
 - `PATCH /api/montage/jobs/:id`
-  - `{ "revise": "plus court, garde la prise 2" }` → action `propose`
+  - `{ "revise": "plus court, garde la prise 2", "marks"?: [...] }` → action `propose` (8 notes max, 400 Ko par image)
   - `{ "edl": {…} }` → nouvelle version `by: "edit"`, action `preview`
   - `{ "approve": <n> }` → statut `rendering`, action `final`
   - `{ "cancel": true }`

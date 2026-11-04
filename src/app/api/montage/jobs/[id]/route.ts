@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cleanEdl, deleteJob, getJob, addVersion, queue, release, saveJob, touchJob } from "@/server/montage";
+import { cleanEdl, cleanMarks, deleteJob, getJob, addVersion, queue, release, saveJob, touchJob } from "@/server/montage";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -12,6 +12,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 type Body = {
   // From the page
   revise?: string;
+  marks?: unknown;
   edl?: unknown;
   approve?: number;
   cancel?: boolean;
@@ -43,7 +44,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   if (typeof b.revise === "string") {
     if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });
+    const marks = cleanMarks(b.marks);
+    if (typeof marks === "string") return NextResponse.json({ error: marks }, { status: 400 });
     job.feedback = b.revise.trim().slice(0, 2000) || undefined;
+    job.marks = marks.length ? marks : undefined;
     return NextResponse.json({ job: queue(job, "propose") });
   }
   if (b.edl !== undefined) {

@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import type { Edl, JobAction, MontageJob, MontageVersion, Rush } from "@/lib/montage";
+import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, type AudioSettings, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { DATA_DIR, db } from "./db";
 
 /* ---------- Tables ---------- */
@@ -350,8 +350,13 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
     if (rushIds.length && !rushIds.includes(rush)) return `Segment ${i + 1} : rush inconnu`;
     const words = Array.isArray(s.words)
       ? (s.words as Record<string, unknown>[])
-          .map((w) => ({ t0: num(w.t0), t1: num(w.t1), w: str(w.w, 80) }))
-          .filter((w): w is { t0: number; t1: number; w: string } => w.t0 !== undefined && w.t1 !== undefined && w.w !== undefined)
+          .flatMap((w): EdlWord[] => {
+            const t0 = num(w.t0);
+            const t1 = num(w.t1);
+            const text = str(w.w, 80);
+            if (t0 === undefined || t1 === undefined || text === undefined) return [];
+            return [{ t0, t1, w: text, cut: w.cut === true || undefined, hl: w.hl === true || undefined, emoji: str(w.emoji, 16) || undefined }];
+          })
       : undefined;
     segments.push({
       id: str(s.id, 60) || `s${i + 1}`,
@@ -377,5 +382,70 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
           .filter((z) => z.at !== undefined && z.dur !== undefined && z.scale !== undefined)
       : [],
     crop: e.crop === "center" ? "center" : "face",
+    hooks: Array.isArray(e.hooks) ? (e.hooks as unknown[]).map((h) => str(h, 200)).filter((h): h is string => !!h?.trim()).slice(0, 5) : undefined,
+    captions: e.captions === undefined ? undefined : cleanCaptions(e.captions),
+    audio: e.audio === undefined ? undefined : cleanAudio(e.audio),
+    exports: Array.isArray(e.exports) ? [...new Set((e.exports as unknown[]).filter((f): f is MontageFormat => FORMATS.includes(f as string)))].filter((f) => f !== format) : undefined,
   };
+}
+
+const FORMATS = ["9:16", "4:5", "1:1", "16:9"];
+const HEX = /^#[0-9a-f]{6}$/i;
+
+export function cleanCaptions(raw: unknown): CaptionStyle {
+  const c = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const d = DEFAULT_CAPTIONS;
+  return {
+    on: c.on !== false,
+    position: (["auto", "top", "middle", "bottom"] as const).find((p) => p === c.position) ?? d.position,
+    look: (["karaoke", "pop", "simple"] as const).find((p) => p === c.look) ?? d.look,
+    size: (["s", "m", "l"] as const).find((p) => p === c.size) ?? d.size,
+    highlight: typeof c.highlight === "string" && HEX.test(c.highlight) ? c.highlight : undefined,
+    emoji: c.emoji === undefined ? d.emoji : c.emoji === true,
+  };
+}
+
+export function cleanAudio(raw: unknown): AudioSettings {
+  const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const m = (a.music && typeof a.music === "object" ? a.music : {}) as Record<string, unknown>;
+  const d = DEFAULT_AUDIO;
+  return {
+    denoise: a.denoise === undefined ? d.denoise : a.denoise === true,
+    silences: (["keep", "tight", "cut"] as const).find((p) => p === a.silences) ?? d.silences,
+    music: {
+      on: m.on === true,
+      track: str(m.track, 200)?.trim() || undefined,
+      volume: Math.min(1, Math.max(0, num(m.volume) ?? d.music.volume)),
+      duck: m.duck !== false,
+    },
+  };
+}
+
+/** Drawings sent to Claude: at most 8, each image ≤ 400 KB. */
+export function cleanMarks(raw: unknown): MontageMark[] | string {
+  if (!Array.isArray(raw)) return [];
+  const marks: MontageMark[] = [];
+  for (const [i, m] of (raw as Record<string, unknown>[]).slice(0, 8).entries()) {
+    const t = num(m.t);
+    const version = num(m.version);
+    const text = str(m.text, 1000)?.trim() ?? "";
+    const image = typeof m.image === "string" && m.image.startsWith("data:image/") ? m.image : undefined;
+    if (image && image.length > 550_000) return `Dessin ${i + 1} trop lourd`;
+    if (t === undefined || version === undefined || (!text && !image)) continue;
+    marks.push({ id: str(m.id, 60) || `m${i + 1}`, version, t: Math.max(0, t), text, image });
+  }
+  return marks;
+}
+
+/* ---------- Subtitle style per project ---------- */
+
+export function getStyle(projectId: string): CaptionStyle | undefined {
+  const r = init().prepare("select value from kv where key = ?").get(`style:${projectId}`) as { value: string } | undefined;
+  return r ? cleanCaptions(JSON.parse(r.value)) : undefined;
+}
+
+export function setStyle(projectId: string, style: CaptionStyle) {
+  init()
+    .prepare("insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value")
+    .run(`style:${projectId}`, JSON.stringify(style));
 }

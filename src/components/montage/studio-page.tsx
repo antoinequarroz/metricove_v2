@@ -1,6 +1,6 @@
 "use client";
 
-import { Circle, FlipHorizontal2, Loader2, Maximize2, Minimize2, Pause, Play, Send, Sparkles, Square, Trash2, Video } from "lucide-react";
+import { Circle, FlipHorizontal2, Loader2, Maximize2, Mic, Minimize2, Pause, Play, Send, Sparkles, Square, Trash2, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
 import { fmtSec, PageHeader, VideoTabs } from "./parts";
+import { useVoiceFollow } from "./use-voice-follow";
 import { montageApi, useMontage } from "./use-montage";
 
 type Orientation = "portrait" | "landscape";
@@ -86,6 +87,13 @@ export function StudioPage() {
   const [from, setFrom] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLParagraphElement | null)[]>([]);
+
+  // Voice mode: the text follows what is said instead of scrolling at a fixed speed.
+  const [voice, setVoice] = useState(false);
+  const follow = useVoiceFollow(lines, voice, from);
+  useEffect(() => {
+    if (voice) setOffset(lineRefs.current[follow.line]?.offsetTop ?? 0);
+  }, [voice, follow.line]);
 
   const jumpTo = (i: number) => {
     setFrom(i);
@@ -269,7 +277,7 @@ export function StudioPage() {
               {/* Teleprompter, at the top: close to the lens. */}
               {stream && lines.length > 0 && (
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-[38%] overflow-hidden bg-gradient-to-b from-black/80 via-black/60 to-transparent">
-                  <div ref={scroller} className="px-6 pt-6 transition-transform duration-75 ease-linear" style={{ transform: `translateY(${-offset}px)` }}>
+                  <div ref={scroller} className={cn("px-6 pt-6 transition-transform ease-linear", voice ? "duration-300" : "duration-75")} style={{ transform: `translateY(${-offset}px)` }}>
                     {lines.map((l, i) => (
                       <p
                         key={i}
@@ -302,7 +310,7 @@ export function StudioPage() {
                       <span className="size-2 animate-pulse rounded-full bg-danger" /> {fmtSec(elapsed)}
                     </span>
                   )}
-                  {lines.length > 0 && (
+                  {lines.length > 0 && !voice && (
                     <button onClick={() => setRunning((r) => !r)} aria-label={running ? "Mettre le prompteur en pause" : "Lancer le prompteur"} className="press grid size-10 place-items-center rounded-full bg-white/15 text-white backdrop-blur hover:bg-white/25">
                       {running ? <Pause className="size-4" /> : <Play className="size-4" />}
                     </button>
@@ -342,10 +350,23 @@ export function StudioPage() {
                   ))}
                 </select>
               )}
-              <label className="flex items-center gap-2">
-                Vitesse
-                <input type="range" min={10} max={120} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-24 accent-[var(--accent)]" />
-              </label>
+              <button
+                onClick={() => {
+                  setRunning(false);
+                  setVoice((v) => !v);
+                }}
+                title="Le texte avance quand tu parles"
+                className={cn("press inline-flex items-center gap-1.5 rounded-lg px-2 py-1", voice ? "bg-accent-soft text-accent" : "text-ink-2")}
+              >
+                <Mic className="size-3.5" /> Suivre ma voix
+              </button>
+              {voice && follow.error && <span className="text-danger">{follow.error}</span>}
+              {!voice && (
+                <label className="flex items-center gap-2">
+                  Vitesse
+                  <input type="range" min={10} max={120} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="w-24 accent-[var(--accent)]" />
+                </label>
+              )}
               <label className="flex items-center gap-2">
                 Taille
                 <input type="range" min={18} max={56} value={size} onChange={(e) => setSize(Number(e.target.value))} className="w-24 accent-[var(--accent)]" />
