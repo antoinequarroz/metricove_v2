@@ -347,6 +347,41 @@ function ComposerForm() {
             </section>
 
             <section>
+              <Label>Vidéo</Label>
+              {m ? (
+                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-2.5">
+                  <MediaThumb media={m} showMeta={false} playable className="h-16 w-12 rounded-md" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13.5px] font-medium">{m.title}</div>
+                    <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
+                      <SourceTag source={m.source} />
+                      <span className="tabular font-mono">{duration(m.duration)}</span>
+                      <span>{m.aspect}</span>
+                    </div>
+                  </div>
+                  <MediaPicker onPick={setMediaId}>
+                    <span className="text-[12.5px]">Changer</span>
+                  </MediaPicker>
+                  <Button size="sm" variant="ghost" onClick={() => setMediaId(undefined)} aria-label="Retirer la vidéo">
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
+              ) : null}
+              {m && networks.includes("instagram") && (
+                <div className="mt-2 rounded-xl border border-line bg-surface-2/60 p-2.5">
+                  <CoverControl media={m} accountIds={selected} />
+                </div>
+              )}
+              {!m && (
+                <MediaPicker onPick={setMediaId} block>
+                  <ImagePlus className="size-5 text-ink-3" />
+                  <span className="text-[13px] text-ink-2">Choisir une vidéo de la bibliothèque</span>
+                  <span className="text-[12px] text-ink-3">Les vidéos générées par Claude Code arrivent ici automatiquement</span>
+                </MediaPicker>
+              )}
+            </section>
+
+            <section>
               <div className="mb-2 flex items-center">
                 <Label className="mb-0">Texte</Label>
                 <button
@@ -388,41 +423,6 @@ function ComposerForm() {
                   </div>
                 </div>
               </div>
-            </section>
-
-            <section>
-              <Label>Vidéo</Label>
-              {m ? (
-                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-2.5">
-                  <MediaThumb media={m} showMeta={false} playable className="h-16 w-12 rounded-md" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13.5px] font-medium">{m.title}</div>
-                    <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
-                      <SourceTag source={m.source} />
-                      <span className="tabular font-mono">{duration(m.duration)}</span>
-                      <span>{m.aspect}</span>
-                    </div>
-                  </div>
-                  <MediaPicker onPick={setMediaId}>
-                    <span className="text-[12.5px]">Changer</span>
-                  </MediaPicker>
-                  <Button size="sm" variant="ghost" onClick={() => setMediaId(undefined)} aria-label="Retirer la vidéo">
-                    <X className="size-3.5" />
-                  </Button>
-                </div>
-              ) : null}
-              {m && networks.includes("instagram") && (
-                <div className="mt-2 rounded-xl border border-line bg-surface-2/60 p-2.5">
-                  <CoverControl media={m} accountIds={selected} />
-                </div>
-              )}
-              {!m && (
-                <MediaPicker onPick={setMediaId} block>
-                  <ImagePlus className="size-5 text-ink-3" />
-                  <span className="text-[13px] text-ink-2">Choisir une vidéo de la bibliothèque</span>
-                  <span className="text-[12px] text-ink-3">Les vidéos générées par Claude Code arrivent ici automatiquement</span>
-                </MediaPicker>
-              )}
             </section>
 
             {hasYoutube && (
