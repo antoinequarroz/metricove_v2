@@ -38,6 +38,8 @@ export class Api {
   addVersion(id, data) { return this.req("POST", `/api/montage/jobs/${id}/versions`, { json: data }); }
   setPreview(id, n, upload) { return this.req("POST", `/api/montage/jobs/${id}/versions/${n}/preview`, { json: { upload } }); }
   final(id, upload, title) { return this.req("POST", `/api/montage/jobs/${id}/final`, { json: { upload, title } }); }
+  /** Vidéo de plus dans la bibliothèque (formats en plus du rendu final). Renvoie { media }. */
+  addMedia(upload, title) { return this.req("POST", "/api/media", { json: { upload, title } }); }
   scan(rushes) { return this.req("POST", "/api/montage/rushes/scan", { json: { rushes } }); }
   freeRush(id) { return this.req("DELETE", `/api/montage/rushes/${id}/file`); }
 

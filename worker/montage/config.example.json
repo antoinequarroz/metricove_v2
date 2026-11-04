@@ -11,12 +11,16 @@
     "model": "~/Movies/Metricove/modeles/ggml-large-v3-turbo.bin",
     "modelUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
     "language": "fr",
+    "dtw": "large.v3.turbo",
     "prompt": "LivreMatch, Metricove, Claude, Hermes"
   },
   "claude": {
     "bin": "~/.local/bin/claude",
     "model": ""
   },
+  "musicDir": "~/Movies/Metricove/musique",
+  "deepFilter": "~/Movies/Metricove/outils/deep-filter",
+  "silenceDb": -35,
   "hyperframes": "hyperframes@0.8.137",
   "theme": {
     "font": "Inter",

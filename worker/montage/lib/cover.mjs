@@ -77,15 +77,18 @@ export async function shot(lmDir, html, out) {
   } finally { await browser.close(); }
 }
 
-export async function makeCover(api, cfg, { job, media }, step) {
+/** `localVideo` : vidéo déjà sur le Mac (rendu final du montage) ; sinon elle est téléchargée depuis `media.url`. */
+export async function makeCover(api, cfg, { job, media, localVideo }, step) {
   const c = job.cover || {};
-  if (!media?.url) throw new Error("vidéo introuvable pour cette couverture");
+  if (!localVideo && !media?.url) throw new Error("vidéo introuvable pour cette couverture");
   const lmDir = home(cfg.livrematchDir || "~/Lab/projets/livrematch");
   const dir = ensureDir(join(cfg.workDir, "couvertures", job.id));
-  const video = join(dir, "video.mp4");
+  const video = localVideo || join(dir, "video.mp4");
   try {
-    await step("Récupération de la vidéo…", 0.1);
-    await download(api, media.url, video);
+    if (!localVideo) {
+      await step("Récupération de la vidéo…", 0.1);
+      await download(api, media.url, video);
+    }
     await step("Transcription de la vidéo…", 0.25);
     const spoken = await transcribe(cfg, video, statSync(video)).then((w) => w.map((x) => x.w).join(" ")).catch(() => "");
     const lm = /livre ?match/i.test(c.project || "") || isLivreMatch({ project: c.project, accounts: c.accounts });
@@ -118,6 +121,6 @@ sub = une phrase de 4 à 9 mots qui donne envie${lm ? ", sans spoiler au-delà d
     log(`[${job.id.slice(0, 8)}] couverture envoyée (« ${rc.line1} / ${rc.line2} »)`);
     return out;
   } finally {
-    rmSync(video, { force: true });
+    if (!localVideo) rmSync(video, { force: true });
   }
 }

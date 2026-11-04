@@ -6,12 +6,15 @@ import { run, log, ensureDir, assertSpace } from "./util.mjs";
 const VIDEO = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv"]);
 
 export async function probe(file) {
-  const out = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height,r_frame_rate:stream_side_data=rotation", "-of", "json", file]);
+  const out = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height,r_frame_rate,duration:stream_side_data=rotation", "-of", "json", file]);
   const j = JSON.parse(out);
   const v = (j.streams || []).find((s) => s.codec_type === "video") || {};
   const rot = Math.abs(Number(v.side_data_list?.[0]?.rotation || 0));
   const [w, h] = rot === 90 || rot === 270 ? [v.height, v.width] : [v.width, v.height];
-  return { duration: Number(j.format?.duration || 0), width: w || 0, height: h || 0, hasAudio: (j.streams || []).some((s) => s.codec_type === "audio") };
+  const duration = Number(j.format?.duration || 0);
+  // Durée de l'image seule : certains enregistrements perdent l'image avant la fin du son.
+  const videoDuration = Number(v.duration) || duration;
+  return { duration, videoDuration, width: w || 0, height: h || 0, hasAudio: (j.streams || []).some((s) => s.codec_type === "audio") };
 }
 
 async function thumb(file, duration) {

@@ -1,11 +1,16 @@
-// Rendu d'une EDL : découpe des phrases gardées, recadrage sur le visage, zooms lents, carton de fin,
-// surcouche HyperFrames (karaoké + accroche + fin), son normalisé (-14 LUFS en final), couverture et .srt.
+// Rendu d'une EDL : phrases gardées sans les mots coupés ni les silences (selon audio.silences), recadrage sur le visage,
+// zooms (un sur deux avant, un sur deux arrière), surcouche HyperFrames (sous-titres + accroche + fin),
+// son débruité + musique + loudnorm −14 LUFS, couverture et .srt.
 import { writeFileSync, rmSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run, ensureDir, log, round } from "./util.mjs";
 import { probe } from "./rushes.mjs";
 import { overlayPage, renderOverlay } from "./hf.mjs";
+import { renderPlan, toOutput, outputWords, audioOf, captionsOf } from "./edl.mjs";
+import { detectSilences, buildAudio } from "./audio.mjs";
+
+export { timeline } from "./edl.mjs";
 
 const FPS = 30;
 const SIZES = { "9:16": [1080, 1920], "4:5": [1080, 1350], "1:1": [1080, 1080], "16:9": [1920, 1080] };
@@ -16,52 +21,34 @@ export function sizeFor(format, quality) {
   return quality === "final" ? [w, h] : [w / 2, h / 2];
 }
 
-/** Segments gardés, dans l'ordre, avec leur position sur la timeline. */
-export function timeline(edl) {
-  let t = 0;
-  return edl.segments.filter((s) => s.kept && s.out > s.in).map((s) => {
-    const seg = { ...s, start: round(t), dur: round(s.out - s.in) };
-    t += seg.dur;
-    return seg;
-  });
-}
-
-/** Mots des sous-titres en temps de timeline. */
-export function timelineWords(segs) {
-  const out = [];
-  segs.forEach((s, i) => {
-    for (const w of s.words || []) {
-      if (w.t1 < s.in - 0.05 || w.t0 > s.out + 0.05) continue;
-      out.push({ w: w.w, s: round(s.start + Math.max(0, w.t0 - s.in)), e: round(s.start + Math.min(s.dur, w.t1 - s.in)), seg: i });
+/** Visage par segment (une image au milieu du segment) : { [i]: { cx, cy, h } } en fraction de l'image du rush. */
+async function detectFaces(plan, rushPaths, dir) {
+  const imgs = ensureDir(join(dir, "visages"));
+  const files = [];
+  for (const s of plan) {
+    const f = join(imgs, `${s.i}.jpg`);
+    const mid = s.pieces[Math.floor(s.pieces.length / 2)];
+    await run("ffmpeg", ["-v", "error", "-y", "-ss", String((mid[0] + mid[1]) / 2), "-i", rushPaths[s.rush], "-frames:v", "1", "-vf", "scale=480:-2", f]).then(() => files.push(f)).catch(() => {});
+  }
+  const out = {};
+  if (files.length) {
+    const txt = await run("swift", [FACES, ...files]).catch((e) => { log("détection des visages indisponible :", e.message); return ""; });
+    for (const line of txt.split("\n").filter(Boolean)) {
+      const j = JSON.parse(line);
+      if (j.cx != null) out[Number(j.file.split("/").pop().split(".")[0])] = { cx: j.cx, cy: j.cy, h: j.h };
     }
-  });
+  }
+  rmSync(imgs, { recursive: true, force: true });
   return out;
 }
 
-/** Centre du visage par rush (médiane sur une image par segment) ; 0,5 / 0,4 si aucun visage. */
-async function faceCenters(segs, rushPaths, dir, mode) {
-  const centers = {};
-  if (mode === "center") return centers;
-  const imgs = ensureDir(join(dir, "visages"));
-  const files = [];
-  for (const [i, s] of segs.entries()) {
-    const f = join(imgs, `${s.rush}__${i}.jpg`);
-    await run("ffmpeg", ["-v", "error", "-y", "-ss", String((s.in + s.out) / 2), "-i", rushPaths[s.rush], "-frames:v", "1", "-vf", "scale=480:-2", f]).then(() => files.push(f)).catch(() => {});
-  }
-  if (!files.length) return centers;
-  const out = await run("swift", [FACES, ...files]).catch((e) => { log("détection des visages indisponible :", e.message); return ""; });
-  const by = {};
-  for (const line of out.split("\n").filter(Boolean)) {
-    const j = JSON.parse(line);
-    if (j.cx == null) continue;
-    const rush = j.file.split("/").pop().split("__")[0];
-    (by[rush] ||= []).push(j);
-  }
-  const med = (a) => { const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
-  for (const [rush, a] of Object.entries(by)) centers[rush] = { cx: med(a.map((x) => x.cx)), cy: med(a.map((x) => x.cy)) };
-  rmSync(imgs, { recursive: true, force: true });
-  return centers;
-}
+const med = (a) => { const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
+
+/** Haut de la zone recadrée (fraction de la hauteur du rush) quand le rush est plus haut que le format. */
+const cropTop = (src, W, H, c) => {
+  const ch = (src.width * H) / W / src.height;
+  return Math.max(0, Math.min(1 - ch, c.cy - ch * 0.38));
+};
 
 function cropFilter(src, W, H, c) {
   const ta = W / H, sa = src.width / src.height;
@@ -74,80 +61,147 @@ function cropFilter(src, W, H, c) {
   return `crop=iw:${ch}:0:'max(0,min(ih-${ch},${c.cy}*ih-${ch}*0.38))',scale=${W}:${H}`;
 }
 
-export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, onStep = () => {} }) {
+/** Visage du segment dans l'image rendue (haut et bas, 0..1), pour placer les sous-titres en « auto ». */
+function faceInFrame(src, W, H, c, fc) {
+  const sa = src.width / src.height, ta = W / H;
+  if (sa >= ta - 0.01) return { y0: fc.cy - fc.h / 2, y1: fc.cy + fc.h / 2 };
+  const ch = (src.width * H) / W / src.height, top = cropTop(src, W, H, c);
+  return { y0: (fc.cy - fc.h / 2 - top) / ch, y1: (fc.cy + fc.h / 2 - top) / ch };
+}
+
+/**
+ * Un segment rendu : ses morceaux de rush mis bout à bout (image + son brut en PCM pour ne pas décaler le son).
+ * Temps remis à 0 après chaque -ss (vidéos de téléphone à fréquence d'image variable). L'image est lue à part et
+ * prolongée (dernière image figée) : certains rushes ont moins d'image que de son.
+ */
+async function renderPart(s, rush, src, vf, vbit, out) {
+  const n = s.pieces.length;
+  const len = s.out - s.in;
+  const vSeek = Math.max(0, Math.min(s.in, (src.videoDuration || Infinity) - 1));
+  const off = s.in - vSeek;
+  const rv = (t) => Math.max(0, t - s.in + off).toFixed(3);
+  const ra = (t) => Math.max(0, t - s.in).toFixed(3);
+  const fc = [`[0:v]setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${(len + off + 1).toFixed(2)},split=${n}${s.pieces.map((_, k) => `[vi${k}]`).join("")}`];
+  if (src.hasAudio) fc.push(`[1:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,asplit=${n}${s.pieces.map((_, k) => `[ai${k}]`).join("")}`);
+  s.pieces.forEach(([a, b], k) => {
+    fc.push(`[vi${k}]trim=start=${rv(a)}:end=${rv(b)},setpts=PTS-STARTPTS[v${k}]`);
+    if (src.hasAudio) fc.push(`[ai${k}]atrim=start=${ra(a)}:end=${ra(b)},asetpts=PTS-STARTPTS,afade=t=in:d=0.012,afade=t=out:st=${Math.max(0, b - a - 0.015).toFixed(3)}:d=0.015[a${k}]`);
+  });
+  const ins = s.pieces.map((_, k) => (src.hasAudio ? `[v${k}][a${k}]` : `[v${k}]`)).join("");
+  fc.push(`${ins}concat=n=${n}:v=1:a=${src.hasAudio ? 1 : 0}[cv]${src.hasAudio ? "[ca]" : ""}`, `[cv]${vf}[v]`);
+  const args = ["-v", "error", "-y", "-ss", String(round(vSeek)), "-t", String(round(len + off + 0.05)), "-i", rush];
+  if (src.hasAudio) args.push("-ss", String(s.in), "-t", String(round(len + 0.05)), "-i", rush);
+  else args.push("-f", "lavfi", "-t", String(s.oDur), "-i", "anullsrc=r=48000:cl=stereo");
+  args.push("-filter_complex", fc.join(";"), "-map", "[v]", "-map", src.hasAudio ? "[ca]" : "1:a:0");
+  await run("ffmpeg", [...args, "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-shortest", out]);
+}
+
+/**
+ * Rend l'EDL. `style` = job.style (sous-titres du projet quand l'EDL n'en a pas).
+ * Renvoie { video, cover, srt, duration, notes } ; `notes` = remarques pour Antoine (musique absente…).
+ */
+export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, style, onStep = () => {} }) {
   ensureDir(dir);
   const [W, H] = sizeFor(edl.format, quality);
   const final = quality === "final";
   const vbit = final ? "12M" : "2M";
-  const segs = timeline(edl);
-  if (!segs.length) throw new Error("Aucune phrase gardée : rien à monter.");
-  const speechEnd = segs[segs.length - 1].start + segs[segs.length - 1].dur;
+  const audio = audioOf(edl);
+  const captions = captionsOf(edl, style);
+  const notes = [];
+
+  const rushes = [...new Set(edl.segments.filter((s) => s.kept).map((s) => s.rush))];
+  const sil = {};
+  if (audio.silences !== "keep") {
+    onStep("Repérage des silences…", 0.03);
+    for (const r of rushes) sil[r] = await detectSilences(cfg, rushPaths[r]).catch((e) => { log("silences non détectés :", e.message); return null; });
+  }
+  const plan = renderPlan(edl, sil, audio.silences, FPS);
+  if (!plan.length) throw new Error("Aucune phrase gardée : rien à monter.");
+  const speechEnd = round(plan[plan.length - 1].oStart + plan[plan.length - 1].oDur);
   const endSec = edl.endCard?.text ? theme.endCardSeconds || 2.5 : 0;
   const total = round(speechEnd + endSec);
 
   onStep("Cadrage sur le visage…", 0.05);
-  const centers = await faceCenters(segs, rushPaths, dir, edl.crop || "face");
   const srcInfo = {};
-  for (const s of segs) srcInfo[s.rush] ||= await probe(rushPaths[s.rush]);
+  for (const r of rushes) {
+    srcInfo[r] = await probe(rushPaths[r]);
+    const { videoDuration: vd, duration: d } = srcInfo[r];
+    if (vd && d - vd > 0.5 && plan.some((s) => s.rush === r && s.out > vd + 0.1)) {
+      notes.push(`Le rush « ${rushPaths[r].split("/").pop()} » n'a d'image que jusqu'à ${vd.toFixed(1)} s (son jusqu'à ${d.toFixed(1)} s) : image figée après.`);
+    }
+  }
+  const needFaces = (edl.crop || "face") === "face" || (captions.on !== false && captions.position === "auto");
+  const faces = needFaces ? await detectFaces(plan, rushPaths, dir) : {};
+  const centers = {};
+  if ((edl.crop || "face") === "face") {
+    for (const r of rushes) {
+      const f = plan.filter((s) => s.rush === r && faces[s.i]).map((s) => faces[s.i]);
+      if (f.length) centers[r] = { cx: med(f.map((x) => x.cx)), cy: med(f.map((x) => x.cy)) };
+    }
+  }
+  const capFaces = {};
+  for (const s of plan) if (faces[s.i]) capFaces[s.i] = faceInFrame(srcInfo[s.rush], W, H, centers[s.rush] || { cx: 0.5, cy: 0.4 }, faces[s.i]);
 
   const parts = [];
-  for (const [i, s] of segs.entries()) {
-    onStep(`Découpe ${i + 1}/${segs.length}…`, 0.1 + 0.4 * (i / segs.length));
+  for (const s of plan) {
+    onStep(`Découpe ${s.i + 1}/${plan.length}…`, 0.1 + 0.35 * (s.i / plan.length));
     const src = srcInfo[s.rush];
-    const c = centers[s.rush] || { cx: 0.5, cy: 0.4 };
-    let vf = cropFilter(src, W, H, c);
-    const z = (edl.zooms || []).find((zz) => zz.at >= s.start - 0.05 && zz.at < s.start + s.dur);
-    if (z) { // zoom lent sur toute la phrase (d'un changement de plan au suivant)
-      const S = z.scale || 1.1, D = s.dur;
-      vf += `,scale=w='trunc(${W}*(1+${S - 1}*t/${D})/2)*2':h='trunc(${H}*(1+${S - 1}*t/${D})/2)*2':eval=frame,crop=${W}:${H}`;
-    }
-    vf += `,fps=${FPS},setsar=1,format=yuv420p`;
-    const p = join(dir, `part${String(i).padStart(3, "0")}.mp4`);
-    const args = ["-v", "error", "-y", "-ss", String(s.in), "-t", String(s.dur), "-i", rushPaths[s.rush]];
-    if (src.hasAudio) {
-      args.push("-map", "0:v:0", "-map", "0:a:0", "-af", `aresample=48000,afade=t=in:d=0.02,afade=t=out:st=${Math.max(0, s.dur - 0.03).toFixed(3)}:d=0.03`);
-    } else { // rush muet : piste silencieuse pour que la concaténation reste homogène
-      args.push("-f", "lavfi", "-t", String(s.dur), "-i", "anullsrc=r=48000:cl=stereo", "-map", "0:v:0", "-map", "1:a:0");
-    }
-    await run("ffmpeg", [...args, "-vf", vf, "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-ar", "48000", p]);
+    const vf = `${cropFilter(src, W, H, centers[s.rush] || { cx: 0.5, cy: 0.4 })},fps=${FPS},setsar=1,format=yuv420p`;
+    const p = join(dir, `part${String(s.i).padStart(3, "0")}.mov`);
+    await renderPart(s, rushPaths[s.rush], src, vf, vbit, p);
     parts.push(p);
   }
   if (endSec) {
-    const p = join(dir, "part999.mp4");
+    const p = join(dir, "part999.mov");
     await run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `color=c=${theme.dark.replace("#", "0x")}:s=${W}x${H}:r=${FPS}:d=${endSec}`,
       "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", String(endSec), "-vf", "format=yuv420p,setsar=1",
-      "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "aac", "-b:a", "160k", p]);
+      "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", p]);
     parts.push(p);
   }
   writeFileSync(join(dir, "parts.txt"), parts.map((p) => `file '${p}'`).join("\n"));
-  const base = join(dir, "base.mp4");
+  const base = join(dir, "base.mov");
   await run("ffmpeg", ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", join(dir, "parts.txt"), "-c", "copy", base]);
 
+  onStep("Son : débruitage, musique, volume…", 0.48);
+  const sound = await buildAudio(cfg, { base, dir, audio, final, total, notes });
+
   onStep("Sous-titres et cartons…", 0.55);
-  const words = timelineWords(segs);
-  const titleUntil = edl.title?.until || Math.min(2.8, speechEnd);
+  const words = outputWords(plan);
+  const titleUntil = edl.title?.text ? Math.min(toOutput(plan, edl.title.until || 2.8), speechEnd) : Math.min(2.8, speechEnd);
   let overlay = null;
-  if (words.length || edl.title?.text || endSec) {
-    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format });
+  const showWords = captions.on !== false && words.length;
+  if (showWords || edl.title?.text || endSec) {
+    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces });
     overlay = await renderOverlay(cfg, ensureDir(join(dir, "hf")), html, join(dir, "overlay.mov"), { fps: FPS, theme });
   }
 
+  // Zooms (temps de la timeline de l'éditeur → temps rendu) : pairs = zoom avant, impairs = zoom arrière.
+  const terms = [];
+  [...(edl.zooms || [])].sort((a, b) => a.at - b.at).forEach((z, k) => {
+    const a = toOutput(plan, z.at), b = toOutput(plan, z.at + z.dur);
+    const S = Math.min(1.4, Math.max(1.02, Number(z.scale) || 1.1));
+    if (b - a < 0.2) return;
+    const p = `(t-${a.toFixed(3)})/${(b - a).toFixed(3)}`;
+    terms.push(`between(t,${a.toFixed(3)},${b.toFixed(3)})*${(S - 1).toFixed(3)}*${k % 2 ? `(1-${p})` : p}`);
+  });
+  const Z = terms.join("+");
+  const zoom = Z ? `scale=w='trunc(${W}*(1+${Z})/2)*2':h='trunc(${H}*(1+${Z})/2)*2':eval=frame,crop=${W}:${H}:'(in_w-${W})/2':'(in_h-${H})*0.4',` : "";
+
   onStep(final ? "Rendu final…" : "Rendu de l'aperçu…", 0.8);
   const out = join(dir, final ? "final.mp4" : "apercu.mp4");
-  const af = final ? ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000"] : ["-c:a", "copy"];
-  if (overlay) {
-    await run("ffmpeg", ["-v", "error", "-y", "-i", base, "-i", overlay, "-filter_complex", "[0:v][1:v]overlay=0:0:format=auto,format=yuv420p[v]",
-      "-map", "[v]", "-map", "0:a", "-c:v", "h264_videotoolbox", "-b:v", vbit, ...af, "-movflags", "+faststart", out]);
-  } else {
-    await run("ffmpeg", ["-v", "error", "-y", "-i", base, "-c:v", "copy", ...af, "-movflags", "+faststart", out]);
-  }
+  const inputs = ["-i", base, "-i", sound, ...(overlay ? ["-i", overlay] : [])];
+  const fc = overlay ? `[0:v]${zoom}setsar=1[b];[b][2:v]overlay=0:0:format=auto,format=yuv420p[v]` : `[0:v]${zoom}format=yuv420p[v]`;
+  await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", "1:a",
+    "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);
   const cover = join(dir, final ? "couverture.jpg" : "apercu.jpg");
   await run("ffmpeg", ["-v", "error", "-y", "-ss", String(Math.min(titleUntil * 0.6, total / 2)), "-i", out, "-frames:v", "1", "-q:v", "3", cover]).catch(() => {});
   writeFileSync(join(dir, "sous-titres.srt"), srt(words));
 
-  for (const f of readdirSync(dir)) if (/^part\d+\.mp4$|^base\.mp4$|^overlay\.mov$|^parts\.txt$/.test(f)) rmSync(join(dir, f), { force: true });
+  for (const f of readdirSync(dir)) if (/^part\d+\.mov$|^base\.mov$|^overlay\.mov$|^parts\.txt$|\.wav$/.test(f)) rmSync(join(dir, f), { force: true });
   rmSync(join(dir, "hf"), { recursive: true, force: true });
-  return { video: out, cover, srt: join(dir, "sous-titres.srt"), duration: total };
+  rmSync(join(dir, "df"), { recursive: true, force: true });
+  for (const n of notes) log("note :", n);
+  return { video: out, cover, srt: join(dir, "sous-titres.srt"), duration: total, notes };
 }
 
 function srt(words) {

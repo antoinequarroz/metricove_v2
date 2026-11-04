@@ -63,8 +63,8 @@ export function assertSpace(cfg, need = cfg.minFreeGb) {
   if (gb < need) throw new Error(`Disque presque plein : ${gb.toFixed(1)} Go libres, il en faut au moins ${need}. Libérez de la place ou changez workDir/rushesDir dans config.json.`);
 }
 
-/** Lance une commande ; rejette avec la fin de stderr si elle échoue. */
-export function run(cmd, args, { cwd, input, quiet = true, env, binary = false } = {}) {
+/** Lance une commande ; rejette avec la fin de stderr si elle échoue. `stderr: true` renvoie stderr (silencedetect, loudnorm). */
+export function run(cmd, args, { cwd, input, quiet = true, env, binary = false, stderr = false } = {}) {
   return new Promise((res, rej) => {
     const p = spawn(cmd, args, { cwd, env: { ...process.env, ...env } });
     const chunks = []; let err = "";
@@ -73,7 +73,7 @@ export function run(cmd, args, { cwd, input, quiet = true, env, binary = false }
     p.on("error", rej);
     p.on("close", (code) => {
       const out = binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8");
-      if (code === 0) return res(out);
+      if (code === 0) return res(stderr ? err : out);
       // Claude Code en mode -p écrit son erreur dans le JSON de sortie, pas dans stderr.
       let detail = err.trim();
       if (!detail) { try { detail = JSON.parse(String(out)).result || ""; } catch { detail = String(out).trim(); } }
