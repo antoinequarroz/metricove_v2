@@ -108,17 +108,9 @@ function ComposerForm() {
     }
     if (isNaN(when.getTime())) return toast.error("Date invalide");
     // The same video already waits in the TikTok app: sending it again only makes a duplicate (or a 404).
-    if (status === "scheduled" && m && networks.includes("tiktok")) {
-      const day = Date.now() - 24 * 3600_000;
-      const waiting = posts.some(
-        (p) =>
-          p.mediaId === m.id &&
-          Object.entries(p.results ?? {}).some(
-            // On this same post, accounts already sent are skipped by the server.
-            ([, r]) => r.externalId?.startsWith("inbox:") && new Date(r.at).getTime() > day && p.id !== existing?.id,
-          ),
-      );
-      if (waiting && !confirm("Cette vidéo attend déjà dans ton app TikTok. La renvoyer crée un doublon, et TikTok peut la refuser. Continuer quand même ?")) return;
+    if (status === "scheduled") {
+      // On this same post, accounts already sent are skipped by the server.
+      if (inboxElsewhere && !confirm("Cette vidéo attend déjà dans ton app TikTok. La renvoyer crée un doublon, et TikTok peut la refuser. Continuer quand même ?")) return;
     }
     setBusy(true);
     try {
@@ -145,6 +137,17 @@ function ComposerForm() {
       setBusy(false);
     }
   };
+
+  // The same video already sent to the TikTok app by another post in the last 24 h.
+  const inboxElsewhere =
+    !!m &&
+    networks.includes("tiktok") &&
+    posts.some(
+      (p) =>
+        p.mediaId === m.id &&
+        p.id !== existing?.id &&
+        Object.values(p.results ?? {}).some((r) => r.externalId?.startsWith("inbox:") && Date.now() - new Date(r.at).getTime() < 24 * 3600_000),
+    );
 
   const hermesOn = useStore((s) => s.integrations.hermes);
   const [thinking, setThinking] = useState<string | null>(null);
@@ -267,6 +270,8 @@ function ComposerForm() {
                       size="sm"
                       type="button"
                       onClick={() =>
+                        (!inboxElsewhere ||
+                          confirm("Cette vidéo attend déjà dans ton app TikTok (envoyée par un autre post). La renvoyer crée un doublon. Continuer quand même ?")) &&
                         retryPost(existing.id).then(
                           () => {
                             close();
