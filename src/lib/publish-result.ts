@@ -7,6 +7,7 @@ export type Outcome = { kind: "published" | "inbox" | "failed" | "pending"; labe
 export function readableError(error = "") {
   if (/Reliez @.* Page Facebook/.test(error)) return error;
   if (/does not have permission|"code":10\b/i.test(error)) return "Meta refuse la publication par treg (droits de l'app Instagram de treg).";
+  if (/pending_share|spam_risk/i.test(error)) return "TikTok bloque : trop de vidéos attendent déjà dans ton app TikTok. Publie-les ou supprime-les, puis relance.";
   if (/non relié à treg|synchronisez/i.test(error)) return "Compte non relié à treg : synchronisez les comptes.";
   if (/quota/i.test(error)) return "Quota du réseau dépassé : réessayez plus tard.";
   if (/token|expired|expiré|OAuth/i.test(error)) return "Connexion au réseau expirée : reconnectez le compte dans treg.";
