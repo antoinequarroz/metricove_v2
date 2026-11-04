@@ -7,6 +7,7 @@ import { Bot, CalendarClock, Film, ImagePlus, Sparkles, Trash2, X, Hash, Smile }
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { MontageJob } from "@/lib/montage";
+import { outcomeOf, readableError, summary, waitsInTikTok } from "@/lib/publish-result";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
 import { ProjectMark } from "./projects";
@@ -108,7 +109,7 @@ function ComposerForm() {
     if (isNaN(when.getTime())) return toast.error("Date invalide");
     setBusy(true);
     try {
-      await savePost({
+      const saved = await savePost({
         id: existing?.id ?? uid(),
         accountIds: selected,
         caption,
@@ -120,9 +121,11 @@ function ComposerForm() {
       });
       close();
       const n = selectedAccounts.length;
-      toast.success(status === "draft" ? "Brouillon enregistré" : now ? "Publication lancée" : "Post programmé", {
-        description: status === "draft" ? undefined : now ? `Sur ${n} compte${n > 1 ? "s" : ""}.` : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${n} compte${n > 1 ? "s" : ""}.`,
-      });
+      if (status === "scheduled" && now) followPublish(saved.id);
+      else
+        toast.success(status === "draft" ? "Brouillon enregistré" : "Post programmé", {
+          description: status === "draft" ? undefined : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${n} compte${n > 1 ? "s" : ""}.`,
+        });
     } catch (e) {
       toast.error("Enregistrement impossible", { description: (e as Error).message });
     } finally {
@@ -199,7 +202,7 @@ function ComposerForm() {
     <>
       <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
         <Dialog.Title className="text-[15px] font-semibold">{existing ? "Modifier le post" : "Nouveau post"}</Dialog.Title>
-        {existing && <StatusPill status={existing.status} />}
+        {existing && <StatusPill status={existing.status} inbox={waitsInTikTok(existing)} />}
         <Dialog.Close className="press ml-auto flex size-8 items-center justify-center rounded-lg text-ink-3 hover:bg-ink/5 hover:text-ink" aria-label="Fermer">
           <X className="size-4" />
         </Dialog.Close>
@@ -208,43 +211,68 @@ function ComposerForm() {
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_420px] max-lg:grid-cols-1">
         {/* Editor */}
         <div className="scroll-thin flex min-h-0 flex-col gap-5 overflow-y-auto p-5">
-            {existing?.status === "failed" && existing.error && (
+            {existing && existing.status !== "draft" && Object.keys(existing.results ?? {}).length > 0 && (
+              <section className="rounded-xl border border-line bg-surface-2/60 p-3 text-[12.5px]">
+                <p className="mb-2 font-medium">Résultat par compte</p>
+                <ul className="flex flex-col gap-2">
+                  {accounts
+                    .filter((a) => existing.accountIds.includes(a.id))
+                    .map((a) => {
+                      const o = outcomeOf(existing.results?.[a.id], existing);
+                      return (
+                        <li key={a.id} className="flex items-start gap-2.5">
+                          <Avatar account={a} size={22} />
+                          <div className="min-w-0 flex-1">
+                            <p className="flex flex-wrap items-center gap-x-2">
+                              <span className="font-medium">@{a.handle}</span>
+                              <span
+                                className={cn(
+                                  "font-medium",
+                                  o.kind === "published" && "text-ok",
+                                  o.kind === "inbox" && "text-warn",
+                                  o.kind === "failed" && "text-danger",
+                                  o.kind === "pending" && "text-ink-3",
+                                )}
+                              >
+                                {o.label}
+                              </span>
+                            </p>
+                            {o.detail && <p className="mt-0.5 text-ink-2">{o.detail}</p>}
+                          </div>
+                        </li>
+                      );
+                    })}
+                </ul>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Object.values(existing.results ?? {}).some((r) => r.externalId?.startsWith("inbox:")) && (
+                    <Button size="sm" type="button" onClick={() => navigator.clipboard.writeText(existing.caption).then(() => toast.success("Légende copiée"))}>
+                      Copier la légende
+                    </Button>
+                  )}
+                  {existing.status === "failed" && (
+                    <Button
+                      size="sm"
+                      type="button"
+                      onClick={() =>
+                        retryPost(existing.id).then(
+                          () => {
+                            close();
+                            followPublish(existing.id, true);
+                          },
+                          (e: Error) => toast.error(e.message),
+                        )
+                      }
+                    >
+                      Relancer les comptes en échec
+                    </Button>
+                  )}
+                </div>
+              </section>
+            )}
+            {existing?.status === "failed" && existing.error && !Object.keys(existing.results ?? {}).length && (
               <div className="rounded-xl border border-danger/25 bg-danger/[0.07] px-3.5 py-3 text-[12.5px]">
                 <p className="font-medium text-danger">La publication a échoué</p>
-                <p className="mt-1 whitespace-pre-wrap text-ink-2">{existing.error}</p>
-                <Button
-                  size="sm"
-                  className="mt-2.5"
-                  type="button"
-                  onClick={() =>
-                    retryPost(existing.id).then(
-                      () => {
-                        close();
-                        toast("Nouvelle tentative lancée");
-                      },
-                      (e: Error) => toast.error(e.message),
-                    )
-                  }
-                >
-                  Relancer
-                </Button>
-              </div>
-            )}
-
-            {existing && Object.values(existing.results ?? {}).some((r) => r.externalId?.startsWith("inbox:")) && (
-              <div className="rounded-xl border border-line bg-surface-2/70 px-3.5 py-3 text-[12.5px]">
-                <p className="font-medium">Vidéo envoyée dans l&apos;app TikTok</p>
-                <p className="mt-1 text-ink-2">
-                  Ouvre TikTok, puis Boîte de réception (ou Brouillons). Colle la légende et publie dans les 24 h.
-                </p>
-                <Button
-                  size="sm"
-                  className="mt-2.5"
-                  type="button"
-                  onClick={() => navigator.clipboard.writeText(existing.caption).then(() => toast.success("Légende copiée"))}
-                >
-                  Copier la légende
-                </Button>
+                <p className="mt-1 whitespace-pre-wrap text-ink-2">{readableError(existing.error)}</p>
               </div>
             )}
 
@@ -590,4 +618,32 @@ function MediaPicker({ children, onPick, block }: { children: React.ReactNode; o
       </Popover.Portal>
     </Popover.Root>
   );
+}
+
+/**
+ * After "Publier maintenant": a toast that stays until the server says what really happened
+ * on each account (published, waiting in the TikTok app, or failed and why).
+ */
+export function followPublish(id: string, retry = false) {
+  const store = useStore.getState;
+  const toastId = toast.loading(retry ? "Nouvelle tentative…" : "Publication en cours…", { description: "Envoi de la vidéo aux réseaux, ça peut prendre une minute.", duration: Infinity });
+  const until = Date.now() + 6 * 60_000;
+  const step = async () => {
+    await store().load().catch(() => {});
+    const post = store().posts.find((p) => p.id === id);
+    if (!post) return toast.dismiss(toastId);
+    if (post.status === "published" || post.status === "failed") {
+      const s = summary(post, store().accounts);
+      const open = { label: "Voir", onClick: () => store().openComposer({ postId: id }) };
+      const opts = { id: toastId, description: s.lines.join("\n"), duration: 20_000, action: open, classNames: { description: "whitespace-pre-line" } };
+      if (s.failed === s.total) toast.error("La publication a échoué", opts);
+      else if (s.failed) toast.warning(`Publié sur ${s.total - s.failed} compte${s.total - s.failed > 1 ? "s" : ""} sur ${s.total}`, opts);
+      else if (s.inbox) toast.warning(s.published ? "Publié, et TikTok attend ta validation" : "Envoyé dans ton app TikTok, à finaliser", opts);
+      else toast.success("Publié", opts);
+      return;
+    }
+    if (Date.now() > until) return toast("Toujours en cours", { id: toastId, description: "Le statut s'affichera dans le calendrier.", duration: 8000 });
+    setTimeout(step, 3000);
+  };
+  setTimeout(step, 2000);
 }

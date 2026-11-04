@@ -23,6 +23,7 @@ import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore, useVisiblePosts, type CalendarView } from "@/lib/store";
 import type { Post } from "@/lib/types";
 import { cn, fmt } from "@/lib/utils";
+import { waitsInTikTok } from "@/lib/publish-result";
 import { AvatarStack, Button, MediaThumb, STATUS_META, StatusPill } from "./ui";
 
 const WEEK = { weekStartsOn: 1 as const };
@@ -459,7 +460,7 @@ function ListView() {
                         {accs.map((a) => `@${a.handle}`).join(", ")}
                       </span>
                     </span>
-                    <StatusPill status={p.status} />
+                    <StatusPill status={p.status} inbox={waitsInTikTok(p)} />
                   </button>
                 );
               })}

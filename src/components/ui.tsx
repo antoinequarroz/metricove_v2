@@ -164,8 +164,9 @@ export const STATUS_META: Record<PostStatus, { label: string; dot: string; text:
   failed: { label: "Échec", dot: "bg-danger", text: "text-danger" },
 };
 
-export function StatusPill({ status }: { status: PostStatus }) {
-  const m = STATUS_META[status];
+export function StatusPill({ status, inbox = false }: { status: PostStatus; inbox?: boolean }) {
+  // Published on TikTok's side but still waiting for Antoine in the app.
+  const m = inbox && status === "published" ? { label: "À finaliser dans TikTok", dot: "bg-warn animate-pulse", text: "text-warn" } : STATUS_META[status];
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2 py-0.5 text-[11.5px] font-medium", m.text)}>
       <span className={cn("size-1.5 rounded-full", m.dot)} />
