@@ -205,21 +205,37 @@ const LINKEDIN_HEADERS = { "LinkedIn-Version": "202601", "X-Restli-Protocol-Vers
 const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
   async instagram({ post, account: a, media }) {
     if (!media?.path) throw new Error("Instagram exige une vidéo");
-    const { data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", {
-      method: "POST",
-      query: { ig_user_id: a.externalId, media_type: "REELS", video_url: signedMediaUrl(media.id), caption: post.caption },
-    });
+    const query = { ig_user_id: a.externalId, media_type: "REELS", video_url: signedMediaUrl(media.id), caption: post.caption };
+    // treg's "Instagram login" app is not reviewed by Meta yet: it reads but cannot publish (code 10).
+    // The "Facebook Page" method uses approved permissions, so we fall back to it.
+    let headers: Record<string, string> = {};
+    let c: { id: string };
+    try {
+      ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { method: "POST", query }));
+    } catch (e) {
+      if (!/does not have permission|"code":10\b/i.test((e as Error).message)) throw e;
+      headers = { "X-Treg-Authorization-Method": "facebook-page" };
+      try {
+        ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { method: "POST", query, headers }));
+      } catch (e2) {
+        console.error("[treg] instagram via facebook-page", (e2 as Error).message);
+        throw new Error(
+          `Meta refuse la publication par la connexion « Instagram » de treg. Reliez @${a.handle} à une Page Facebook, puis connectez la méthode Page dans treg (instagram, page-tools).`,
+        );
+      }
+    }
     // Instagram downloads and processes the video before it can be published.
     for (let i = 0; ; i++) {
       await sleep(i === 0 ? 10_000 : 20_000);
       const { data: s } = await call<{ status_code?: string; status?: string }>("instagram.instagram.media.container.status", {
         query: { ig_container_id: c.id, fields: "status_code,status" },
+        headers,
       });
       if (s.status_code === "FINISHED") break;
       if (s.status_code === "ERROR" || s.status_code === "EXPIRED") throw new Error(`Instagram a refusé la vidéo : ${s.status ?? s.status_code}`);
       if (i >= 27) throw new Error("Instagram traite encore la vidéo après 9 minutes");
     }
-    const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: c.id } });
+    const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: c.id }, headers });
     return { externalId: data.id };
   },
 

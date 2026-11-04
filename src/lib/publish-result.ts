@@ -5,6 +5,7 @@ export type Outcome = { kind: "published" | "inbox" | "failed" | "pending"; labe
 
 /** Turns a raw publisher error into a short, readable reason. */
 export function readableError(error = "") {
+  if (/Reliez @.* Page Facebook/.test(error)) return error;
   if (/does not have permission|"code":10\b/i.test(error)) return "Meta refuse la publication par treg (droits de l'app Instagram de treg).";
   if (/non relié à treg|synchronisez/i.test(error)) return "Compte non relié à treg : synchronisez les comptes.";
   if (/quota/i.test(error)) return "Quota du réseau dépassé : réessayez plus tard.";
