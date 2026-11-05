@@ -36,7 +36,8 @@ export class Api {
   step(id, step, progress) { return this.patch(id, { step, progress }).catch((e) => log("étape non envoyée :", e.message)); }
   fail(id, error) { return this.patch(id, { status: "failed", error: String(error).slice(0, 2000) }); }
   addVersion(id, data) { return this.req("POST", `/api/montage/jobs/${id}/versions`, { json: data }); }
-  setPreview(id, n, upload) { return this.req("POST", `/api/montage/jobs/${id}/versions/${n}/preview`, { json: { upload } }); }
+  /** Aperçu d'une version modifiée ; `broll` = plans trouvés (source, ref, thumb), réenregistrés dans la version. */
+  setPreview(id, n, upload, broll) { return this.req("POST", `/api/montage/jobs/${id}/versions/${n}/preview`, { json: { upload, ...(broll ? { broll } : {}) } }); }
   final(id, upload, title) { return this.req("POST", `/api/montage/jobs/${id}/final`, { json: { upload, title } }); }
   /** Vidéo de plus dans la bibliothèque (formats en plus du rendu final). Renvoie { media }. */
   addMedia(upload, title) { return this.req("POST", "/api/media", { json: { upload, title } }); }

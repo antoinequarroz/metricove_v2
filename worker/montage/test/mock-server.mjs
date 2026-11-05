@@ -106,6 +106,12 @@ createServer(async (req, res) => {
     const d = json(); const n = Number(m[1]);
     const f = join(out, `apercu-v${n}.mp4`); if (uploads[d.upload]) renameSync(uploads[d.upload].file, f);
     say(`aperçu de la version ${n} (edit) :`, f);
+    const v = job.versions.find((x) => x.n === n);
+    if (v && Array.isArray(d.broll)) {
+      v.edl.broll = d.broll;
+      writeFileSync(join(out, `edl-v${n}.json`), JSON.stringify(v.edl, null, 2));
+      say(`B-roll réenregistré : ${d.broll.map((b) => `${b.query} → ${b.source || "?"}:${b.ref || "?"}`).join(", ")}`);
+    }
     next(n);
     return send(res, 200, job);
   }

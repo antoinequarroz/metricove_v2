@@ -87,7 +87,7 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       await withBroll(cfg, v.edl, step);
       const r = await renderEdl(cfg, { edl: v.edl, rushPaths, theme, quality: "preview", style: job.style, dir: join(dir, "apercu"), onStep: step });
       const upload = await api.upload(r.video, `apercu-${job.id}-v${v.n}.mp4`);
-      await api.setPreview(job.id, v.n, upload);
+      await api.setPreview(job.id, v.n, upload, v.edl.broll);
       return;
     }
 
