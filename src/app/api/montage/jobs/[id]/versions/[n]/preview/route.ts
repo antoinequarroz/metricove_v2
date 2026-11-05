@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getJob, moveInto, previewPath, release, takeUpload, UploadError } from "@/server/montage";
+import { cleanBroll, getJob, moveInto, previewPath, release, takeUpload, UploadError } from "@/server/montage";
 import { streamFile } from "@/server/stream";
 
 type Ctx = { params: Promise<{ id: string; n: string }> };
@@ -10,17 +10,18 @@ export async function GET(req: Request, { params }: Ctx) {
   return streamFile(req, getJob(id) ? previewPath(id, Number(n)) : undefined, "private, no-store");
 }
 
-/** The worker sends the preview of a version edited by hand: { upload }. */
+/** The worker sends the preview of a version edited by hand: { upload, broll? } (B-roll shots it found). */
 export async function POST(req: Request, { params }: Ctx) {
   const { id, n } = await params;
   const job = getJob(id);
   const v = job?.versions.find((x) => x.n === Number(n));
   if (!job || !v) return NextResponse.json({ error: "Version introuvable" }, { status: 404 });
-  const b = (await req.json().catch(() => ({}))) as { upload?: string };
+  const b = (await req.json().catch(() => ({}))) as { upload?: string; broll?: unknown };
   if (!b.upload) return NextResponse.json({ error: "Champ « upload » manquant" }, { status: 400 });
   try {
     moveInto(takeUpload(b.upload).file, previewPath(id, v.n));
     v.preview = true;
+    if (Array.isArray(b.broll)) v.edl.broll = cleanBroll(b.broll);
     return NextResponse.json({ job: release(job, "review") });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: e instanceof UploadError ? e.status : 500 });

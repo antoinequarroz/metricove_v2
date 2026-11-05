@@ -393,7 +393,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
 
 const FORMATS = ["9:16", "4:5", "1:1", "16:9"];
 
-function cleanBroll(raw: unknown[]): Broll[] {
+export function cleanBroll(raw: unknown[]): Broll[] {
   const out: Broll[] = [];
   for (const b of (raw as Record<string, unknown>[]).slice(0, 30)) {
     const at = num(b.at);

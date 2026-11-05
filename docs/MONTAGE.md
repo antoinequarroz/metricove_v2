@@ -148,7 +148,7 @@ Un segment peut être coupé en deux dans la timeline : les deux moitiés garden
   rendre un aperçu léger (540p), puis
   `POST /api/montage/jobs/:id/versions` `{ "edl", "notes", "upload"? }` → statut `review`.
 - `action: "preview"` : l'utilisateur a modifié l'EDL à la main. C'est toujours la **dernière** version (`by: "edit"`, `preview: false`). Rendre seulement l'aperçu,
-  puis `POST /api/montage/jobs/:id/versions/:n/preview` `{ "upload" }`.
+  puis `POST /api/montage/jobs/:id/versions/:n/preview` `{ "upload", "broll"? }` (`broll` : les plans avec `source`/`ref`/`thumb` trouvés, ils remplacent ceux de la version).
 - `action: "final"` : rendu pleine qualité de la version `approved`, puis
   `POST /api/montage/jobs/:id/final` `{ "upload", "title"? }` → la vidéo entre dans la bibliothèque, statut `done`.
 - `action: "script"` (`kind: "script"`) : écrire un texte de prompteur à partir de `brief.instructions`,
