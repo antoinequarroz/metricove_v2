@@ -110,10 +110,27 @@ type Edl = {
     music: { on: boolean; track?: string; volume: number; duck: boolean }; // track = fichier du dossier musique du Mac ; duck = baisse sous la voix
   };
   exports?: ("9:16" | "4:5" | "1:1" | "16:9")[]; // formats en plus, rendus avec la version finale
+  brollAuto?: boolean;             // absent = true : Claude place du B-roll là où il aide
+  broll?: {                        // plans d'illustration par-dessus Antoine (sa voix continue), temps de timeline
+    at: number; dur: number;
+    query: string;                 // ce que le plan montre, en quelques mots (sert à chercher)
+    source?: "mine" | "pexels";    // rempli par le worker une fois le plan trouvé ; absent = à chercher
+    ref?: string;                  // nom du fichier dans ~/Movies/Metricove/broll, ou id de la vidéo Pexels
+    thumb?: string;                // petite image JPEG en data URL (≤ 40 Ko)
+    mode: "full" | "pip";          // plein écran, ou petite fenêtre (Antoine reste visible)
+  }[];
 };
 ```
 
-Durée d'un segment sur la timeline = `out − in − (durée des mots cut entre in et out)`.
+### B-roll
+
+À la proposition (`propose`), si `brollAuto` n'est pas `false`, Claude place 2 à 5 plans (`query` en français, sur les
+mots concrets) et le worker les cherche : d'abord dans `~/Movies/Metricove/broll` (noms de fichiers descriptifs),
+sinon sur Pexels (clé `pexelsKey` du `config.json` du worker, vidéos verticales de préférence). Il remplit `source`, `ref`, `thumb`.
+Un plan sans `source` (ajouté ou changé à la main dans la timeline) est cherché au prochain aperçu.
+Les sous-titres restent au-dessus du B-roll.
+
+Durée d'un segment sur la timeline = `out − in −` (mots coupés + part des silences retirée selon `audio.silences`, sans la détection ffmpeg). Voir `removedSpans` dans src/lib/montage.ts.
 
 Les mots d'un segment peuvent dépasser `in`/`out` (plan raccourci dans la timeline) : ne garder que la partie entre `in` et `out`.
 

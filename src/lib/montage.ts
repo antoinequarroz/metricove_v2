@@ -53,6 +53,22 @@ export type AudioSettings = {
   music: { on: boolean; track?: string; volume: number; duck: boolean };
 };
 
+/** Illustration shot over the speaker (the voice keeps going). Times are timeline seconds. */
+export type Broll = {
+  at: number;
+  dur: number;
+  /** What the shot should show, in a few words (used to search). */
+  query: string;
+  /** Where the shot comes from, once the Mac found it. */
+  source?: "mine" | "pexels";
+  /** File name in the Mac B-roll folder, or Pexels video id. */
+  ref?: string;
+  /** Small JPEG data URL of the shot. */
+  thumb?: string;
+  /** full: replaces the picture; pip: small window, the speaker stays visible. */
+  mode: "full" | "pip";
+};
+
 /** A precise change request drawn on the video. */
 export type MontageMark = {
   id: string;
@@ -88,6 +104,9 @@ export type Edl = {
   audio?: AudioSettings;
   /** More formats to render with the final video (same edit, reframed). */
   exports?: MontageFormat[];
+  broll?: Broll[];
+  /** Claude adds B-roll where it helps (your shots first, then Pexels). */
+  brollAuto?: boolean;
 };
 
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };

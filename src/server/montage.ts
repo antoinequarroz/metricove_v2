@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, type AudioSettings, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, type AudioSettings, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { DATA_DIR, db } from "./db";
 
 /* ---------- Tables ---------- */
@@ -385,11 +385,34 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
     hooks: Array.isArray(e.hooks) ? (e.hooks as unknown[]).map((h) => str(h, 200)).filter((h): h is string => !!h?.trim()).slice(0, 5) : undefined,
     captions: e.captions === undefined ? undefined : cleanCaptions(e.captions),
     audio: e.audio === undefined ? undefined : cleanAudio(e.audio),
+    broll: Array.isArray(e.broll) ? cleanBroll(e.broll) : undefined,
+    brollAuto: e.brollAuto === undefined ? undefined : e.brollAuto === true,
     exports: Array.isArray(e.exports) ? [...new Set((e.exports as unknown[]).filter((f): f is MontageFormat => FORMATS.includes(f as string)))].filter((f) => f !== format) : undefined,
   };
 }
 
 const FORMATS = ["9:16", "4:5", "1:1", "16:9"];
+
+function cleanBroll(raw: unknown[]): Broll[] {
+  const out: Broll[] = [];
+  for (const b of (raw as Record<string, unknown>[]).slice(0, 30)) {
+    const at = num(b.at);
+    const dur = num(b.dur);
+    const query = str(b.query, 120)?.trim();
+    if (at === undefined || dur === undefined || dur <= 0 || !query) continue;
+    const thumb = typeof b.thumb === "string" && b.thumb.startsWith("data:image/") && b.thumb.length < 60_000 ? b.thumb : undefined;
+    out.push({
+      at: Math.max(0, at),
+      dur: Math.min(30, dur),
+      query,
+      source: b.source === "mine" || b.source === "pexels" ? b.source : undefined,
+      ref: str(b.ref, 300) || undefined,
+      thumb,
+      mode: b.mode === "pip" ? "pip" : "full",
+    });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
 const HEX = /^#[0-9a-f]{6}$/i;
 
 export function cleanCaptions(raw: unknown): CaptionStyle {

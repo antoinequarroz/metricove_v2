@@ -1,6 +1,6 @@
 "use client";
 
-import { Crop, Megaphone, Music, MonitorSmartphone } from "lucide-react";
+import { Clapperboard, Crop, Megaphone, Music, MonitorSmartphone } from "lucide-react";
 import { DEFAULT_AUDIO, FORMATS, type AudioSettings, type Edl } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Row, Section, Segmented, Switch } from "./controls";
@@ -90,6 +90,16 @@ export function SettingsPanel({ edl, onChange }: { edl: Edl; onChange: (next: Ed
             </Row>
           </>
         )}
+      </Section>
+
+      <Section title="B-roll" icon={<Clapperboard className="size-3.5 text-accent" />}>
+        <Row label="Images d'illustration automatiques" hint="Tes plans du dossier B-roll d'abord, sinon Pexels">
+          <Switch on={edl.brollAuto ?? true} onChange={(brollAuto) => set({ brollAuto })} label="B-roll automatique" />
+        </Row>
+        <p className="py-2 text-[11.5px] text-ink-3">
+          {edl.broll?.length ? `${edl.broll.length} plan${edl.broll.length > 1 ? "s" : ""} dans la timeline.` : "Aucun plan pour l'instant."} Ajoute, déplace ou change un plan
+          dans la piste B-roll de la timeline.
+        </p>
       </Section>
 
       <Section title="Autres formats au rendu final" icon={<MonitorSmartphone className="size-3.5 text-accent" />}>

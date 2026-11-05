@@ -1,13 +1,14 @@
 "use client";
 
-import { Minus, Plus, Scissors, Trash2, ZoomIn } from "lucide-react";
+import { Clapperboard, Minus, Plus, Scissors, Trash2, ZoomIn } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { edlDuration, reorderKept, splitAt, timeline, type Edl, type MontageMark, type Rush } from "@/lib/montage";
 import { cn } from "@/lib/utils";
+import { Segmented } from "./controls";
 import { Button } from "../ui";
 import { fmtSec } from "./parts";
 
-export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "title" } | null;
+export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "title" } | null;
 
 const TRACK = "relative h-11 border-b border-line";
 const LABEL_W = 64;
@@ -116,13 +117,14 @@ export function Timeline({
 
   /* ---- Zooms ---- */
   const zooms = edl.zooms ?? [];
-  const moveZoom = (e: React.PointerEvent, i: number, mode: "move" | "start" | "end") => {
+  /** Moves or resizes a zoom or a B-roll shot (both are timeline spans). */
+  const moveSpan = (e: React.PointerEvent, key: "zooms" | "broll", i: number, mode: "move" | "start" | "end") => {
     const base = edl;
-    const z0 = base.zooms![i];
-    onSelect({ kind: "zoom", i });
+    const z0 = base[key]![i];
+    onSelect({ kind: key === "zooms" ? "zoom" : "broll", i });
     drag(e, (dx) => {
       const next = structuredClone(base);
-      const z = next.zooms![i];
+      const z = next[key]![i];
       const d = dx / pps;
       if (mode === "move") z.at = clamp(z0.at + d, 0, Math.max(0, dur - z0.dur));
       else if (mode === "start") {
@@ -133,6 +135,27 @@ export function Timeline({
       onChange(next);
     });
   };
+  const moveZoom = (e: React.PointerEvent, i: number, mode: "move" | "start" | "end") => moveSpan(e, "zooms", i, mode);
+
+  /* ---- B-roll ---- */
+  const broll = edl.broll ?? [];
+  const addBroll = (e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    const at = clamp(secAt(e.clientX), 0, Math.max(0, dur - 1));
+    const next = structuredClone(edl);
+    next.broll = [...(next.broll ?? []), { at, dur: Math.min(2, dur - at), query: "illustration", mode: "full" as const }].sort((a, b) => a.at - b.at);
+    onChange(next);
+    onSelect({ kind: "broll", i: next.broll.findIndex((b) => b.at === at) });
+  };
+  const editBroll = (i: number, patch: Partial<NonNullable<Edl["broll"]>[number]>) => {
+    const next = structuredClone(edl);
+    const b = next.broll![i];
+    Object.assign(b, patch);
+    // A new description means a new search on the Mac.
+    if (patch.query !== undefined) Object.assign(b, { source: undefined, ref: undefined, thumb: undefined });
+    onChange(next);
+  };
+
   const addZoom = (e: React.MouseEvent) => {
     if (e.target !== e.currentTarget) return;
     const at = clamp(secAt(e.clientX), 0, Math.max(0, dur - 1));
@@ -167,6 +190,7 @@ export function Timeline({
 
   const selSeg = selection?.kind === "seg" ? edl.segments.find((s) => s.id === selection.id) : undefined;
   const selZoom = selection?.kind === "zoom" ? zooms[selection.i] : undefined;
+  const selBroll = selection?.kind === "broll" ? broll[selection.i] : undefined;
 
   return (
     <div className="rounded-2xl border border-line bg-surface shadow-card">
@@ -255,6 +279,33 @@ export function Timeline({
                   </span>
                   <Handle side="left" onPointerDown={(e) => moveZoom(e, i, "start")} label="Début du zoom" />
                   <Handle side="right" onPointerDown={(e) => moveZoom(e, i, "end")} label="Fin du zoom" />
+                </div>
+              );
+            })}
+          </Track>
+
+          <Track label="B-roll" onClick={addBroll}>
+            {broll.map((b, i) => {
+              const on = selection?.kind === "broll" && selection.i === i;
+              return (
+                <div
+                  key={i}
+                  onPointerDown={(e) => moveSpan(e, "broll", i, "move")}
+                  className={cn("absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-md border text-[10.5px]", on ? "z-10 border-ok bg-ok/25" : "border-ok/40 bg-ok/12")}
+                  style={{ left: b.at * pps, width: Math.max(8, b.dur * pps) }}
+                  title={b.query}
+                >
+                  <span className="pointer-events-none flex h-full items-center gap-1 truncate px-1 text-ink-2">
+                    {b.thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={b.thumb} alt="" className="h-full max-h-7 w-auto shrink-0 rounded-sm" />
+                    ) : (
+                      <Clapperboard className="size-3 shrink-0" />
+                    )}
+                    <span className="truncate">{b.query}</span>
+                  </span>
+                  <Handle side="left" onPointerDown={(e) => moveSpan(e, "broll", i, "start")} label="Début du plan" />
+                  <Handle side="right" onPointerDown={(e) => moveSpan(e, "broll", i, "end")} label="Fin du plan" />
                 </div>
               );
             })}
@@ -370,10 +421,50 @@ export function Timeline({
               <Trash2 className="size-3.5" /> Supprimer le zoom
             </Button>
           </>
+        ) : selBroll ? (
+          <>
+            {selBroll.thumb && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={selBroll.thumb} alt="" className="h-9 w-auto rounded" />
+            )}
+            <label className="flex min-w-48 flex-1 items-center gap-2">
+              <span className="text-ink-3">Montrer</span>
+              <input
+                key={`${(selection as { i: number }).i}-${selBroll.query}`}
+                defaultValue={selBroll.query}
+                onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== selBroll.query && editBroll((selection as { i: number }).i, { query: e.target.value.trim() })}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                placeholder="Par ex. pile de livres sur une table"
+                className="h-7 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-[12.5px] outline-none focus:border-accent/60"
+              />
+            </label>
+            <span className="text-ink-3">{selBroll.source === "mine" ? "Ton plan" : selBroll.source === "pexels" ? "Pexels" : "Le Mac cherchera"}</span>
+            <Segmented
+              label="Affichage"
+              value={selBroll.mode}
+              onChange={(mode) => editBroll((selection as { i: number }).i, { mode })}
+              options={[
+                { value: "full", label: "Plein écran" },
+                { value: "pip", label: "Incrusté" },
+              ]}
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const next = structuredClone(edl);
+                next.broll!.splice((selection as { i: number }).i, 1);
+                onChange(next);
+                onSelect(null);
+              }}
+            >
+              <Trash2 className="size-3.5" /> Retirer
+            </Button>
+          </>
         ) : selection?.kind === "title" && edl.title ? (
           <span className="text-ink-2">Accroche affichée pendant {edl.title.until.toFixed(1)} s. Tire le bord droit pour changer la durée, et modifie le texte dans Réglages.</span>
         ) : (
-          <span className="text-ink-3">Glisse un plan pour le déplacer, tire ses bords pour le raccourcir. Clique sur la piste Zooms pour en ajouter un.</span>
+          <span className="text-ink-3">Glisse un plan pour le déplacer, tire ses bords pour le raccourcir. Clique sur la piste Zooms ou B-roll pour en ajouter un.</span>
         )}
       </div>
     </div>
