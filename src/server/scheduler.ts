@@ -35,7 +35,13 @@ async function publishOne(post: Post) {
   const accounts = listAccounts().filter((a) => post.accountIds.includes(a.id));
   const row = post.mediaId ? getMediaRow(post.mediaId) : undefined;
   const media: MediaFile | undefined = row
-    ? { id: row.id, title: row.file ?? row.title, path: row.file ? path.join(DATA_DIR, "media", row.file) : undefined, mime: mimeOf(row.file) }
+    ? {
+        id: row.id,
+        title: row.file ?? row.title,
+        path: row.file ? path.join(DATA_DIR, "media", row.file) : undefined,
+        mime: mimeOf(row.file),
+        cover: row.cover ? path.join(DATA_DIR, "media", row.cover) : undefined,
+      }
     : undefined;
 
   // Only accounts not already published, so a retry never posts twice.

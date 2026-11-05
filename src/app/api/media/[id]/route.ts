@@ -11,5 +11,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (listPosts().some((p) => p.mediaId === id)) return NextResponse.json({ error: "Cette vidéo est utilisée par un post" }, { status: 409 });
   db().prepare("delete from media where id = ?").run(id);
   if (row.file) fs.rmSync(path.join(DATA_DIR, "media", path.basename(row.file)), { force: true });
+  if (row.cover) fs.rmSync(path.join(DATA_DIR, "media", path.basename(row.cover)), { force: true });
   return NextResponse.json({ ok: true });
 }

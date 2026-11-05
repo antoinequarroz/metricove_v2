@@ -12,8 +12,11 @@ export async function middleware(req: NextRequest) {
   if (apiToken && bearer && req.nextUrl.pathname.startsWith("/api/") && safeEqual(bearer, apiToken)) return NextResponse.next();
 
   // Signed, expiring video links, for Instagram, Facebook and Co. to download the video.
-  const media = req.nextUrl.pathname.match(/^\/api\/media\/([^/]+)\/file$/);
-  if (media && (await validMediaSignature(media[1], req.nextUrl.searchParams.get("exp"), req.nextUrl.searchParams.get("sig")))) return NextResponse.next();
+  // Covers are signed with "<id>:cover", so a video link can't be reused for its cover and the other way round.
+  const media = req.nextUrl.pathname.match(/^\/api\/media\/([^/]+)\/(file|cover)$/);
+  const signed = media && (media[2] === "file" ? media[1] : `${media[1]}:cover`);
+  if ((req.method === "GET" || req.method === "HEAD") && signed && (await validMediaSignature(signed, req.nextUrl.searchParams.get("exp"), req.nextUrl.searchParams.get("sig"))))
+    return NextResponse.next();
 
   const cookie = req.cookies.get(SESSION_COOKIE)?.value;
   if (cookie && safeEqual(cookie, await sessionToken(password))) return NextResponse.next();

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import type { Account, Network, Post, TargetResult } from "@/lib/types";
-import { signedMediaUrl } from "../media-url";
+import { signedCoverUrl, signedMediaUrl } from "../media-url";
 import type { MediaFile, Publisher } from "./types";
 
 // treg (https://treg.to) relays calls to each network's API with its own OAuth apps,
@@ -205,21 +205,44 @@ const LINKEDIN_HEADERS = { "LinkedIn-Version": "202601", "X-Restli-Protocol-Vers
 const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
   async instagram({ post, account: a, media }) {
     if (!media?.path) throw new Error("Instagram exige une vidéo");
-    const { data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", {
-      method: "POST",
-      query: { ig_user_id: a.externalId, media_type: "REELS", video_url: signedMediaUrl(media.id), caption: post.caption },
-    });
+    const query = {
+      ig_user_id: a.externalId,
+      media_type: "REELS",
+      video_url: signedMediaUrl(media.id),
+      caption: post.caption,
+      // The image shown on the profile grid. Without it, Instagram takes the first frame.
+      cover_url: media.cover ? signedCoverUrl(media.id) : undefined,
+    };
+    // treg's "Instagram login" app is not reviewed by Meta yet: it reads but cannot publish (code 10).
+    // The "Facebook Page" method uses approved permissions, so we fall back to it.
+    let headers: Record<string, string> = {};
+    let c: { id: string };
+    try {
+      ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { method: "POST", query }));
+    } catch (e) {
+      if (!/does not have permission|"code":10\b/i.test((e as Error).message)) throw e;
+      headers = { "X-Treg-Authorization-Method": "facebook-page" };
+      try {
+        ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { method: "POST", query, headers }));
+      } catch (e2) {
+        console.error("[treg] instagram via facebook-page", (e2 as Error).message);
+        throw new Error(
+          `Meta refuse la publication par la connexion « Instagram » de treg. Reliez @${a.handle} à une Page Facebook, puis connectez la méthode Page dans treg (instagram, page-tools).`,
+        );
+      }
+    }
     // Instagram downloads and processes the video before it can be published.
     for (let i = 0; ; i++) {
       await sleep(i === 0 ? 10_000 : 20_000);
       const { data: s } = await call<{ status_code?: string; status?: string }>("instagram.instagram.media.container.status", {
         query: { ig_container_id: c.id, fields: "status_code,status" },
+        headers,
       });
       if (s.status_code === "FINISHED") break;
       if (s.status_code === "ERROR" || s.status_code === "EXPIRED") throw new Error(`Instagram a refusé la vidéo : ${s.status ?? s.status_code}`);
       if (i >= 27) throw new Error("Instagram traite encore la vidéo après 9 minutes");
     }
-    const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: c.id } });
+    const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: c.id }, headers });
     return { externalId: data.id };
   },
 
@@ -315,19 +338,33 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
     const MB = 1024 * 1024;
     const chunk = bytes.length <= 64 * MB ? bytes.length : 10 * MB;
     const count = Math.max(1, Math.floor(bytes.length / chunk));
-    const { data: init } = await call<{ data?: { publish_id: string; upload_url: string }; error?: { message?: string } }>("tiktok.tiktok.video.inbox.init", {
+    const { data: init } = await call<{ data?: { publish_id: string; upload_url: string }; error?: { code?: string; message?: string } }>("tiktok.tiktok.video.inbox.init", {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=UTF-8" },
       body: { source_info: { source: "FILE_UPLOAD", video_size: bytes.length, chunk_size: chunk, total_chunk_count: count } },
     });
-    if (!init.data) throw new Error(`TikTok a refusé l'envoi : ${init.error?.message ?? "réponse inattendue"}`);
+    if (init.error?.code && init.error.code !== "ok") {
+      if (/pending_share|spam_risk/i.test(init.error.code)) throw new Error("TikTok refuse un nouvel envoi : trop de vidéos attendent déjà dans ton app TikTok. Finalise-les ou supprime-les, puis relance.");
+      throw new Error(`TikTok a refusé l'envoi : ${init.error.code}${init.error.message ? ` (${init.error.message})` : ""}`);
+    }
+    if (!init.data?.upload_url) throw new Error(`TikTok a refusé l'envoi : ${init.error?.message ?? "réponse inattendue"}`);
     for (let i = 0; i < count; i++) {
       const start = i * chunk;
       const end = i === count - 1 ? bytes.length - 1 : start + chunk - 1; // the last chunk takes the rest
       const res = await put(init.data.upload_url, bytes.subarray(start, end + 1), { "Content-Type": "video/mp4", "Content-Range": `bytes ${start}-${end}/${bytes.length}` });
-      if (!res.ok) throw new Error(`Envoi de la vidéo à TikTok refusé (${res.status})`);
+      if (!res.ok) {
+        const text = (await res.text().catch(() => "")).slice(0, 300);
+        console.error(`[treg] tiktok upload ${res.status} on ${new URL(init.data.upload_url).host}: ${text}`);
+        throw new Error(
+          res.status === 404
+            ? "TikTok a refusé l'envoi (404). Ça arrive quand la même vidéo attend déjà dans ton app TikTok : finalise-la ou supprime-la, puis relance."
+            : `Envoi de la vidéo à TikTok refusé (${res.status})${text ? ` : ${text}` : ""}`,
+        );
+      }
     }
-    for (let i = 0; i < 15; i++) {
+    // TikTok sometimes takes several minutes. The file is already uploaded, so after the wait it
+    // counts as sent: marking it failed would make a retry send a duplicate to the inbox.
+    for (let i = 0; i < 30; i++) {
       await sleep(10_000);
       const { data: s } = await call<{ data?: { status?: string; fail_reason?: string } }>("tiktok.tiktok.publish.status", {
         method: "POST",
@@ -338,7 +375,8 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
       if (status === "SEND_TO_USER_INBOX" || status === "PUBLISH_COMPLETE") return { externalId: `inbox:${init.data.publish_id}` };
       if (status === "FAILED") throw new Error(`TikTok a refusé la vidéo : ${s.data?.fail_reason ?? "raison inconnue"}`);
     }
-    throw new Error("TikTok traite encore la vidéo après 2 minutes 30");
+    console.warn(`[treg] tiktok ${init.data.publish_id} still processing after 5 min, counted as sent to the inbox`);
+    return { externalId: `inbox:${init.data.publish_id}` };
   },
 
   async x({ post }) {

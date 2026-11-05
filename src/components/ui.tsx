@@ -3,6 +3,7 @@
 import { Play, Sparkles, Bot, Upload } from "lucide-react";
 import { forwardRef } from "react";
 import { NetworkBadge } from "@/lib/networks";
+import { useStore } from "@/lib/store";
 import type { Account, Media, PostStatus } from "@/lib/types";
 import { cn, duration } from "@/lib/utils";
 
@@ -96,8 +97,21 @@ export function SourceTag({ source, className, onMedia }: { source: keyof typeof
 }
 
 /** Placeholder thumbnail with a gradient until real video frames exist. */
-export function MediaThumb({ media, className, showMeta = true }: { media: Media; className?: string; showMeta?: boolean }) {
+export function MediaThumb({
+  media,
+  className,
+  showMeta = true,
+  playable = false,
+}: {
+  media: Media;
+  className?: string;
+  showMeta?: boolean;
+  /** Clicking the thumbnail opens the video player. */
+  playable?: boolean;
+}) {
   const [h1, h2] = media.hues;
+  const play = useStore((s) => s.playMedia);
+  const canPlay = playable && !!media.url;
   return (
     <div
       className={cn("relative overflow-hidden rounded-lg", className)}
@@ -105,18 +119,39 @@ export function MediaThumb({ media, className, showMeta = true }: { media: Media
         background: `radial-gradient(120% 90% at 20% 10%, oklch(0.78 0.15 ${h1}), transparent 60%), radial-gradient(120% 100% at 90% 100%, oklch(0.45 0.17 ${h2}), transparent 65%), oklch(0.3 0.06 ${h2})`,
       }}
     >
-      {media.url ? (
+      {media.cover ? (
+        // The feed cover, as Instagram will show it on the grid.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={media.cover} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
+      ) : media.url ? (
         // First frame of the real video, loaded lazily.
         <video src={`${media.url}#t=0.5`} muted playsInline preload="metadata" className="absolute inset-0 size-full object-cover" />
       ) : (
         <div className="absolute inset-0 opacity-30 mix-blend-overlay" style={{ backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,.15) 0 1px, transparent 1px 3px)" }} />
       )}
-      {showMeta && (
-        <>
-          <span className="absolute top-1/2 left-1/2 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 text-white ring-1 ring-white/30 backdrop-blur-md">
+      {canPlay && (
+        <button
+          type="button"
+          aria-label={`Lire « ${media.title} »`}
+          onClick={(e) => {
+            e.stopPropagation();
+            play(media.id);
+          }}
+          className="group/play absolute inset-0 flex items-center justify-center outline-none"
+        >
+          <span className="flex size-10 items-center justify-center rounded-full bg-black/35 text-white ring-1 ring-white/40 backdrop-blur-md transition-transform duration-150 group-hover/play:scale-110 group-focus-visible/play:ring-2 group-focus-visible/play:ring-accent group-active/play:scale-95">
             <Play className="ml-0.5 size-4 fill-current" />
           </span>
-          <span className="tabular absolute right-1.5 bottom-1.5 rounded-md bg-black/45 px-1.5 py-px font-mono text-[10.5px] text-white backdrop-blur">
+        </button>
+      )}
+      {showMeta && (
+        <>
+          {!canPlay && (
+            <span className="absolute top-1/2 left-1/2 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 text-white ring-1 ring-white/30 backdrop-blur-md">
+              <Play className="ml-0.5 size-4 fill-current" />
+            </span>
+          )}
+          <span className="tabular pointer-events-none absolute right-1.5 bottom-1.5 rounded-md bg-black/45 px-1.5 py-px font-mono text-[10.5px] text-white backdrop-blur">
             {duration(media.duration)}
           </span>
         </>
@@ -133,8 +168,9 @@ export const STATUS_META: Record<PostStatus, { label: string; dot: string; text:
   failed: { label: "Échec", dot: "bg-danger", text: "text-danger" },
 };
 
-export function StatusPill({ status }: { status: PostStatus }) {
-  const m = STATUS_META[status];
+export function StatusPill({ status, inbox = false }: { status: PostStatus; inbox?: boolean }) {
+  // Published on TikTok's side but still waiting for Antoine in the app.
+  const m = inbox && status === "published" ? { label: "À finaliser dans TikTok", dot: "bg-warn animate-pulse", text: "text-warn" } : STATUS_META[status];
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2 py-0.5 text-[11.5px] font-medium", m.text)}>
       <span className={cn("size-1.5 rounded-full", m.dot)} />

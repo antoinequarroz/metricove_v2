@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Segmented } from "./calendar";
 import { useStore } from "@/lib/store";
 import { cn, duration, fmt } from "@/lib/utils";
+import { VideoTabs } from "./montage/parts";
 import { Button, MediaThumb, SourceTag } from "./ui";
 
 type Filter = "all" | "new" | "used";
@@ -50,6 +51,7 @@ export function VideosPage() {
           <p className="text-[12px] font-medium text-ink-3">Bibliothèque</p>
           <h1 className="font-display text-[34px] leading-[1.05]">Vidéos</h1>
         </div>
+        <VideoTabs />
         <div className="ml-auto flex items-center gap-2">
           <input ref={input} type="file" accept="video/mp4,video/quicktime,.mp4,.mov,.m4v" multiple hidden onChange={(e) => e.target.files && upload(e.target.files)} />
           <Button variant="primary" onClick={() => input.current?.click()}>
@@ -117,7 +119,7 @@ export function VideosPage() {
             return (
               <article key={m.id} className="rise group flex flex-col" style={{ animationDelay: `${i * 40}ms` }}>
                 <div className="relative">
-                  <MediaThumb media={m} className="aspect-[9/14] w-full shadow-card" />
+                  <MediaThumb media={m} playable className="aspect-[9/14] w-full shadow-card" />
                   <SourceTag source={m.source} onMedia className="absolute top-2 left-2" />
                   {uses.length === 0 && (
                     <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-accent px-1.5 py-px text-[10.5px] font-medium text-white">

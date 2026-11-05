@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Account, AppState, Media, Network, Post, Project } from "./types";
+import { uploadInChunks } from "./upload";
 
 export type CalendarView = "month" | "week" | "list";
 
@@ -24,6 +25,8 @@ type State = {
   networkFilter: Network | "all";
   composer: ComposerState;
   commandOpen: boolean;
+  /** Id of the video open in the player. */
+  playing?: string;
 
   load: () => Promise<void>;
   setView: (v: CalendarView) => void;
@@ -32,6 +35,7 @@ type State = {
   setNetworkFilter: (n: Network | "all") => void;
   openComposer: (c?: Omit<ComposerState, "open">) => void;
   closeComposer: () => void;
+  playMedia: (id?: string) => void;
   setCommandOpen: (o: boolean) => void;
   savePost: (post: Post) => Promise<Post>;
   deletePost: (id: string) => Promise<void>;
@@ -92,6 +96,7 @@ export const useStore = create<State>()(
       setNetworkFilter: (networkFilter) => set({ networkFilter }),
       openComposer: (c = {}) => set({ composer: { open: true, ...c }, commandOpen: false }),
       closeComposer: () => set((s) => ({ composer: { ...s.composer, open: false } })),
+      playMedia: (playing) => set({ playing }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
 
       savePost: async (post) => {
@@ -132,28 +137,13 @@ export const useStore = create<State>()(
         set((s) => ({ posts: s.posts.map((p) => (p.id === id ? { ...p, status: "publishing" } : p)) }));
         setTimeout(() => get().load(), 2500);
       },
-      uploadMedia: (file, onProgress) =>
-        // XHR rather than fetch, to report upload progress.
-        new Promise<Media>((resolve, reject) => {
-          const form = new FormData();
-          form.append("file", file);
-          form.append("source", "upload");
-          const xhr = new XMLHttpRequest();
-          xhr.open("POST", "/api/media");
-          xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100));
-          xhr.onerror = () => reject(new Error("Connexion perdue pendant l'envoi"));
-          xhr.onload = () => {
-            let data: { media?: Media; error?: string } = {};
-            try {
-              data = JSON.parse(xhr.responseText);
-            } catch {}
-            if (xhr.status === 401) window.location.href = "/login";
-            if (xhr.status >= 400 || !data.media) return reject(new Error(data.error ?? `Erreur ${xhr.status}`));
-            set((s) => ({ media: [data.media!, ...s.media] }));
-            resolve(data.media);
-          };
-          xhr.send(form);
-        }),
+      uploadMedia: async (file, onProgress) => {
+        // In chunks: the server cuts request bodies over 10 MB.
+        const upload = await uploadInChunks(file, file.name, onProgress);
+        const { media } = await api<{ media: Media }>("/api/media", { method: "POST", body: JSON.stringify({ upload, source: "upload" }) });
+        set((s) => ({ media: [media, ...s.media] }));
+        return media;
+      },
       deleteMedia: async (id) => {
         await api(`/api/media/${id}`, { method: "DELETE" });
         set((s) => ({ media: s.media.filter((m) => m.id !== id) }));

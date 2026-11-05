@@ -13,6 +13,7 @@ import { Avatar, Kbd } from "./ui";
 import { Logo } from "./logo";
 import { Composer } from "./composer";
 import { CommandMenu } from "./command-menu";
+import { VideoPlayer } from "./video-player";
 import { ProjectMark, ProjectSwitcher } from "./projects";
 
 const NAV = [
@@ -85,6 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <>
           <Composer />
           <CommandMenu />
+          <VideoPlayer />
         </>
       )}
       <Toaster

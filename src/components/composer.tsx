@@ -3,14 +3,17 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Popover } from "@base-ui-components/react/popover";
 import { addDays, setHours, startOfDay } from "date-fns";
-import { Bot, CalendarClock, Film, ImagePlus, Trash2, X, Hash, Smile } from "lucide-react";
+import { Bot, CalendarClock, Film, ImagePlus, Sparkles, Trash2, X, Hash, Smile } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import type { MontageJob } from "@/lib/montage";
+import { outcomeOf, readableError, summary, waitsInTikTok } from "@/lib/publish-result";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
 import { ProjectMark } from "./projects";
 import type { Network, Post, YouTubeOptions } from "@/lib/types";
 import { cn, duration, fmt, uid } from "@/lib/utils";
+import { CoverControl } from "./cover";
 import { PostPreview } from "./previews";
 import { Segmented } from "./calendar";
 import { Avatar, Button, MediaThumb, SourceTag, StatusPill } from "./ui";
@@ -105,9 +108,14 @@ function ComposerForm() {
       if (!now && when < new Date()) return toast.error("Choisissez une date dans le futur");
     }
     if (isNaN(when.getTime())) return toast.error("Date invalide");
+    // The same video already waits in the TikTok app: sending it again only makes a duplicate (or a 404).
+    if (status === "scheduled") {
+      // On this same post, accounts already sent are skipped by the server.
+      if (inboxElsewhere && !confirm("Cette vidéo attend déjà dans ton app TikTok. La renvoyer crée un doublon, et TikTok peut la refuser. Continuer quand même ?")) return;
+    }
     setBusy(true);
     try {
-      await savePost({
+      const saved = await savePost({
         id: existing?.id ?? uid(),
         accountIds: selected,
         caption,
@@ -119,9 +127,11 @@ function ComposerForm() {
       });
       close();
       const n = selectedAccounts.length;
-      toast.success(status === "draft" ? "Brouillon enregistré" : now ? "Publication lancée" : "Post programmé", {
-        description: status === "draft" ? undefined : now ? `Sur ${n} compte${n > 1 ? "s" : ""}.` : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${n} compte${n > 1 ? "s" : ""}.`,
-      });
+      if (status === "scheduled" && now) followPublish(saved.id);
+      else
+        toast.success(status === "draft" ? "Brouillon enregistré" : "Post programmé", {
+          description: status === "draft" ? undefined : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${n} compte${n > 1 ? "s" : ""}.`,
+        });
     } catch (e) {
       toast.error("Enregistrement impossible", { description: (e as Error).message });
     } finally {
@@ -129,27 +139,79 @@ function ComposerForm() {
     }
   };
 
+  // The same video already sent to the TikTok app by another post in the last 24 h.
+  const inboxElsewhere =
+    !!m &&
+    networks.includes("tiktok") &&
+    posts.some(
+      (p) =>
+        p.mediaId === m.id &&
+        p.id !== existing?.id &&
+        Object.values(p.results ?? {}).some((r) => r.externalId?.startsWith("inbox:") && Date.now() - new Date(r.at).getTime() < 24 * 3600_000),
+    );
+
   const hermesOn = useStore((s) => s.integrations.hermes);
-  const [thinking, setThinking] = useState(false);
+  const [thinking, setThinking] = useState<string | null>(null);
+
+  const applySuggestion = (text: string, youtubeTitle?: string) => {
+    setCaption(text);
+    if (youtubeTitle && hasYoutube && !yt.title.trim()) setYt((y) => ({ ...y, title: youtubeTitle }));
+  };
+
+  /** Hermes on the VPS, used only when the Mac is off. */
+  const suggestWithHermes = async () => {
+    const res = await fetch("/api/hermes/caption", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ networks, draft: caption, mediaId: m?.id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+    applySuggestion(data.caption, data.youtubeTitle);
+    toast("Description proposée par Hermes", { icon: <Bot className="size-4" /> });
+  };
+
+  /** Claude on the Mac (Antoine's subscription): listens to the video and writes the description. */
   const suggest = async () => {
-    if (!hermesOn) return toast("Hermes n'est pas encore branché", { description: "Ajoutez HERMES_URL et HERMES_API_KEY (voir docs/HERMES.md).", icon: <Bot className="size-4" /> });
-    if (!networks.length) return toast.error("Choisissez d'abord les comptes");
-    setThinking(true);
-    try {
-      const res = await fetch("/api/hermes/caption", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ networks, draft: caption, mediaId: m?.id }),
-      });
-      const data = await res.json();
+    if (!selectedAccounts.length) return toast.error("Choisissez d'abord les comptes");
+    setThinking("Claude écrit…");
+    const call = async <T,>(url: string, init?: RequestInit) => {
+      const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-      setCaption(data.caption);
-      if (data.youtubeTitle && hasYoutube && !yt.title.trim()) setYt((y) => ({ ...y, title: data.youtubeTitle }));
-      toast("Légende proposée par Hermes", { icon: <Bot className="size-4" /> });
+      return data as T;
+    };
+    let jobId: string | undefined;
+    try {
+      const { worker } = await call<{ worker: { online: boolean } }>("/api/montage");
+      if (!worker.online) {
+        if (hermesOn) return await suggestWithHermes();
+        throw new Error("Ton Mac est éteint ou en veille : allume-le, puis réessaie.");
+      }
+      const { job } = await call<{ job: MontageJob }>("/api/montage/jobs", {
+        method: "POST",
+        body: JSON.stringify({ kind: "caption", accountIds: selected, draft: caption, mediaId: m?.id }),
+      });
+      jobId = job.id;
+      const until = Date.now() + 4 * 60_000;
+      while (Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const { job: j } = await call<{ job: MontageJob }>(`/api/montage/jobs/${job.id}`);
+        if (j.step) setThinking(j.step);
+        if (j.status === "failed") throw new Error(j.error ?? "Le Mac n'a pas pu écrire la description");
+        if (j.status === "done" && j.caption?.result) {
+          applySuggestion(j.caption.result.caption, j.caption.result.youtubeTitle);
+          toast("Description proposée par Claude", { description: "Relis-la et modifie-la si besoin.", icon: <Sparkles className="size-4" /> });
+          return;
+        }
+      }
+      throw new Error("Le Mac met trop de temps à répondre");
     } catch (e) {
-      toast.error("Hermes n'a pas pu répondre", { description: (e as Error).message });
+      toast.error("Pas de description", { description: (e as Error).message });
     } finally {
-      setThinking(false);
+      // The request was only a means: remove it from the Mac's list.
+      if (jobId) fetch(`/api/montage/jobs/${jobId}`, { method: "DELETE" }).catch(() => {});
+      setThinking(null);
     }
   };
 
@@ -157,7 +219,7 @@ function ComposerForm() {
     <>
       <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
         <Dialog.Title className="text-[15px] font-semibold">{existing ? "Modifier le post" : "Nouveau post"}</Dialog.Title>
-        {existing && <StatusPill status={existing.status} />}
+        {existing && <StatusPill status={existing.status} inbox={waitsInTikTok(existing)} />}
         <Dialog.Close className="press ml-auto flex size-8 items-center justify-center rounded-lg text-ink-3 hover:bg-ink/5 hover:text-ink" aria-label="Fermer">
           <X className="size-4" />
         </Dialog.Close>
@@ -166,43 +228,70 @@ function ComposerForm() {
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_420px] max-lg:grid-cols-1">
         {/* Editor */}
         <div className="scroll-thin flex min-h-0 flex-col gap-5 overflow-y-auto p-5">
-            {existing?.status === "failed" && existing.error && (
+            {existing && existing.status !== "draft" && Object.keys(existing.results ?? {}).length > 0 && (
+              <section className="rounded-xl border border-line bg-surface-2/60 p-3 text-[12.5px]">
+                <p className="mb-2 font-medium">Résultat par compte</p>
+                <ul className="flex flex-col gap-2">
+                  {accounts
+                    .filter((a) => existing.accountIds.includes(a.id))
+                    .map((a) => {
+                      const o = outcomeOf(existing.results?.[a.id], existing);
+                      return (
+                        <li key={a.id} className="flex items-start gap-2.5">
+                          <Avatar account={a} size={22} />
+                          <div className="min-w-0 flex-1">
+                            <p className="flex flex-wrap items-center gap-x-2">
+                              <span className="font-medium">@{a.handle}</span>
+                              <span
+                                className={cn(
+                                  "font-medium",
+                                  o.kind === "published" && "text-ok",
+                                  o.kind === "inbox" && "text-warn",
+                                  o.kind === "failed" && "text-danger",
+                                  o.kind === "pending" && "text-ink-3",
+                                )}
+                              >
+                                {o.label}
+                              </span>
+                            </p>
+                            {o.detail && <p className="mt-0.5 text-ink-2">{o.detail}</p>}
+                          </div>
+                        </li>
+                      );
+                    })}
+                </ul>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Object.values(existing.results ?? {}).some((r) => r.externalId?.startsWith("inbox:")) && (
+                    <Button size="sm" type="button" onClick={() => navigator.clipboard.writeText(existing.caption).then(() => toast.success("Légende copiée"))}>
+                      Copier la légende
+                    </Button>
+                  )}
+                  {existing.status === "failed" && (
+                    <Button
+                      size="sm"
+                      type="button"
+                      onClick={() =>
+                        (!inboxElsewhere ||
+                          confirm("Cette vidéo attend déjà dans ton app TikTok (envoyée par un autre post). La renvoyer crée un doublon. Continuer quand même ?")) &&
+                        retryPost(existing.id).then(
+                          () => {
+                            close();
+                            followPublish(existing.id, true);
+                          },
+                          (e: Error) => toast.error(e.message),
+                        )
+                      }
+                    >
+                      Relancer les comptes en échec
+                    </Button>
+                  )}
+                </div>
+              </section>
+            )}
+            {existing?.status === "failed" && existing.error && !Object.keys(existing.results ?? {}).length && (
               <div className="rounded-xl border border-danger/25 bg-danger/[0.07] px-3.5 py-3 text-[12.5px]">
                 <p className="font-medium text-danger">La publication a échoué</p>
-                <p className="mt-1 whitespace-pre-wrap text-ink-2">{existing.error}</p>
-                <Button
-                  size="sm"
-                  className="mt-2.5"
-                  type="button"
-                  onClick={() =>
-                    retryPost(existing.id).then(
-                      () => {
-                        close();
-                        toast("Nouvelle tentative lancée");
-                      },
-                      (e: Error) => toast.error(e.message),
-                    )
-                  }
-                >
-                  Relancer
-                </Button>
-              </div>
-            )}
-
-            {existing && Object.values(existing.results ?? {}).some((r) => r.externalId?.startsWith("inbox:")) && (
-              <div className="rounded-xl border border-line bg-surface-2/70 px-3.5 py-3 text-[12.5px]">
-                <p className="font-medium">Vidéo envoyée dans l&apos;app TikTok</p>
-                <p className="mt-1 text-ink-2">
-                  Ouvre TikTok, puis Boîte de réception (ou Brouillons). Colle la légende et publie dans les 24 h.
-                </p>
-                <Button
-                  size="sm"
-                  className="mt-2.5"
-                  type="button"
-                  onClick={() => navigator.clipboard.writeText(existing.caption).then(() => toast.success("Légende copiée"))}
-                >
-                  Copier la légende
-                </Button>
+                <p className="mt-1 whitespace-pre-wrap text-ink-2">{readableError(existing.error)}</p>
               </div>
             )}
 
@@ -258,16 +347,52 @@ function ComposerForm() {
             </section>
 
             <section>
+              <Label>Vidéo</Label>
+              {m ? (
+                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-2.5">
+                  <MediaThumb media={m} showMeta={false} playable className="h-16 w-12 rounded-md" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13.5px] font-medium">{m.title}</div>
+                    <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
+                      <SourceTag source={m.source} />
+                      <span className="tabular font-mono">{duration(m.duration)}</span>
+                      <span>{m.aspect}</span>
+                    </div>
+                  </div>
+                  <MediaPicker onPick={setMediaId}>
+                    <span className="text-[12.5px]">Changer</span>
+                  </MediaPicker>
+                  <Button size="sm" variant="ghost" onClick={() => setMediaId(undefined)} aria-label="Retirer la vidéo">
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
+              ) : null}
+              {m && networks.includes("instagram") && (
+                <div className="mt-2 rounded-xl border border-line bg-surface-2/60 p-2.5">
+                  <CoverControl media={m} accountIds={selected} />
+                </div>
+              )}
+              {!m && (
+                <MediaPicker onPick={setMediaId} block>
+                  <ImagePlus className="size-5 text-ink-3" />
+                  <span className="text-[13px] text-ink-2">Choisir une vidéo de la bibliothèque</span>
+                  <span className="text-[12px] text-ink-3">Les vidéos générées par Claude Code arrivent ici automatiquement</span>
+                </MediaPicker>
+              )}
+            </section>
+
+            <section>
               <div className="mb-2 flex items-center">
                 <Label className="mb-0">Texte</Label>
                 <button
                   type="button"
                   onClick={suggest}
-                  disabled={thinking}
-                  className="press ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft disabled:opacity-70"
+                  disabled={!!thinking || locked}
+                  title={caption.trim() ? "Claude se sert de ton texte comme consigne" : "Claude écoute la vidéo et écrit la description"}
+                  className="press ml-auto inline-flex max-w-[60%] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft disabled:opacity-70"
                 >
-                  <Bot className={cn("size-3.5", thinking && "animate-pulse")} />
-                  {thinking ? "Hermes réfléchit…" : "Proposer avec Hermes"}
+                  <Sparkles className={cn("size-3.5 shrink-0", thinking && "animate-pulse")} />
+                  <span className="truncate">{thinking ?? (caption.trim() ? "Réécrire avec Claude" : "Proposer avec Claude")}</span>
                 </button>
               </div>
               <div className="rounded-xl border border-line-strong bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_var(--accent-soft)]">
@@ -298,35 +423,6 @@ function ComposerForm() {
                   </div>
                 </div>
               </div>
-            </section>
-
-            <section>
-              <Label>Vidéo</Label>
-              {m ? (
-                <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-2.5">
-                  <MediaThumb media={m} showMeta={false} className="h-16 w-12 rounded-md" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13.5px] font-medium">{m.title}</div>
-                    <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
-                      <SourceTag source={m.source} />
-                      <span className="tabular font-mono">{duration(m.duration)}</span>
-                      <span>{m.aspect}</span>
-                    </div>
-                  </div>
-                  <MediaPicker onPick={setMediaId}>
-                    <span className="text-[12.5px]">Changer</span>
-                  </MediaPicker>
-                  <Button size="sm" variant="ghost" onClick={() => setMediaId(undefined)} aria-label="Retirer la vidéo">
-                    <X className="size-3.5" />
-                  </Button>
-                </div>
-              ) : (
-                <MediaPicker onPick={setMediaId} block>
-                  <ImagePlus className="size-5 text-ink-3" />
-                  <span className="text-[13px] text-ink-2">Choisir une vidéo de la bibliothèque</span>
-                  <span className="text-[12px] text-ink-3">Les vidéos générées par Claude Code arrivent ici automatiquement</span>
-                </MediaPicker>
-              )}
             </section>
 
             {hasYoutube && (
@@ -547,4 +643,32 @@ function MediaPicker({ children, onPick, block }: { children: React.ReactNode; o
       </Popover.Portal>
     </Popover.Root>
   );
+}
+
+/**
+ * After "Publier maintenant": a toast that stays until the server says what really happened
+ * on each account (published, waiting in the TikTok app, or failed and why).
+ */
+export function followPublish(id: string, retry = false) {
+  const store = useStore.getState;
+  const toastId = toast.loading(retry ? "Nouvelle tentative…" : "Publication en cours…", { description: "Envoi de la vidéo aux réseaux, ça peut prendre une minute.", duration: Infinity });
+  const until = Date.now() + 6 * 60_000;
+  const step = async () => {
+    await store().load().catch(() => {});
+    const post = store().posts.find((p) => p.id === id);
+    if (!post) return toast.dismiss(toastId);
+    if (post.status === "published" || post.status === "failed") {
+      const s = summary(post, store().accounts);
+      const open = { label: "Voir", onClick: () => store().openComposer({ postId: id }) };
+      const opts = { id: toastId, description: s.lines.join("\n"), duration: 20_000, action: open, classNames: { description: "whitespace-pre-line" } };
+      if (s.failed === s.total) toast.error("La publication a échoué", opts);
+      else if (s.failed) toast.warning(`Publié sur ${s.total - s.failed} compte${s.total - s.failed > 1 ? "s" : ""} sur ${s.total}`, opts);
+      else if (s.inbox) toast.warning(s.published ? "Publié, et TikTok attend ta validation" : "Envoyé dans ton app TikTok, à finaliser", opts);
+      else toast.success("Publié", opts);
+      return;
+    }
+    if (Date.now() > until) return toast("Toujours en cours", { id: toastId, description: "Le statut s'affichera dans le calendrier.", duration: 8000 });
+    setTimeout(step, 3000);
+  };
+  setTimeout(step, 2000);
 }

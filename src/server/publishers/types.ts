@@ -1,6 +1,6 @@
 import type { Account, Post, TargetResult } from "@/lib/types";
 
-export type MediaFile = { id: string; title: string; path?: string; mime: string };
+export type MediaFile = { id: string; title: string; path?: string; mime: string; /** Cover image on disk, when there is one. */ cover?: string };
 
 export interface Publisher {
   name: "demo" | "postiz" | "treg";
