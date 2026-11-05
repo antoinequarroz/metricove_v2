@@ -1,4 +1,4 @@
-export type Network = "instagram" | "facebook" | "x" | "linkedin" | "youtube";
+export type Network = "instagram" | "facebook" | "x" | "linkedin" | "youtube" | "tiktok";
 
 export type YouTubeOptions = {
   title: string;
@@ -64,8 +64,17 @@ export type Post = {
   error?: string;
 };
 
+/** A named group of accounts, e.g. one brand or one client. An account can be in several projects. */
+export type Project = {
+  id: string;
+  name: string;
+  hue: number;
+  accountIds: string[];
+};
+
 export type AppState = {
   accounts: Account[];
+  projects: Project[];
   media: Media[];
   posts: Post[];
   publisher: { name: string; label: string; ready: boolean; detail?: string };

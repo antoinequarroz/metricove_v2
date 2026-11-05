@@ -1,0 +1,7 @@
+{$POSTIZ_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 1GB
+	}
+	reverse_proxy postiz:5000
+}

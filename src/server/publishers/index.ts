@@ -1,8 +1,11 @@
 import { demoPublisher } from "./demo";
 import { postizPublisher } from "./postiz";
+import { tregPublisher } from "./treg";
 import type { Publisher } from "./types";
 
-/** PUBLISHER=postiz for real publishing, anything else is demo mode. */
+/** PUBLISHER=treg or postiz for real publishing, anything else is demo mode. */
 export function getPublisher(): Publisher {
-  return process.env.PUBLISHER === "postiz" ? postizPublisher : demoPublisher;
+  if (process.env.PUBLISHER === "treg") return tregPublisher;
+  if (process.env.PUBLISHER === "postiz") return postizPublisher;
+  return demoPublisher;
 }

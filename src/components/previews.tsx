@@ -182,12 +182,39 @@ export function YouTubePreview({ account, caption, media, youtube }: Props) {
   );
 }
 
+export function TikTokPreview({ account, caption, media }: Props) {
+  return (
+    <div className="relative mx-auto aspect-[9/16] w-[260px] overflow-hidden rounded-[22px] bg-black text-white shadow-card ring-1 ring-line">
+      {media ? <MediaThumb media={media} showMeta={false} className="absolute inset-0 rounded-none" /> : <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/60">TikTok exige une vidéo</div>}
+      <div className="absolute inset-x-0 top-3 flex justify-center gap-4 text-[12.5px] font-semibold">
+        <span className="text-white/60">Abonnements</span>
+        <span className="border-b-2 border-white pb-0.5">Pour toi</span>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-3.5 pt-16 pr-14">
+        <p className="text-[13px] font-semibold">@{account.handle}</p>
+        <p className="mt-1 line-clamp-3 text-[12.5px] leading-snug [&_span]:!text-white">
+          <Caption text={caption} />
+        </p>
+      </div>
+      <div className="absolute right-2.5 bottom-20 flex flex-col items-center gap-4 text-[10.5px]">
+        <Avatar account={account} size={34} badge={false} />
+        <span className="flex flex-col items-center gap-1"><Heart className="size-6 fill-white" />0</span>
+        <span className="flex flex-col items-center gap-1"><MessageCircle className="size-6" />0</span>
+        <span className="flex flex-col items-center gap-1"><Bookmark className="size-6" />0</span>
+        <span className="flex flex-col items-center gap-1"><Share className="size-6" />0</span>
+      </div>
+    </div>
+  );
+}
+
 export function PostPreview(props: Props) {
   switch (props.account.network) {
     case "youtube":
       return <YouTubePreview {...props} />;
     case "instagram":
       return <InstagramPreview {...props} />;
+    case "tiktok":
+      return <TikTokPreview {...props} />;
     case "x":
       return <XPreview {...props} />;
     case "linkedin":
