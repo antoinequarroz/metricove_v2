@@ -1,14 +1,19 @@
 "use client";
 
-import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, Play, RotateCcw, Sparkles, Wand2 } from "lucide-react";
+import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { edlDuration, timeline, type Edl, type MontageJob, type MontageVersion } from "@/lib/montage";
+import { edlDuration, timeline, type CaptionStyle, type Edl, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
+import { Annotator } from "./annotator";
+import { CaptionsEditor } from "./captions-editor";
+import { Segmented } from "./controls";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
+import { SettingsPanel } from "./settings-panel";
+import { Timeline, type Selection } from "./timeline";
 import { montageApi, useMontage } from "./use-montage";
 
 const ASPECT: Record<Edl["format"], string> = { "9:16": "9 / 16", "4:5": "4 / 5", "1:1": "1 / 1", "16:9": "16 / 9" };
@@ -27,10 +32,22 @@ export function ReviewPage({ id }: { id: string }) {
         </Link>
       </div>
     );
-  return <Review job={job} worker={data.worker} refresh={refresh} />;
+  return <Review job={job} worker={data.worker} rushes={data.rushes} refresh={refresh} />;
 }
 
-function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<typeof WorkerBanner>[0]["worker"]; refresh: () => Promise<void> }) {
+type Tab = "text" | "captions" | "settings";
+
+function Review({
+  job,
+  worker,
+  rushes,
+  refresh,
+}: {
+  job: MontageJob;
+  worker: Parameters<typeof WorkerBanner>[0]["worker"];
+  rushes: Rush[];
+  refresh: () => Promise<void>;
+}) {
   const latest = job.versions.at(-1);
   const [shown, setShown] = useState<number | undefined>(latest?.n);
   const [compareWith, setCompareWith] = useState<number | null>(null);
@@ -40,6 +57,11 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const player = useRef<HTMLVideoElement>(null);
+  const [time, setTime] = useState(0);
+  const [tab, setTab] = useState<Tab>("captions");
+  const [selection, setSelection] = useState<Selection>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [marks, setMarks] = useState<MontageMark[]>([]);
   const openComposer = useStore((s) => s.openComposer);
   const working = job.action !== null;
 
@@ -63,6 +85,10 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
     setDraft((d) => (d ? fn(structuredClone(d)) : d));
     setDirty(true);
   };
+  const setEdl = (next: Edl) => {
+    setDraft(next);
+    setDirty(true);
+  };
 
   const call = async (body: object, ok: string) => {
     setBusy(true);
@@ -80,15 +106,31 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
   };
 
   const apply = async () => draft && (await call({ edl: draft }, "Modifications envoyées au Mac pour un nouvel aperçu")) && setDirty(false);
-  const revise = async () => (await call({ revise: feedback }, "Demande envoyée à Claude")) && setFeedback("");
+  const revise = async () => {
+    if (await call({ revise: feedback, marks }, marks.length ? `Demande et ${marks.length} note${marks.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude")) {
+      setFeedback("");
+      setMarks([]);
+    }
+  };
+  const saveStyle = async (style: CaptionStyle) => {
+    if (!job.projectId) return;
+    try {
+      await montageApi(`/api/montage/styles/${job.projectId}`, { method: "PUT", body: JSON.stringify(style) });
+      toast.success("Style enregistré pour ce projet");
+    } catch (e) {
+      toast.error("Style non enregistré", { description: (e as Error).message });
+    }
+  };
   const approve = () => version && call({ approve: version.n }, "Version validée : le Mac fait le rendu final");
 
   const segs = useMemo(() => (draft ? timeline(draft) : []), [draft]);
   const seek = (t: number) => {
+    setTime(t);
     if (!player.current) return;
     player.current.currentTime = t;
-    player.current.play().catch(() => {});
   };
+  const sentMarks = (job.marks ?? []).filter((m) => m.version === version?.n);
+  const canDraw = job.status === "review" && !!version?.preview && compareWith === null;
 
   return (
     <>
@@ -165,6 +207,15 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
                   {job.versions.map((v) => (
                     <VersionChip key={v.n} v={v} on={v.n === version.n} onClick={() => pick(v.n)} />
                   ))}
+                  {canDraw && (
+                    <button
+                      onClick={() => setDrawing((d) => !d)}
+                      className={cn("press inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", drawing ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
+                      title="Mets la vidéo en pause là où il faut changer quelque chose, dessine et explique"
+                    >
+                      <PenLine className="size-3.5" /> Dessiner une note
+                    </button>
+                  )}
                   {job.versions.length > 1 && (
                     <button
                       onClick={() => setCompareWith(compareWith === null ? (job.versions.find((v) => v.n !== version.n && v.preview)?.n ?? null) : null)}
@@ -177,7 +228,9 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
                 {compareWith !== null ? (
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
-                  <Preview job={job} v={version} ref={player} />
+                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => [...x, m])} onClose={() => setDrawing(false)}>
+                    <Preview job={job} v={version} ref={player} onTime={setTime} />
+                  </Annotator>
                 )}
                 {version.notes && (
                   <div className="rounded-xl border border-line bg-surface-2/60 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-ink-2">
@@ -192,16 +245,39 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
                     <label htmlFor="feedback" className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium">
                       <MessageSquareText className="size-3.5 text-accent" /> Demander une autre version à Claude
                     </label>
+                    {marks.length > 0 && (
+                      <ul className="mb-2 flex flex-col gap-1.5">
+                        {marks.map((m) => (
+                          <li key={m.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/60 p-1.5 text-[12.5px]">
+                            {m.image ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={m.image} alt="" className="h-12 w-auto shrink-0 rounded-md" />
+                            ) : (
+                              <span className="grid h-12 w-8 shrink-0 place-items-center rounded-md bg-ink/5 text-ink-3">
+                                <PenLine className="size-3.5" />
+                              </span>
+                            )}
+                            <button onClick={() => seek(m.t)} className="tabular shrink-0 font-mono text-[11px] text-ink-3 hover:text-accent">
+                              {fmtSec(m.t)}
+                            </button>
+                            <span className="min-w-0 flex-1 truncate">{m.text || "Dessin sans texte"}</span>
+                            <button onClick={() => setMarks((x) => x.filter((y) => y.id !== m.id))} aria-label="Retirer la note" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink">
+                              <X className="size-3.5" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <textarea
                       id="feedback"
                       value={feedback}
                       onChange={(e) => setFeedback(e.target.value)}
                       rows={2}
-                      placeholder="Par ex. « plus court, garde la prise 2, zoom sur la fin »"
+                      placeholder={marks.length ? "Un mot de plus pour Claude (facultatif)" : "Par ex. « plus court, garde la prise 2 », ou dessine une note sur la vidéo"}
                       className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60"
                     />
                     <div className="mt-2 flex justify-end">
-                      <Button size="sm" onClick={revise} disabled={busy || !feedback.trim()}>
+                      <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !marks.length)}>
                         <Wand2 className="size-3.5" /> Nouvelle version
                       </Button>
                     </div>
@@ -209,11 +285,20 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
                 )}
               </div>
 
-              {/* ---------- Transcript ---------- */}
+              {/* ---------- Editing panels ---------- */}
               {draft && (
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-[13px] font-semibold">Montage par la transcription</h2>
+                    <Segmented
+                      label="Outil"
+                      value={tab}
+                      onChange={setTab}
+                      options={[
+                        { value: "captions", label: "Sous-titres" },
+                        { value: "text", label: "Transcription" },
+                        { value: "settings", label: "Réglages" },
+                      ]}
+                    />
                     <span className="tabular text-[12px] text-ink-3">
                       {segs.length}/{draft.segments.length} passages · {fmtSec(edlDuration(draft))}
                     </span>
@@ -228,19 +313,15 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
                       </div>
                     )}
                   </div>
+                  {dirty && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">Modifications pas encore rendues : la vidéo montre encore la version {version.n}. Clique sur « Voir l&apos;aperçu » pour que le Mac la refasse.</p>}
+
+                  {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={setEdl} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
+                  {tab === "settings" && <SettingsPanel edl={draft} onChange={setEdl} />}
+                  {tab === "text" && (
+                  <>
                   <p className="text-[12px] text-ink-3">
                     Clique sur l&apos;œil pour couper ou remettre un passage. Clique sur un mot pour corriger le sous-titre : son timing ne bouge pas.
                   </p>
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <TextField
-                      label="Accroche à l'écran"
-                      value={draft.title?.text ?? ""}
-                      onChange={(t) => edit((e) => ({ ...e, title: t ? { text: t, until: e.title?.until ?? 3 } : null }))}
-                    />
-                    <TextField label="Carton de fin" value={draft.endCard?.text ?? ""} onChange={(t) => edit((e) => ({ ...e, endCard: t ? { text: t } : null }))} />
-                  </div>
-
                   <ol className="flex flex-col gap-1.5">
                     {draft.segments.map((s, i) => {
                       const placed = segs.find((x) => x.id === s.id);
@@ -294,9 +375,24 @@ function Review({ job, worker, refresh }: { job: MontageJob; worker: Parameters<
                       );
                     })}
                   </ol>
+                  </>
+                  )}
                 </div>
               )}
             </div>
+          )}
+
+          {version && draft && (
+            <Timeline
+              edl={draft}
+              onChange={setEdl}
+              time={time}
+              onSeek={seek}
+              marks={[...sentMarks, ...marks.filter((m) => m.version === version.n)]}
+              rushes={rushes}
+              selection={selection}
+              onSelect={setSelection}
+            />
           )}
         </div>
       </div>
@@ -317,10 +413,15 @@ function VersionChip({ v, on, onClick }: { v: MontageVersion; on: boolean; onCli
   );
 }
 
-const Preview = ({ job, v, ref }: { job: MontageJob; v: MontageVersion; ref?: React.Ref<HTMLVideoElement> }) => (
+const Preview = ({ job, v, ref, onTime }: { job: MontageJob; v: MontageVersion; ref?: React.Ref<HTMLVideoElement>; onTime?: (t: number) => void }) => (
   <div className="overflow-hidden rounded-2xl border border-line bg-black shadow-card" style={{ aspectRatio: ASPECT[v.edl.format] }}>
     {v.preview ? (
-      <video ref={ref} key={`${job.id}-${v.n}`} src={`/api/montage/jobs/${job.id}/versions/${v.n}/preview`} controls playsInline className="size-full object-contain" />
+      <video ref={ref} key={`${job.id}-${v.n}`} src={`/api/montage/jobs/${job.id}/versions/${v.n}/preview`} controls
+        playsInline
+        onTimeUpdate={(e) => onTime?.(e.currentTarget.currentTime)}
+        onSeeked={(e) => onTime?.(e.currentTarget.currentTime)}
+        className="size-full object-contain"
+      />
     ) : (
       <div className="flex size-full flex-col items-center justify-center gap-2 text-[12.5px] text-white/60">
         <Loader2 className="size-5 animate-spin" />
@@ -401,20 +502,5 @@ function Word({ value, onChange, disabled }: { value: string; onChange: (v: stri
         {value}
       </button>{" "}
     </>
-  );
-}
-
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <label className="flex flex-col gap-1 text-[12px] font-medium text-ink-2">
-      {label}
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Aucun"
-        maxLength={200}
-        className="h-8 rounded-lg border border-line-strong bg-surface px-2.5 text-[13px] font-normal text-ink outline-none focus:border-accent/60"
-      />
-    </label>
   );
 }

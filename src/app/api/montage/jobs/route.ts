@@ -3,7 +3,7 @@ import type { MontageFormat, MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
-import { getRushRow, listJobs, saveJob } from "@/server/montage";
+import { getRushRow, getStyle, listJobs, saveJob } from "@/server/montage";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +39,13 @@ export async function POST(req: Request) {
   if (kind === "script" && !b.brief?.instructions?.trim()) return NextResponse.json({ error: "Décrivez l'idée de la vidéo" }, { status: 400 });
   const clip = (s: unknown, n: number) => (typeof s === "string" && s.trim() ? s.trim().slice(0, n) : undefined);
   const now = new Date().toISOString();
+  const projectId = listProjects().some((p) => p.id === b.projectId) ? b.projectId : undefined;
   const job: MontageJob = {
     id: crypto.randomUUID(),
     kind,
     title: clip(b.title, 120) ?? (kind === "script" ? "Texte de prompteur" : "Nouveau montage"),
-    projectId: listProjects().some((p) => p.id === b.projectId) ? b.projectId : undefined,
+    projectId,
+    style: projectId && kind === "montage" ? getStyle(projectId) : undefined,
     status: "queued",
     action: kind === "script" ? "script" : "propose",
     brief: {
