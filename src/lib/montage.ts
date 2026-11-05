@@ -153,30 +153,67 @@ export const FORMATS: { value: MontageFormat; label: string; hint: string }[] = 
   { value: "16:9", label: "16:9", hint: "YouTube" },
 ];
 
-/** Rush time cut from a segment by its cut words (only the part inside in..out). */
-export function cutTime(s: EdlSegment) {
-  let c = 0;
-  for (const w of s.words ?? []) if (w.cut) c += Math.max(0, Math.min(w.t1, s.out) - Math.max(w.t0, s.in));
-  return c;
+/**
+ * Rush spans that do not reach the video: cut words, and the part of the pauses between words
+ * that the silence setting removes (tight: pauses over 0.3 s keep 0.15 s; cut: pauses over 0.15 s keep 0.04 s).
+ * Same rule as the Mac worker (worker/montage/lib/edl.mjs, minus its ffmpeg silence detection), so the timeline matches the preview.
+ */
+export function removedSpans(s: EdlSegment, silences: AudioSettings["silences"] = "keep"): [number, number][] {
+  const spans: [number, number][] = [];
+  const ws = (s.words ?? []).filter((w) => w.t1 > s.in && w.t0 < s.out);
+  for (const w of ws) if (w.cut) spans.push([Math.max(w.t0, s.in), Math.min(w.t1, s.out)]);
+  const live = ws.filter((w) => !w.cut);
+  if (silences !== "keep" && live.length) {
+    const keep = silences === "tight" ? 0.15 : 0.04;
+    const min = silences === "tight" ? 0.3 : 0.15;
+    const gaps: [number, number][] = [];
+    let prev = s.in;
+    for (const w of live) {
+      if (w.t0 > prev) gaps.push([prev, w.t0]);
+      prev = Math.max(prev, w.t1);
+    }
+    if (s.out > prev) gaps.push([prev, s.out]);
+    for (const [a, b] of gaps) {
+      if (b - a <= min) continue;
+      const head = a <= s.in + 1e-3;
+      const tail = b >= s.out - 1e-3;
+      const ra = head ? a : tail ? a + keep : a + keep / 2;
+      const rb = tail ? b : head ? b - keep : b - keep / 2;
+      if (rb - ra > 0.02) spans.push([ra, rb]);
+    }
+  }
+  spans.sort((x, y) => x[0] - y[0]);
+  const merged: [number, number][] = [];
+  for (const sp of spans) {
+    const last = merged.at(-1);
+    if (last && sp[0] <= last[1]) last[1] = Math.max(last[1], sp[1]);
+    else if (sp[1] > sp[0]) merged.push([...sp]);
+  }
+  return merged;
 }
 
+const goneBefore = (gone: [number, number][], r: number) => gone.reduce((n, [a, b]) => n + Math.max(0, Math.min(b, r) - a), 0);
+
+type Placed = EdlSegment & { start: number; end: number; gone: [number, number][] };
+
 /** Segments kept, in order, with their position on the output timeline. */
-export function timeline(edl: Edl) {
+export function timeline(edl: Edl): Placed[] {
   let t = 0;
+  const silences = (edl.audio ?? DEFAULT_AUDIO).silences;
   return edl.segments
     .filter((s) => s.kept)
     .map((s) => {
+      const gone = removedSpans(s, silences);
       const start = t;
-      t += Math.max(0, s.out - s.in - cutTime(s));
-      return { ...s, start, end: t };
+      t += Math.max(0, s.out - s.in - goneBefore(gone, s.out));
+      return { ...s, start, end: t, gone };
     });
 }
 
-/** Timeline second of a rush second inside a placed segment (cut words take no time). */
-export function toTimeline(s: EdlSegment & { start: number }, rushT: number) {
-  let t = s.start + (Math.min(Math.max(rushT, s.in), s.out) - s.in);
-  for (const w of s.words ?? []) if (w.cut && w.t1 <= rushT) t -= Math.max(0, Math.min(w.t1, s.out) - Math.max(w.t0, s.in));
-  return t;
+/** Timeline second of a rush second inside a placed segment. */
+export function toTimeline(s: Placed, rushT: number) {
+  const r = Math.min(Math.max(rushT, s.in), s.out);
+  return s.start + (r - s.in) - goneBefore(s.gone, r);
 }
 
 /** Subtitle blocks as the editor shows them: up to ~6 words, split on punctuation and pauses. */
@@ -207,10 +244,9 @@ export function captionBlocks(edl: Edl) {
 export const edlDuration = (edl: Edl) => timeline(edl).at(-1)?.end ?? 0;
 
 /** Rush second of a timeline second inside a placed segment (inverse of toTimeline). */
-export function toRush(s: EdlSegment & { start: number }, t: number) {
+export function toRush(s: Placed, t: number) {
   let r = s.in + Math.max(0, t - s.start);
-  const cuts = (s.words ?? []).filter((w) => w.cut).sort((a, b) => a.t0 - b.t0);
-  for (const w of cuts) if (w.t0 <= r) r += Math.max(0, Math.min(w.t1, s.out) - Math.max(w.t0, s.in));
+  for (const [a, b] of s.gone) if (a <= r) r += Math.min(b, s.out) - a;
   return Math.min(r, s.out);
 }
 
