@@ -1,0 +1,42 @@
+{
+  "metricoveUrl": "https://social.antoinequarroz.ch",
+  "apiTokenFile": "~/metricove-secrets.txt",
+  "rushesDir": "~/Movies/Rushes",
+  "workDir": "~/Movies/Metricove/travail",
+  "minFreeGb": 5,
+  "pollSeconds": 5,
+  "scanSeconds": 60,
+  "whisper": {
+    "bin": "whisper-cli",
+    "model": "~/Movies/Metricove/modeles/ggml-large-v3-turbo.bin",
+    "modelUrl": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+    "language": "fr",
+    "dtw": "large.v3.turbo",
+    "prompt": "LivreMatch, Metricove, Claude, Hermes"
+  },
+  "claude": {
+    "bin": "~/.local/bin/claude",
+    "model": ""
+  },
+  "musicDir": "~/Movies/Metricove/musique",
+  "brollDir": "~/Movies/Metricove/broll",
+  "brollCache": "~/Movies/Metricove/broll-cache",
+  "brollCacheGb": 1,
+  "pexelsKey": "",
+  "deepFilter": "~/Movies/Metricove/outils/deep-filter",
+  "silenceDb": -35,
+  "hyperframes": "hyperframes@0.8.137",
+  "theme": {
+    "font": "Inter",
+    "fontFiles": [],
+    "fallbackFonts": "-apple-system, 'Helvetica Neue', Arial, sans-serif",
+    "accent": "#F3C300",
+    "text": "#ffffff",
+    "ink": "#141414",
+    "dark": "#111418",
+    "logo": "",
+    "captionsMaxChars": { "9:16": 18, "4:5": 22, "1:1": 22, "16:9": 38 },
+    "endCardSeconds": 2.5
+  },
+  "themes": {}
+}
