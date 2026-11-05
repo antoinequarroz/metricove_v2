@@ -16,31 +16,6 @@ export const captionsOf = (edl, style) => ({ ...DEFAULT_CAPTIONS, ...(edl.captio
 /** Partie d'un mot comprise dans le plan (in..out). */
 const inside = (w, s) => [Math.max(w.t0, s.in), Math.min(w.t1, s.out)];
 
-/** Temps de rush retiré par les mots coupés (seulement la partie entre in et out). */
-export function cutTime(s) {
-  let c = 0;
-  for (const w of s.words || []) if (w.cut) { const [a, b] = inside(w, s); c += Math.max(0, b - a); }
-  return c;
-}
-
-/** Timeline de l'éditeur : segments gardés, dans l'ordre ; durée = out − in − mots coupés. */
-export function timeline(edl) {
-  let t = 0;
-  return edl.segments.filter((s) => s.kept && s.out > s.in).map((s) => {
-    const seg = { ...s, start: round(t), dur: round(Math.max(0, s.out - s.in - cutTime(s))) };
-    t += seg.dur;
-    return seg;
-  });
-}
-
-/** Seconde de rush d'une seconde de la timeline de l'éditeur, dans un segment placé (inverse de toTimeline). */
-export function toRush(s, t) {
-  let r = s.in + Math.max(0, t - s.start);
-  const cuts = (s.words || []).filter((w) => w.cut).sort((a, b) => a.t0 - b.t0);
-  for (const w of cuts) if (w.t0 <= r) { const [a, b] = inside(w, s); r += Math.max(0, b - a); }
-  return Math.min(r, s.out);
-}
-
 function merge(iv) {
   const out = [];
   for (const [a, b] of iv.filter(([x, y]) => y > x).sort((x, y) => x[0] - y[0])) {
@@ -51,12 +26,12 @@ function merge(iv) {
 }
 
 /**
- * Morceaux de rush gardés pour un segment : [in, out] moins les mots coupés et, selon `mode`, les silences.
- * tight : silences > 0,3 s ramenés à 0,15 s ; cut : silences > 0,15 s retirés (il reste 0,04 s pour ne pas claquer).
- * Un silence = trou entre deux mots gardés (ou avant le 1er / après le dernier), réduit à ce que silencedetect
- * entend comme silence quand il est disponible. Bornes calées sur les images (fps) pour que son et image restent alignés.
+ * Temps de rush retirés d'un segment : mots coupés, et part des silences entre les mots selon `mode`
+ * (tight : silences > 0,3 s ramenés à 0,15 s ; cut : silences > 0,15 s, il reste 0,04 s).
+ * Miroir exact de removedSpans (src/lib/montage.ts) : la timeline de l'éditeur et le rendu ont la même durée.
+ * Les temps des mots sont déjà recalés sur les silences entendus à la transcription.
  */
-export function pieces(s, silences = null, mode = "keep", fps = 30) {
+export function removedSpans(s, mode = "keep") {
   const rem = [];
   const ws = (s.words || []).filter((w) => w.t1 > s.in && w.t0 < s.out);
   for (const w of ws) if (w.cut) rem.push(inside(w, s));
@@ -68,21 +43,50 @@ export function pieces(s, silences = null, mode = "keep", fps = 30) {
     let prev = s.in;
     for (const w of live) { if (w.t0 > prev) gaps.push([prev, w.t0]); prev = Math.max(prev, w.t1); }
     if (s.out > prev) gaps.push([prev, s.out]);
-    for (const [ga, gb] of gaps) {
-      const quiet = silences ? silences.map(([a, b]) => [Math.max(a, ga), Math.min(b, gb)]).filter(([a, b]) => b > a) : [[ga, gb]];
-      for (const [a, b] of quiet) {
-        if (b - a <= min) continue;
-        const head = a <= s.in + 1e-3, tail = b >= s.out - 1e-3;
-        const ra = head ? a : tail ? a + keep : a + keep / 2;
-        const rb = tail ? b : head ? b - keep : b - keep / 2;
-        if (rb - ra > 0.02) rem.push([ra, rb]);
-      }
+    for (const [a, b] of gaps) {
+      if (b - a <= min) continue;
+      const head = a <= s.in + 1e-3, tail = b >= s.out - 1e-3;
+      const ra = head ? a : tail ? a + keep : a + keep / 2;
+      const rb = tail ? b : head ? b - keep : b - keep / 2;
+      if (rb - ra > 0.02) rem.push([ra, rb]);
     }
   }
+  return merge(rem);
+}
+
+const goneBefore = (gone, r) => gone.reduce((n, [a, b]) => n + Math.max(0, Math.min(b, r) - a), 0);
+
+/** Timeline de l'éditeur : segments gardés, dans l'ordre ; durée = out − in − parties retirées. */
+export function timeline(edl) {
+  let t = 0;
+  const mode = audioOf(edl).silences;
+  return edl.segments.filter((s) => s.kept && s.out > s.in).map((s) => {
+    const gone = removedSpans(s, mode);
+    const seg = { ...s, gone, start: round(t), dur: round(Math.max(0, s.out - s.in - goneBefore(gone, s.out))) };
+    t += seg.dur;
+    return seg;
+  });
+}
+
+/** Seconde de la timeline de l'éditeur d'une seconde de rush, dans un segment placé. */
+export function toTimeline(s, r) {
+  const x = Math.min(Math.max(r, s.in), s.out);
+  return s.start + (x - s.in) - goneBefore(s.gone || [], x);
+}
+
+/** Seconde de rush d'une seconde de la timeline de l'éditeur, dans un segment placé (inverse de toTimeline). */
+export function toRush(s, t) {
+  let r = s.in + Math.max(0, t - s.start);
+  for (const [a, b] of s.gone || []) if (a <= r) r += b - a;
+  return Math.min(r, s.out);
+}
+
+/** Morceaux de rush gardés (complément des parties retirées), bornes calées sur les images pour garder son et image alignés. */
+export function pieces(s, fps = 30) {
   const snap = (t) => Math.round(t * fps) / fps;
   const out = [];
   let cur = s.in;
-  for (const [a, b] of merge(rem)) { if (a > cur) out.push([cur, a]); cur = Math.max(cur, b); }
+  for (const [a, b] of s.gone) { if (a > cur) out.push([cur, a]); cur = Math.max(cur, b); }
   if (s.out > cur) out.push([cur, s.out]);
   return out.map(([a, b]) => [round(snap(a)), round(snap(b))]).filter(([a, b]) => b - a >= 1 / fps);
 }
@@ -101,11 +105,11 @@ function mapper(ps, start) {
 }
 
 /** Plan du rendu : segments gardés avec leurs morceaux, leur place dans la vidéo rendue (oStart, oDur) et `map`. */
-export function renderPlan(edl, silencesByRush = {}, mode = "keep", fps = 30) {
+export function renderPlan(edl, fps = 30) {
   let o = 0;
   const out = [];
   for (const s of timeline(edl)) {
-    const ps = pieces(s, silencesByRush[s.rush] || null, mode, fps);
+    const ps = pieces(s, fps);
     const dur = ps.reduce((x, [a, b]) => x + (b - a), 0);
     if (dur < 0.05) continue;
     out.push({ ...s, i: out.length, pieces: ps, oStart: round(o), oDur: round(dur), map: mapper(ps, o) });

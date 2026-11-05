@@ -4,9 +4,10 @@ Le travail lourd du montage IA de Metricove tourne sur le Mac (contrat : [docs/M
 
 1. **Rushes** : inventaire de `rushesDir` (par défaut `~/Movies/Rushes`) toutes les 60 s ; les rushes filmés dans le Studio sont rapatriés depuis le VPS puis libérés.
 2. **Transcription** mot à mot avec whisper.cpp (`whisper-cli`, modèle large-v3-turbo), temps des mots par alignement DTW (`--dtw`), recalés sur les silences entendus par ffmpeg ; mise en cache.
-3. **Proposition** : Claude Code (`claude -p`, abonnement du Mac) choisit les phrases et l'ordre, coupe les « euh » et bégaiements mot par mot, propose 3 accroches, le carton de fin, des zooms, les mots clés, quelques emojis et la musique. Les notes dessinées (`job.marks`) sont écrites en `mark-<id>.jpg` dans le dossier de travail et Claude les lit (outil Read).
+3. **Proposition** : Claude Code (`claude -p`, abonnement du Mac) choisit les phrases et l'ordre, coupe les « euh » et bégaiements mot par mot, propose 3 accroches, le carton de fin, des zooms, les mots clés, quelques emojis, la musique et 2 à 5 plans de B-roll (sauf `brollAuto: false`). Chaque plan est cherché dans `~/Movies/Metricove/broll` (nom de fichier), sinon sur Pexels ; un plan sans `source` (changé à la main) est recherché avant l'aperçu ou le final. Les notes dessinées (`job.marks`) sont écrites en `mark-<id>.jpg` dans le dossier de travail et Claude les lit (outil Read).
 4. **Rendu** (style du skill video-heds, sans logo) :
-   - image : coupe des phrases gardées sans les mots coupés, silences gardés / resserrés (> 0,3 s → 0,15 s) / retirés, recadrage sur le visage (Vision), zooms (un sur deux avant, un sur deux arrière) ;
+   - image : coupe des phrases gardées sans les mots coupés, silences gardés / resserrés (> 0,3 s → 0,15 s) / retirés (même règle que la timeline de l'éditeur, `removedSpans`), recadrage sur le visage (Vision), zooms (un sur deux avant, un sur deux arrière) ;
+   - B-roll (`edl.broll`) par-dessus Antoine, sa voix continue : plein écran recadré au format, ou fenêtre arrondie (~40 % de la largeur) dans le coin du haut opposé au visage ; sous les sous-titres ;
    - son : débruitage (DeepFilterNet si `deep-filter` est installé, sinon ffmpeg `afftdn`), musique du dossier `musicDir` qui baisse sous la voix, loudnorm −14 LUFS (2 passes en final, 1 en aperçu) ;
    - sous-titres HyperFrames selon `edl.captions`, sinon `job.style`, sinon défaut : position bas / haut / milieu / auto (sous ou au-dessus du visage), animation karaoké / pop / simple, taille, couleur des mots clés, emojis ; accroche et carton de fin ;
    - couverture et `.srt`.
@@ -27,6 +28,7 @@ Outils requis : Node 20+, ffmpeg/ffprobe, whisper-cli (`brew install whisper-cpp
 
 Facultatif :
 - **DeepFilterNet** (meilleur débruitage, ≈ 28 Mo) : télécharger `deep-filter-0.5.6-aarch64-apple-darwin` depuis les releases GitHub de Rikorose/DeepFilterNet, le poser en `~/Movies/Metricove/outils/deep-filter` et le rendre exécutable (`chmod +x`). Sans lui, débruitage ffmpeg.
+- **B-roll** : tes plans dans `~/Movies/Metricove/broll` avec des noms descriptifs (« ballon de foot.mp4 »). Pour Pexels, une clé gratuite (pexels.com/api) dans `"pexelsKey"` de `config.json` ; les vidéos téléchargées vont dans `~/Movies/Metricove/broll-cache`, plafonné à `brollCacheGb` (1 Go). Sans clé ni plan qui colle, le plan est retiré et une note le dit.
 - **Musique** : fichiers MP3/M4A/WAV dans `~/Movies/Metricove/musique` (`musicDir`). Le morceau est choisi par son nom (`audio.music.track`), sinon par Claude, sinon le premier du dossier. Dossier vide : pas de musique, et une note le dit.
 Le jeton API est lu dans la ligne `API_TOKEN=…` de `apiTokenFile` (par défaut `~/metricove-secrets.txt`), ou dans `METRICOVE_API_TOKEN`.
 
@@ -43,7 +45,7 @@ node montage.mjs --dry-run  # travaille mais n'envoie rien à Metricove
 `theme` dans `config.json` : police (`font`, `fontFiles` pour des polices locales), couleurs (`accent`, `text`, `ink`, `dark`), `logo`, signes par ligne de sous-titres, durée du carton de fin.
 `themes["<projectId>"]` surcharge le thème pour un projet ; `job.theme` (prévu côté API) surcharge le tout.
 
-Autres réglages : `musicDir`, `deepFilter` (chemin du binaire), `silenceDb` (seuil de silence, −35 dB), `whisper.dtw` (préréglage DTW du modèle, vide pour le couper), `whisper.dtwShift` (avance des débuts de mots, 0,15 s).
+Autres réglages : `brollDir`, `brollCache`, `brollCacheGb`, `pexelsKey`, `musicDir`, `deepFilter` (chemin du binaire), `silenceDb` (seuil de silence, −35 dB), `whisper.dtw` (préréglage DTW du modèle, vide pour le couper), `whisper.dtwShift` (avance des débuts de mots, 0,15 s).
 
 ## Disque
 

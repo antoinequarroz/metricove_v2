@@ -24,6 +24,17 @@ const PROPOSAL_SCHEMA = {
     endCard: { type: ["object", "null"], properties: { text: { type: "string" } } },
     zooms: { type: "array", items: { type: "object", required: ["id"], properties: { id: { type: "string" }, scale: { type: "number" } } } },
     music: { type: "string", description: "Nom du fichier de musique choisi (si une liste est donnée)." },
+    broll: {
+      type: "array", description: "Plans d'illustration (B-roll) posés sur un mot de la phrase.",
+      items: {
+        type: "object", required: ["id", "word", "query", "mode"],
+        properties: {
+          id: { type: "string" }, word: { type: "integer", description: "indice du mot où le plan commence" },
+          dur: { type: "number", description: "1,5 à 3 s" }, query: { type: "string", description: "ce que le plan montre, en français, 2 à 5 mots" },
+          mode: { type: "string", enum: ["full", "pip"] }, file: { type: "string", description: "fichier choisi dans la liste de B-roll d'Antoine, sinon vide" },
+        },
+      },
+    },
     notes: { type: "string", description: "2-4 phrases en français pour Antoine : ce qui a été gardé, coupé, et pourquoi." },
   },
 };
@@ -50,7 +61,7 @@ const fmtTime = (s) => s.toFixed(1);
  * `marks` : notes dessinées [{ file, t, version, text, phrase?, said? }] (images à lire avec l'outil Read).
  * `tracks` : fichiers du dossier musique quand Claude doit en choisir un.
  */
-export async function proposeEdit(cfg, { job, cands, previous, marks = [], captions, tracks = [], cwd }) {
+export async function proposeEdit(cfg, { job, cands, previous, marks = [], captions, tracks = [], broll = null, cwd }) {
   const b = job.brief || {};
   const lines = cands.map((c) => `${c.id} | rush ${c.rushName} | ${fmtTime(c.in)}–${fmtTime(c.out)} s | ${c.words.map((w, i) => `${i}:${w.w}`).join(" ")}`).join("\n");
   const prev = previous
@@ -59,6 +70,9 @@ export async function proposeEdit(cfg, { job, cands, previous, marks = [], capti
   const notes = marks.length
     ? `\nNOTES DESSINÉES PAR ANTOINE SUR LA VIDÉO (demandes précises, prioritaires sur tout sauf son retour écrit) :
 ${marks.map((m, i) => `${i + 1}. À ${fmtTime(m.t)} s de la version ${m.version}${m.phrase ? ` (phrase ${m.phrase}${m.said ? ` « ${m.said.slice(0, 120)} »` : ""})` : ""} : « ${m.text || "voir le dessin"} »${m.file ? `. Image avec son dessin : ${m.file} — lis-la avec l'outil Read avant de répondre.` : ""}`).join("\n")}\n`
+    : "";
+  const brollTxt = broll
+    ? `\nB-ROLL : place 2 à 5 plans d'illustration sur des noms ou idées concrètes (id de la phrase + indice du mot où il commence, dur 1,5 à 3 s, query en français). mode full par défaut ; pip quand le visage ou l'émotion d'Antoine compte à ce moment. Jamais sur l'accroche d'ouverture ni sur deux phrases de suite.\n${broll.length ? `Plans d'Antoine (à préférer s'ils collent, mets le nom exact dans file) : ${broll.join(", ")}` : "Antoine n'a pas de plans à lui : laisse file vide, ils seront cherchés sur Pexels."}\n`
     : "";
   const music = tracks.length ? `\nMUSIQUE : choisis le morceau qui colle au ton (champ music) parmi : ${tracks.join(", ")}\n` : "";
   const prompt = `Tu es monteur vidéo pour les réseaux sociaux (Reels, TikTok, Shorts, LinkedIn). Tu montes à partir de la transcription.
@@ -69,7 +83,7 @@ BRIEF
 - Accroche souhaitée : ${b.hook || "à proposer"}
 - Appel à l'action : ${b.cta || "à proposer si pertinent"}
 - Consignes : ${b.instructions || "—"}
-${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}
+${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}${brollTxt}
 PHRASES DISPONIBLES (id | rush | temps | mots numérotés) :
 ${lines}
 

@@ -6,8 +6,9 @@ import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
 import { proposeEdit, writeScript } from "./claude.mjs";
 import { renderEdl } from "./render.mjs";
-import { timeline, toRush, FILLER, captionsOf, audioOf } from "./edl.mjs";
+import { timeline, toRush, toTimeline, FILLER, captionsOf, audioOf } from "./edl.mjs";
 import { listTracks } from "./audio.mjs";
+import { listBroll, resolveBroll } from "./broll.mjs";
 import { writeCaption } from "./caption.mjs";
 import { makeCover } from "./cover.mjs";
 
@@ -58,17 +59,24 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
         title: last.edl.title?.text, endCard: last.edl.endCard?.text,
       };
       // Réglages choisis par Antoine sur la dernière version : on les garde.
-      const settings = last ? { captions: last.edl.captions, audio: last.edl.audio, exports: last.edl.exports, crop: last.edl.crop } : {};
+      const settings = last ? { captions: last.edl.captions, audio: last.edl.audio, exports: last.edl.exports, crop: last.edl.crop, brollAuto: last.edl.brollAuto } : {};
       const captions = captionsOf(settings, job.style);
       const audio = audioOf(settings);
       const tracks = audio.music.on && !audio.music.track ? listTracks(cfg) : [];
       const marks = writeMarks(job, cands, dir);
-      const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, cwd: dir });
+      const brollAuto = settings.brollAuto !== false;
+      const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, broll: brollAuto ? listBroll(cfg) : null, cwd: dir });
       const edl = buildEdl(job, cands, p, { settings, captions, tracks });
+      const bnotes = [];
+      if (edl.broll?.length) {
+        await step("Recherche du B-roll…", 0.45);
+        const b = await resolveBroll(cfg, edl.broll, edl.format);
+        edl.broll = b.broll; bnotes.push(...b.notes);
+      }
       await step("Rendu de l'aperçu…", 0.5);
       const r = await renderEdl(cfg, { edl, rushPaths, theme, quality: "preview", style: job.style, dir: join(dir, "apercu"), onStep: (s, x) => step(s, 0.5 + 0.45 * x) });
       const upload = await api.upload(r.video, `apercu-${job.id}.mp4`);
-      const notes = [p.notes, ...r.notes].filter(Boolean).join("\n");
+      const notes = [p.notes, ...bnotes, ...r.notes].filter(Boolean).join("\n");
       await api.addVersion(job.id, { edl, notes, upload });
       log(`[${job.id.slice(0, 8)}] proposition envoyée (${timeline(edl).length} phrases, ${r.duration.toFixed(1)} s)`);
       return;
@@ -76,6 +84,7 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
 
     if (action === "preview") {
       const v = job.versions[job.versions.length - 1];
+      await withBroll(cfg, v.edl, step);
       const r = await renderEdl(cfg, { edl: v.edl, rushPaths, theme, quality: "preview", style: job.style, dir: join(dir, "apercu"), onStep: step });
       const upload = await api.upload(r.video, `apercu-${job.id}-v${v.n}.mp4`);
       await api.setPreview(job.id, v.n, upload);
@@ -85,6 +94,7 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
     if (action === "final") {
       const v = job.versions.find((x) => x.n === job.approved);
       if (!v) throw new Error(`Version validée introuvable (${job.approved}).`);
+      await withBroll(cfg, v.edl, step);
       assertSpace(cfg, cfg.minFreeGb + 1);
       const exports = [...new Set(v.edl.exports || [])].filter((f) => f !== v.edl.format);
       const share = 0.8 / (1 + exports.length);
@@ -124,6 +134,15 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
   } finally {
     clearInterval(beat);
   }
+}
+
+/** Plans de B-roll sans source (ajoutés ou changés à la main) : cherchés avant le rendu. */
+async function withBroll(cfg, edl, step) {
+  if (!edl.broll?.some((s) => !s.source)) return;
+  await step("Recherche du B-roll…", 0.03);
+  const b = await resolveBroll(cfg, edl.broll, edl.format);
+  edl.broll = b.broll;
+  for (const n of b.notes) log("note :", n);
 }
 
 /** Écrit les images des notes dessinées dans le dossier de travail (mark-<id>.jpg) et situe chaque note dans les phrases. */
@@ -186,7 +205,23 @@ export function buildEdl(job, cands, p, { settings = {}, captions = {}, tracks =
     ...(settings.exports?.length ? { exports: settings.exports } : {}),
   };
   if (edl.audio?.music?.on && !edl.audio.music.track && tracks.includes(p.music)) edl.audio.music.track = p.music;
+  if (settings.brollAuto === false) edl.brollAuto = false;
   const tl = timeline(edl);
+  // B-roll : du mot choisi par Claude au temps de la timeline (1,5 à 3 s, sans chevauchement, hors accroche).
+  if (settings.brollAuto !== false) {
+    const total = tl.length ? tl[tl.length - 1].start + tl[tl.length - 1].dur : 0;
+    const shots = [];
+    for (const x of p.broll || []) {
+      const s = tl.find((y) => y.id === x.id);
+      const w = s?.words?.[x.word];
+      if (!s || !w || !String(x.query || "").trim()) continue;
+      const at = round(toTimeline(s, w.t0));
+      const dur = round(Math.min(3, Math.max(1.5, Number(x.dur) || 2), total - at));
+      if (dur < 1 || shots.some((o) => at < o.at + o.dur && o.at < at + dur)) continue;
+      shots.push({ at, dur, query: String(x.query).trim().slice(0, 80), mode: x.mode === "pip" ? "pip" : "full", ...(x.file ? { source: "mine", ref: String(x.file) } : {}) });
+    }
+    edl.broll = shots.sort((a, b) => a.at - b.at).slice(0, 5);
+  }
   if (edl.title) edl.title.until = round(Math.min(2.8, tl[0] ? tl[0].dur + 0.3 : 2.5));
   const maxZooms = Math.max(3, Math.ceil(tl.length / 2) + 1);
   for (const z of (p.zooms || []).slice(0, maxZooms)) {

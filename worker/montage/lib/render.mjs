@@ -1,5 +1,6 @@
 // Rendu d'une EDL : phrases gardées sans les mots coupés ni les silences (selon audio.silences), recadrage sur le visage,
-// zooms (un sur deux avant, un sur deux arrière), surcouche HyperFrames (sous-titres + accroche + fin),
+// zooms (un sur deux avant, un sur deux arrière), B-roll par-dessus (plein écran ou fenêtre), surcouche HyperFrames
+// (sous-titres + accroche + fin, toujours au-dessus),
 // son débruité + musique + loudnorm −14 LUFS, couverture et .srt.
 import { writeFileSync, rmSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -8,7 +9,8 @@ import { run, ensureDir, log, round } from "./util.mjs";
 import { probe } from "./rushes.mjs";
 import { overlayPage, renderOverlay } from "./hf.mjs";
 import { renderPlan, toOutput, outputWords, audioOf, captionsOf } from "./edl.mjs";
-import { detectSilences, buildAudio } from "./audio.mjs";
+import { buildAudio } from "./audio.mjs";
+import { brollFile } from "./broll.mjs";
 
 export { timeline } from "./edl.mjs";
 
@@ -64,9 +66,45 @@ function cropFilter(src, W, H, c) {
 /** Visage du segment dans l'image rendue (haut et bas, 0..1), pour placer les sous-titres en « auto ». */
 function faceInFrame(src, W, H, c, fc) {
   const sa = src.width / src.height, ta = W / H;
-  if (sa >= ta - 0.01) return { y0: fc.cy - fc.h / 2, y1: fc.cy + fc.h / 2 };
+  if (Math.abs(sa - ta) < 0.01) return { y0: fc.cy - fc.h / 2, y1: fc.cy + fc.h / 2, cx: fc.cx };
+  if (sa > ta) { // recadrage en largeur
+    const cw = (src.height * W) / H / src.width, left = Math.max(0, Math.min(1 - cw, c.cx - cw / 2));
+    return { y0: fc.cy - fc.h / 2, y1: fc.cy + fc.h / 2, cx: (fc.cx - left) / cw };
+  }
   const ch = (src.width * H) / W / src.height, top = cropTop(src, W, H, c);
-  return { y0: (fc.cy - fc.h / 2 - top) / ch, y1: (fc.cy + fc.h / 2 - top) / ch };
+  return { y0: (fc.cy - fc.h / 2 - top) / ch, y1: (fc.cy + fc.h / 2 - top) / ch, cx: fc.cx };
+}
+
+/**
+ * Filtres du B-roll : chaque plan entre à son temps rendu, plein écran (recadré au format) ou en fenêtre arrondie
+ * (~40 % de la largeur, dans le coin du haut opposé au visage). Image seule : la voix continue.
+ */
+async function brollLayers(cfg, edl, plan, faces, W, H, firstInput) {
+  const inputs = [], filters = [], overlays = [];
+  for (const shot of edl.broll || []) {
+    const file = await brollFile(cfg, shot);
+    if (!file) { log(`B-roll « ${shot.query} » sans fichier : ignoré`); continue; }
+    const a = toOutput(plan, shot.at), b = toOutput(plan, shot.at + shot.dur), d = b - a;
+    if (d < 0.3) continue;
+    const k = firstInput + inputs.length / 6, L = `br${overlays.length}`;
+    inputs.push("-stream_loop", "-1", "-t", d.toFixed(3), "-i", file);
+    const fade = `fade=t=in:st=${a.toFixed(3)}:d=0.12:alpha=1,fade=t=out:st=${Math.max(a, b - 0.12).toFixed(3)}:d=0.12:alpha=1`;
+    const head = `[${k}:v]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS+${a.toFixed(3)}/TB,fps=${FPS}`;
+    if (shot.mode === "pip") {
+      const portrait = H >= W;
+      const pw = Math.round((W * (portrait ? 0.4 : 0.32)) / 2) * 2, ph = Math.round((pw * (portrait ? 1.25 : 0.5625)) / 2) * 2;
+      const R = Math.round(pw * 0.08);
+      const corner = `geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='if(gt(abs(X-W/2),W/2-${R})*gt(abs(Y-H/2),H/2-${R}),if(lte(hypot(abs(X-W/2)-(W/2-${R}),abs(Y-H/2)-(H/2-${R})),${R}),255,0),255)'`;
+      filters.push(`${head},scale=${pw}:${ph}:force_original_aspect_ratio=increase,crop=${pw}:${ph},setsar=1,format=yuva420p,${corner},${fade}[${L}]`);
+      const seg = plan.find((s) => a < s.oStart + s.oDur) || plan[plan.length - 1];
+      const fx = faces[seg.i]?.cx ?? 0.5, m = Math.round(W * 0.05);
+      overlays.push({ L, x: fx < 0.5 ? W - pw - m : m, y: Math.round(H * (portrait ? 0.07 : 0.06)), a, b });
+    } else {
+      filters.push(`${head},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuva420p,${fade}[${L}]`);
+      overlays.push({ L, x: 0, y: 0, a, b });
+    }
+  }
+  return { inputs, filters, overlays };
 }
 
 /**
@@ -110,12 +148,8 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   const notes = [];
 
   const rushes = [...new Set(edl.segments.filter((s) => s.kept).map((s) => s.rush))];
-  const sil = {};
-  if (audio.silences !== "keep") {
-    onStep("Repérage des silences…", 0.03);
-    for (const r of rushes) sil[r] = await detectSilences(cfg, rushPaths[r]).catch((e) => { log("silences non détectés :", e.message); return null; });
-  }
-  const plan = renderPlan(edl, sil, audio.silences, FPS);
+  // Mêmes coupes que la timeline de l'éditeur (removedSpans) : les temps des zooms, du B-roll et des notes tombent juste.
+  const plan = renderPlan(edl, FPS);
   if (!plan.length) throw new Error("Aucune phrase gardée : rien à monter.");
   const speechEnd = round(plan[plan.length - 1].oStart + plan[plan.length - 1].oDur);
   const endSec = edl.endCard?.text ? theme.endCardSeconds || 2.5 : 0;
@@ -190,7 +224,16 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   onStep(final ? "Rendu final…" : "Rendu de l'aperçu…", 0.8);
   const out = join(dir, final ? "final.mp4" : "apercu.mp4");
   const inputs = ["-i", base, "-i", sound, ...(overlay ? ["-i", overlay] : [])];
-  const fc = overlay ? `[0:v]${zoom}setsar=1[b];[b][2:v]overlay=0:0:format=auto,format=yuv420p[v]` : `[0:v]${zoom}format=yuv420p[v]`;
+  const br = await brollLayers(cfg, edl, plan, capFaces, W, H, overlay ? 3 : 2);
+  inputs.push(...br.inputs);
+  const chain = [`[0:v]${zoom}setsar=1,format=yuv420p[s0]`, ...br.filters];
+  let cur = "s0";
+  br.overlays.forEach((o, i) => {
+    chain.push(`[${cur}][${o.L}]overlay=${o.x}:${o.y}:format=auto:eof_action=pass:enable='between(t,${o.a.toFixed(3)},${o.b.toFixed(3)})'[s${i + 1}]`);
+    cur = `s${i + 1}`;
+  });
+  chain.push(overlay ? `[${cur}][2:v]overlay=0:0:format=auto,format=yuv420p[v]` : `[${cur}]format=yuv420p[v]`);
+  const fc = chain.join(";");
   await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", "1:a",
     "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);
   const cover = join(dir, final ? "couverture.jpg" : "apercu.jpg");
