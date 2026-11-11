@@ -25,6 +25,7 @@ type Body = {
   script?: string;
   caption?: string;
   youtubeTitle?: string;
+  post?: { caption?: unknown; slides?: unknown };
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -81,6 +82,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const text = (b.caption ?? "").trim().slice(0, 5000);
     if (!text) return NextResponse.json({ error: "Description vide" }, { status: 400 });
     job.caption.result = { caption: text, youtubeTitle: b.youtubeTitle?.trim().slice(0, 100) || undefined };
+    return NextResponse.json({ job: release(job, "done") });
+  }
+  if (b.status === "done" && job.kind === "post" && job.post) {
+    const caption = typeof b.post?.caption === "string" ? b.post.caption.trim().slice(0, 5000) : "";
+    const slides = (Array.isArray(b.post?.slides) ? (b.post.slides as Record<string, unknown>[]) : [])
+      .slice(0, 10)
+      .map((s) => ({ title: typeof s?.title === "string" ? s.title.trim().slice(0, 200) : "", body: typeof s?.body === "string" ? s.body.trim().slice(0, 600) : "" }))
+      .filter((s) => s.title || s.body);
+    if (!slides.length) return NextResponse.json({ error: "Post vide" }, { status: 400 });
+    job.post.result = { caption, slides };
     return NextResponse.json({ job: release(job, "done") });
   }
   if (b.step !== undefined || b.progress !== undefined) {

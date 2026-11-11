@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Film, Laptop, Scissors } from "lucide-react";
+import { Clapperboard, Film, GalleryHorizontalEnd, Laptop, Scissors, Video } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { MontageJob } from "@/lib/montage";
@@ -30,6 +30,37 @@ export function VideoTabs() {
             )}
           >
             <Icon className={cn("size-3.5", on ? "text-accent" : "")} />
+            {label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+const STUDIO_TABS = [
+  { href: "/videos/studio", label: "Vidéo face caméra", Icon: Video },
+  { href: "/videos/studio/visuels", label: "Carrousel et photo", Icon: GalleryHorizontalEnd },
+];
+
+/** What the Studio makes: a video in front of the camera, or visuals (carousel, photo post). */
+export function StudioTabs() {
+  const pathname = usePathname();
+  return (
+    <nav className="flex rounded-lg border border-line bg-bg-2/70 p-0.5" aria-label="Studio">
+      {STUDIO_TABS.map(({ href, label, Icon }) => {
+        const on = pathname === href;
+        return (
+          <Link
+            key={href}
+            href={href}
+            aria-current={on ? "page" : undefined}
+            className={cn(
+              "flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] duration-150",
+              on ? "bg-surface text-ink shadow-card" : "text-ink-3 hover:text-ink",
+            )}
+          >
+            <Icon className={cn("size-4", on ? "text-accent" : "")} />
             {label}
           </Link>
         );

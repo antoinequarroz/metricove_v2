@@ -9,7 +9,7 @@ import { uploadInChunks } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
-import { fmtSec, PageHeader, VideoTabs } from "./parts";
+import { fmtSec, PageHeader, StudioTabs, VideoTabs } from "./parts";
 import { useVoiceFollow } from "./use-voice-follow";
 import { montageApi, useMontage } from "./use-montage";
 
@@ -251,6 +251,9 @@ export function StudioPage() {
         <VideoTabs />
       </PageHeader>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
+        <div className="mx-auto mb-4 flex max-w-6xl">
+          <StudioTabs />
+        </div>
         <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
           {/* ---------- Camera + teleprompter ---------- */}
           <div className="flex flex-col gap-3">

@@ -123,7 +123,7 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post";
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -137,9 +137,20 @@ export type CaptionRequest = {
   result?: { caption: string; youtubeTitle?: string };
 };
 
+/** A post asked from Claude in the Studio: the texts of each slide, and the description. */
+export type PostRequest = {
+  idea: string;
+  /** How many slides Claude writes: 1 for a single image, up to 10 for a carousel. */
+  slides: number;
+  networks: string[];
+  accounts: { network: string; handle: string }[];
+  project?: string;
+  result?: { caption: string; slides: { title: string; body: string }[] };
+};
+
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover";
+  kind: "montage" | "script" | "caption" | "cover" | "post";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -150,6 +161,8 @@ export type MontageJob = {
   brief: { format: MontageFormat; seconds?: number; instructions?: string; hook?: string; cta?: string };
   script?: string;
   caption?: CaptionRequest;
+  /** kind "post": a whole post written by Claude from an idea (slide texts and the description). */
+  post?: PostRequest;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
   cover?: { mediaId: string; project?: string; instructions?: string };
   rushIds: string[];

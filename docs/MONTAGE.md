@@ -42,12 +42,12 @@ Le serveur refuse les corps de plus de 10 Mo. Tout fichier passe donc par morcea
 ```ts
 type Job = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover";
+  kind: "montage" | "script" | "caption" | "cover" | "post";
   title: string;
   projectId?: string;
   status: "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
   /** Ce que le worker doit faire maintenant (null = rien). */
-  action: null | "propose" | "preview" | "final" | "script" | "caption" | "cover";
+  action: null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post";
   step?: string;          // « Transcription… », affiché tel quel
   progress?: number;      // 0..1
   error?: string;
@@ -160,6 +160,11 @@ Un segment peut être coupé en deux dans la timeline : les deux moitiés garden
   transcrire. Répondre vite (l'interface attend au plus 4 min), avec `step` pour l'avancement, puis
   `PATCH /api/montage/jobs/:id` `{ "status": "done", "caption", "youtubeTitle"? }`. L'interface
   supprime la tâche une fois la description lue.
+- `action: "post"` (`kind: "post"`, worker 0.2.0) : écrire un post entier à partir d'une idée (Studio → Carrousel et photo).
+  `job.post` donne `{ idea, slides, networks, accounts: [{ network, handle }], project? }` : `slides` est le nombre de
+  visuels voulus (1 à 10). Répondre vite (l'interface attend au plus 4 min), puis
+  `PATCH /api/montage/jobs/:id` `{ "status": "done", "post": { "caption", "slides": [{ "title", "body" }] } }`.
+  Les visuels sont dessinés par Metricove, le worker n'écrit que les textes.
 - `action: "cover"` (`kind: "cover"`) : faire la couverture du feed (image JPEG 1080×1920) de la vidéo
   `job.cover.mediaId`, dans le style du projet `job.cover.project` (consignes éventuelles dans
   `job.cover.instructions`). Le claim renvoie `media` (avec `url` de la vidéo). Le texte clé doit rester
@@ -189,6 +194,7 @@ Envoyées avec une demande de nouvelle version : `{ id, version, t, text, image?
 
 - `POST /api/montage/jobs` `{ kind, title, projectId?, brief, rushIds?, script? }` → `queued`, action `propose` (ou `script`).
 - `POST /api/montage/jobs` `{ kind: "caption", accountIds, draft?, mediaId?, projectId? }` → action `caption`.
+- `POST /api/montage/jobs` `{ kind: "post", idea, slides?, accountIds?, projectId? }` → action `post`.
 - `PATCH /api/montage/jobs/:id`
   - `{ "revise": "plus court, garde la prise 2", "marks"?: [...] }` → action `propose` (8 notes max, 400 Ko par image)
   - `{ "edl": {…} }` → nouvelle version `by: "edit"`, action `preview`

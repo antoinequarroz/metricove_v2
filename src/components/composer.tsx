@@ -24,7 +24,7 @@ export function Composer() {
   const composer = useStore((s) => s.composer);
   const close = useStore((s) => s.closeComposer);
   // Remount the form each time it opens, so state starts fresh.
-  const key = `${composer.postId ?? "new"}-${composer.date ?? ""}-${composer.mediaId ?? ""}`;
+  const key = `${composer.postId ?? "new"}-${composer.date ?? ""}-${composer.mediaId ?? ""}-${composer.mediaIds?.join(",") ?? ""}`;
 
   return (
     <Dialog.Root open={composer.open} onOpenChange={(o) => !o && close()}>
@@ -39,7 +39,7 @@ export function Composer() {
 }
 
 function ComposerForm() {
-  const { postId, date, mediaId: presetMedia } = useStore((s) => s.composer);
+  const { postId, date, mediaId: presetMedia, mediaIds: presetMedias, caption: presetCaption, format: presetFormat } = useStore((s) => s.composer);
   const posts = useStore((s) => s.posts);
   const accounts = useStore((s) => s.accounts);
   const projects = useStore((s) => s.projects);
@@ -73,11 +73,11 @@ function ComposerForm() {
     const fromProject = projectAccounts(activeProject);
     return fromProject.length ? fromProject : accounts.filter((a) => a.connected).slice(0, 1).map((a) => a.id);
   });
-  const [caption, setCaption] = useState(existing?.caption ?? "");
+  const [caption, setCaption] = useState(existing?.caption ?? presetCaption ?? "");
   // One media for a plain post, several for a carousel, in the order they will show.
-  const [mediaIds, setMediaIds] = useState<string[]>(() => (existing ? postMediaIds(existing) : presetMedia ? [presetMedia] : []));
+  const [mediaIds, setMediaIds] = useState<string[]>(() => (existing ? postMediaIds(existing) : presetMedias?.length ? presetMedias.slice(0, 10) : presetMedia ? [presetMedia] : []));
   const setMediaId = (id: string | undefined) => setMediaIds((ids) => (id ? [id, ...ids.slice(1).filter((x) => x !== id)] : ids.slice(1)));
-  const [format, setFormat] = useState<PostFormat>(existing?.format ?? "feed");
+  const [format, setFormat] = useState<PostFormat>(existing?.format ?? presetFormat ?? "feed");
   const uploadMedia = useStore((s) => s.uploadMedia);
   const [cropping, setCropping] = useState(false);
   const [day, setDay] = useState(fmt(initialDate, "yyyy-MM-dd"));

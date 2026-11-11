@@ -1,4 +1,4 @@
-// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover (contrat docs/MONTAGE.md).
+// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post (contrat docs/MONTAGE.md).
 import { statSync, rmSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { ensureDir, assertSpace, themeFor, log, round } from "./util.mjs";
@@ -11,6 +11,7 @@ import { listTracks } from "./audio.mjs";
 import { listBroll, resolveBroll } from "./broll.mjs";
 import { writeCaption } from "./caption.mjs";
 import { makeCover } from "./cover.mjs";
+import { writePost } from "./post.mjs";
 
 export async function handle(api, cfg, { job, action, rushes = [], media }) {
   const dir = ensureDir(join(cfg.workDir, "taches", job.id));
@@ -30,6 +31,13 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       const { caption, youtubeTitle } = await writeCaption(api, cfg, { job, media }, step);
       await api.patch(job.id, { status: "done", caption, ...(youtubeTitle ? { youtubeTitle } : {}) });
       log(`[${job.id.slice(0, 8)}] description envoyée (${caption.length} car., ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (action === "post") {
+      const post = await writePost(cfg, job, step);
+      await api.patch(job.id, { status: "done", post });
+      log(`[${job.id.slice(0, 8)}] post envoyé (${post.slides.length} visuel(s), ${post.caption.length} car.)`);
       rmSync(dir, { recursive: true, force: true });
       return;
     }

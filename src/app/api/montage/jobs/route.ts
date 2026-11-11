@@ -22,16 +22,20 @@ type Body = {
   accountIds?: string[];
   draft?: string;
   mediaId?: string;
+  // kind "post"
+  idea?: string;
+  slides?: number;
 };
 
 /**
  * Asks the Mac for an edit (kind "montage", with rushes), a teleprompter script (kind "script")
- * or a post description (kind "caption").
+ * a post description (kind "caption"), a feed cover (kind "cover") or a whole post (kind "post").
  */
 export async function POST(req: Request) {
   const b = (await req.json().catch(() => ({}))) as Body;
   if (b.kind === "caption") return captionJob(b);
   if (b.kind === "cover") return coverJob(b);
+  if (b.kind === "post") return postJob(b);
   const kind = b.kind === "script" ? "script" : "montage";
   const format: MontageFormat = ["9:16", "4:5", "1:1", "16:9"].includes(b.brief?.format as string) ? (b.brief!.format as MontageFormat) : "9:16";
   const rushIds = [...new Set(b.rushIds ?? [])].filter((id) => getRushRow(id));
@@ -119,6 +123,35 @@ function coverJob(b: Body) {
       project: project?.name,
       instructions: typeof b.draft === "string" && b.draft.trim() ? b.draft.trim().slice(0, 2000) : undefined,
     },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/** Asks the Mac for a whole post from an idea: the text of each slide and the description. */
+function postJob(b: Body) {
+  const idea = typeof b.idea === "string" ? b.idea.trim().slice(0, 3000) : "";
+  if (!idea) return NextResponse.json({ error: "Décrivez l'idée du post" }, { status: 400 });
+  const slides = Math.min(10, Math.max(1, Math.round(Number.isFinite(b.slides) ? (b.slides as number) : 5)));
+  const projects = listProjects();
+  const project = projects.find((p) => p.id === b.projectId);
+  // The accounts given, else those of the project: Claude adapts the tone and the length to them.
+  const ids = new Set(Array.isArray(b.accountIds) && b.accountIds.length ? b.accountIds : (project?.accountIds ?? []));
+  const accounts = listAccounts().filter((a) => ids.has(a.id));
+  const networks = NETWORK_ORDER.filter((n: Network) => accounts.some((a) => a.network === n));
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "post",
+    title: `Post : ${idea}`.slice(0, 120),
+    projectId: project?.id,
+    status: "queued",
+    action: "post",
+    brief: { format: "4:5" },
+    post: { idea, slides, networks, accounts: accounts.map((a) => ({ network: a.network, handle: a.handle })), project: project?.name },
     rushIds: [],
     versions: [],
     createdAt: now,
