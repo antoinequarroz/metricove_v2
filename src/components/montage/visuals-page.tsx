@@ -300,6 +300,17 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
     }
   }, [data, motion, reelId, starting, taken]);
 
+  // A reel that left the list without a word (taken or cancelled from another tab) must not spin forever.
+  const seenReel = useRef<string | null>(null);
+  useEffect(() => {
+    if (!reelId || !data) return;
+    if (reel) seenReel.current = reelId;
+    else if (seenReel.current === reelId) {
+      setReelId(null);
+      useStore.getState().load().catch(() => {});
+    }
+  }, [reelId, data, reel]);
+
   const generate = async () => {
     if (reelId || starting) return;
     setStarting(true);
@@ -309,8 +320,9 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
         body: JSON.stringify({
           kind: "motion",
           scenes: deck.slides.map((s) => ({ title: s.title, body: s.body })),
-          // The logo is the project's: the Mac gets it from the profile.
+          // Whether a logo shows; the image itself is the one saved in the project's profile, which the Mac gets.
           look: { ...lookOf(deck), logo: undefined },
+          logo: !!deck.logo,
           music,
           projectId: styled ?? (activeProject !== "all" ? activeProject : undefined),
         }),
@@ -694,6 +706,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                 </Field>
                 )}
                 <LookControls look={deck} onChange={patch} suggestedHandle={suggestedHandle} />
+                {motion && <p className="text-[12px] text-ink-3">{"Le logo du reel est celui enregistré dans le profil du projet. Retire-le ici pour un reel sans logo."}</p>}
               </Panel>
 
               <Panel title={motion ? "Description du reel" : "Description du post"}>

@@ -31,6 +31,7 @@ type Body = {
   // kind "motion"
   scenes?: unknown;
   look?: unknown;
+  logo?: boolean;
   music?: boolean;
 };
 
@@ -196,7 +197,7 @@ function motionJob(b: Body) {
     status: "queued",
     action: "motion",
     brief: { format: "9:16" },
-    motion: { scenes, look: stored, music: b.music !== false, project: project?.name },
+    motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, project: project?.name },
     rushIds: [],
     versions: [],
     createdAt: now,

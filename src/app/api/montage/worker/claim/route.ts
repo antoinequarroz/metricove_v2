@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   const voice = styled ? voiceOf(claimed.projectId) : undefined;
   const theme = styled ? themeOf(claimed.projectId) : undefined;
   // An animated reel shows the logo of its project: kept out of the stored job, added here.
-  const owner = claimed.kind === "motion" && claimed.motion && claimed.projectId ? listProjects().find((p) => p.id === claimed.projectId) : undefined;
+  const owner = claimed.kind === "motion" && claimed.motion?.logo !== false && claimed.projectId ? listProjects().find((p) => p.id === claimed.projectId) : undefined;
   const logo = owner ? profileOf(owner).look.logo : undefined;
   if (claimed.motion && logo) claimed.motion = { ...claimed.motion, look: { ...claimed.motion.look, logo } };
   const job = { ...claimed, ...(voice ? { voice: { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}) };

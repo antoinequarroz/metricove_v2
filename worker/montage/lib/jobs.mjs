@@ -45,12 +45,18 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
     }
     if (action === "motion") {
       assertSpace(cfg);
-      const r = await makeMotion(cfg, job, dir, step);
-      await step("Envoi vers la bibliothèque…", 0.92);
-      const upload = await api.upload(r.video, `${slug(job.title)}.mp4`);
-      await api.final(job.id, upload, job.title);
-      log(`[${job.id.slice(0, 8)}] reel animé envoyé (${r.duration.toFixed(1)} s)`);
-      rmSync(dir, { recursive: true, force: true });
+      // « Annuler le reel » supprime la tâche : on s'arrête à l'étape suivante au lieu d'envoyer une vidéo dont personne ne veut.
+      const alive = async () => api.dryRun || (await api.req("GET", `/api/montage/jobs/${job.id}`, { raw: true })).status !== 404;
+      const guarded = async (s, p) => { if (!(await alive())) throw new Error("reel annulé"); return step(s, p); };
+      try {
+        const r = await makeMotion(cfg, job, dir, guarded);
+        await guarded("Envoi vers la bibliothèque…", 0.92);
+        const upload = await api.upload(r.video, `${slug(job.title)}.mp4`);
+        await api.final(job.id, upload, job.title);
+        log(`[${job.id.slice(0, 8)}] reel animé envoyé (${r.duration.toFixed(1)} s)`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
       return;
     }
     if (action === "cover") {

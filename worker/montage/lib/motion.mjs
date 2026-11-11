@@ -93,7 +93,7 @@ function titleSize(title, condensed) {
   const longest = Math.max(1, ...title.split(/\s+/).map((w) => w.length));
   const n = title.length;
   const byLength = n <= 14 ? 200 : n <= 26 ? 172 : n <= 44 ? 140 : n <= 70 ? 112 : 92;
-  return Math.round(Math.max(64, Math.min(byLength, 900 / (longest * cw))));
+  return Math.round(Math.max(48, Math.min(byLength, 900 / (longest * cw))));
 }
 
 /** Durée d'une scène : le temps de la lire, plus celui de l'animation. */
@@ -126,12 +126,14 @@ export function motionPage(motion, fonts = { display: [], body: [] }, gsap = GSA
   scenes.forEach((s, i) => {
     const c = colors(look, i);
     const t0 = starts[i], d = durs[i];
+    // La scène existe dès le début de sa transition (0,3 s avant son tour) : elle recouvre la précédente.
+    const on = Math.max(0, t0 - 0.3);
     const size = s.title ? titleSize(s.title, look.font === "grotesque") : 0;
     const words = s.title.split("\n").map((line) => line.split(/\s+/).filter(Boolean).map((w) => `<span class="m"><span class="w">${E(w)}</span></span>`).join(" ")).join("<br>");
     const pill = look.numbers && n > 1 ? `<div class="num${look.pill ? " pill" : ""}" style="${look.pill ? `background:${c.mark};color:${typeof c.bg === "string" && HEX.test(c.bg) ? c.bg : "#171716"}` : `color:${c.sub}`}">${String(i + 1).padStart(2, "0")} / ${String(n).padStart(2, "0")}</div>` : "";
     const sig = look.handle || look.logo ? `<div class="sig" style="color:${c.sub}">${look.logo ? `<img src="${look.logo}" alt="">` : ""}${look.handle ? `<span>${E(look.handle)}</span>` : ""}</div>` : "";
     const bars = n > 1 ? `<div class="bars">${scenes.map((_, k) => `<i style="background:${alpha(HEX.test(c.line) ? c.line : "#ffffff", 0.22)}"><b style="background:${c.ink};transform:scaleX(${k < i ? 1 : 0})"></b></i>`).join("")}</div>` : "";
-    els.push(`<div id="s${i}" class="clip scene" data-start="${f(t0)}" data-duration="${f(total - t0)}" data-track-index="${i}" style="z-index:${i + 1};background:${c.bg};color:${c.ink}">
+    els.push(`<div id="s${i}" class="clip scene" data-start="${f(on)}" data-duration="${f(total - on)}" data-track-index="${i}" style="z-index:${i + 1};background:${c.bg};color:${c.ink}">
 ${c.glow ? `<div class="glow" style="background:radial-gradient(circle at 90% 0%, ${alpha(look.accent, look.theme === "night" ? 0.26 : 0.16)}, ${alpha(look.accent, 0)} 60%)"></div>` : ""}${look.grid ? `<div class="grid" style="background-image:linear-gradient(${alpha(HEX.test(c.line) ? c.line : "#ffffff", 0.09)} 2px, transparent 2px),linear-gradient(90deg, ${alpha(HEX.test(c.line) ? c.line : "#ffffff", 0.09)} 2px, transparent 2px)"></div>` : ""}
 <div class="orb" style="border-color:${c.mark}"></div>
 ${look.grain ? `<div class="grain"></div>` : ""}${bars}
@@ -179,16 +181,16 @@ html,body{width:${W}px;height:${H}px;overflow:hidden;background:#111}
 .bars{position:absolute;left:90px;right:90px;top:170px;display:flex;gap:10px}
 .bars i{flex:1;height:6px;border-radius:3px;overflow:hidden}
 .bars b{display:block;width:100%;height:100%;border-radius:3px;transform-origin:left center}
-.box{position:absolute;left:90px;right:90px;top:280px;bottom:470px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:40px}
+.box{position:absolute;left:90px;right:90px;top:280px;bottom:470px;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:40px}
 .box.top{justify-content:flex-start}.box.bottom{justify-content:flex-end}
 .box.center{align-items:center;text-align:center}
 .num{font-size:38px;font-weight:600;letter-spacing:0.08em;font-variant-numeric:tabular-nums}
 .num.pill{padding:10px 26px;border-radius:999px;font-weight:700}
-h1{font-family:"${F.display.family}",${FALLBACK[look.font]};${F.display.css};max-width:900px;text-wrap:balance}
-.m{display:inline-block;overflow:hidden;vertical-align:top;padding:0.14em 0.04em 0.2em;margin:-0.14em -0.04em -0.2em}
-.w{display:inline-block}
+h1{font-family:"${F.display.family}",${FALLBACK[look.font]};${F.display.css};max-width:900px;text-wrap:balance;overflow-wrap:anywhere}
+.m{display:inline-block;max-width:100%;overflow:hidden;vertical-align:top;padding:0.14em 0.04em 0.2em;margin:-0.14em -0.04em -0.2em}
+.w{display:inline-block;max-width:100%}
 .rule{width:200px;height:12px;border-radius:6px;transform-origin:${center ? "center" : "left"} center}
-p{font-size:58px;line-height:1.26;max-width:880px;text-wrap:pretty}
+p{font-size:58px;line-height:1.26;max-width:880px;text-wrap:pretty;overflow-wrap:anywhere}
 .sig{position:absolute;left:90px;right:90px;bottom:380px;display:flex;align-items:center;gap:18px;font-size:34px;font-weight:600${center ? ";justify-content:center" : ""}}
 .sig img{height:64px;width:auto}`;
 
@@ -201,6 +203,9 @@ ${els.join("\n")}
 </div>
 <script>
 window.__timelines=window.__timelines||{};
+// Un texte trop long pour la zone sûre est réduit jusqu'à tenir (refait quand les polices sont chargées).
+function fit(){document.querySelectorAll(".box").forEach((b)=>{const h=b.querySelector("h1"),p=b.querySelector("p");for(let k=0;k<40&&b.scrollHeight>b.clientHeight+2;k++){if(h)h.style.fontSize=Math.max(40,parseFloat(getComputedStyle(h).fontSize)*0.94)+"px";if(p)p.style.fontSize=Math.max(30,parseFloat(getComputedStyle(p).fontSize)*0.95)+"px";}});}
+fit();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
 const tl=gsap.timeline({paused:true});
 ${js.join("\n")}
 tl.to({},{duration:0.01},${f(total - 0.01)});

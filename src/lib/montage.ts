@@ -158,6 +158,8 @@ export type MotionRequest = {
   scenes: { title: string; body: string }[];
   /** The look of the scenes. The logo is not stored here: the Mac gets the project's logo when it takes the job. */
   look: Look;
+  /** Show the logo saved in the project's profile (false when the editor shows none). */
+  logo?: boolean;
   /** A track of the Mac's music folder under the scenes (none when the folder is empty). */
   music: boolean;
   project?: string;
