@@ -113,9 +113,70 @@ export type Edl = {
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };
 export const DEFAULT_AUDIO: AudioSettings = { denoise: true, silences: "tight", music: { on: false, volume: 0.15, duck: true } };
 
+/** Animation settings of a reel scene (picked by Claude from a direction, or the standard ones). */
+export type ReelFx = {
+  enter: "rise" | "type" | "punch" | "slide" | "blur";
+  transition: "auto" | "up" | "circle" | "side" | "cut";
+  decor: "ring" | "dots" | "bars" | "none";
+  accent: string;
+  count: boolean;
+};
+/** Code Claude wrote for a scene. `at`: the place the scene had when a whole scene ("art") was written. */
+export type ReelCode = { html: string; css: string; js: string; at?: number };
+export type ReelScene = {
+  id: string;
+  title: string;
+  body: string;
+  anim?: string;
+  /** Seconds on screen chosen in the editing screen; left out, the Mac computes it from the text. */
+  seconds?: number;
+  /** Taken out of the reel (it stays in the plan, so it can come back). */
+  cut?: boolean;
+  fx?: ReelFx;
+  /** Kept on the server and given to the Mac only: the page gets `custom` instead. */
+  layer?: ReelCode;
+  art?: ReelCode;
+  /** What the page knows of the code: a whole custom scene, or a custom layer behind the text. */
+  custom?: "art" | "layer";
+  /** Seconds on screen in the rendered video (written by the Mac). */
+  dur?: number;
+};
+/** A version of an animated reel: everything the Mac needs to render it again exactly. */
+export type ReelPlan = {
+  scenes: ReelScene[];
+  look: Look;
+  logo?: boolean;
+  music: boolean;
+  /** Music volume, 0 to 1. */
+  volume?: number;
+  pace: "calm" | "normal" | "fast";
+  direction?: string;
+  /** Length of the rendered video, in seconds. */
+  duration?: number;
+};
+
+export const REEL_PACE = { calm: 1.25, normal: 1, fast: 0.8 } as const;
+/** Seconds a reel scene stays on screen. Same rule as the Mac (worker/montage/lib/motion.mjs). */
+export const reelSceneSeconds = (s: { title: string; body: string; anim?: string; seconds?: number }, last: boolean, pace: keyof typeof REEL_PACE = "normal") =>
+  s.seconds ? s.seconds : (Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.trim().length + s.body.trim().length))) + (s.anim?.trim() ? 1.5 : 0) + (last ? 1.2 : 0)) * REEL_PACE[pace];
+
+/** The scenes that play, with their place on the timeline. `rendered`: use the lengths the Mac wrote (the video as it is). */
+export function reelTimeline(plan: ReelPlan, rendered = false) {
+  const kept = plan.scenes.filter((s) => !s.cut);
+  let t = 0;
+  return kept.map((s, i) => {
+    const d = rendered && s.dur ? s.dur : reelSceneSeconds(s, i === kept.length - 1, plan.pace);
+    const start = t;
+    t += d;
+    return { scene: s, index: i, start, end: t };
+  });
+}
+
 export type MontageVersion = {
   n: number;
   edl: Edl;
+  /** kind "motion": the plan of the reel. `edl` is then empty. */
+  reel?: ReelPlan;
   notes?: string;
   /** True once the preview video is on the server. */
   preview: boolean;
@@ -196,6 +257,9 @@ export type MontageJob = {
   feedback?: string;
   /** Drawings sent with the last request to Claude. */
   marks?: MontageMark[];
+  /** kind "motion": the passage of the video (seconds) the last request is about, and the version it starts from. */
+  range?: [number, number];
+  base?: number;
   /** Voice of the project (style profile): Claude writes with it. Copied when the job was made; refreshed for edits and covers when the Mac takes the job. */
   voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[] };
   /** Colors and font of the project (style profile) for the video overlays: added when the Mac takes the job. */

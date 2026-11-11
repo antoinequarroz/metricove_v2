@@ -2,6 +2,7 @@
 
 import { ArrowDown, ArrowUp, CalendarPlus, Clapperboard, Copy, ImagePlus, Images, Lightbulb, Loader2, Palette, Plus, RotateCcw, Save, Send, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { isImageFile } from "@/lib/image";
@@ -298,6 +299,8 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   const [reelMedia, setReelMedia] = useState<string | null>(null);
   const reel = data?.jobs.find((j) => j.id === reelId);
   const motionOld = motion && !!data?.worker.version && !atLeast(data.worker.version, MOTION_WORKER);
+  // An older Mac program sends the reel straight to the library, without the editing screen.
+  const reviewOld = motion && !!data?.worker.version && !atLeast(data.worker.version, [0, 9, 0]);
   const animOld = motion && !motionOld && !!data?.worker.version && !atLeast(data.worker.version, ANIM_WORKER) && deck.slides.some((s) => s.anim?.trim());
   const baseSeconds = deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0);
   // With a direction and no pace, Claude chooses the pace: the length is only known as a range. An old Mac ignores both.
@@ -309,11 +312,19 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
         ? `entre ${Math.round(baseSeconds * PACES.fast)} et ${Math.round(baseSeconds * PACES.calm)} s`
         : `environ ${Math.round(baseSeconds)} s`;
   const playMedia = useStore((s) => s.playMedia);
+  const router = useRouter();
 
   // A reel asked earlier (this visit or another): follow it, show it when it is there, clean up after it.
   useEffect(() => {
     if (!motion || !data) return;
-    const reels = data.jobs.filter((j) => j.kind === "motion" && !taken.includes(j.id));
+    // A reel with a version lives in the editing screen: this page only waits for the first one.
+    const reels = data.jobs.filter((j) => j.kind === "motion" && !j.versions.length && !taken.includes(j.id));
+    const arrived = reelId ? data.jobs.find((j) => j.id === reelId && j.kind === "motion" && j.versions.length > 0) : undefined;
+    if (arrived) {
+      setReelId(null);
+      router.push(`/videos/montage/${arrived.id}`);
+      return;
+    }
     const over = reels.filter((j) => j.status === "done" || j.status === "failed" || j.status === "cancelled");
     if (over.length) {
       setTaken((t) => [...t, ...over.map((j) => j.id)]);
@@ -332,7 +343,8 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
       const running = reels.find((j) => j.status === "queued" || j.status === "working");
       if (running) setReelId(running.id);
     }
-  }, [data, motion, reelId, starting, taken]);
+  }, [data, motion, reelId, starting, taken, router]);
+  const editing = motion ? (data?.jobs ?? []).filter((j) => j.kind === "motion" && j.versions.length > 0 && j.status !== "done" && j.status !== "cancelled") : [];
 
   // A reel that left the list without a word (taken or cancelled from another tab) must not spin forever.
   const seenReel = useRef<string | null>(null);
@@ -471,7 +483,21 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                 {reel?.step ?? (data?.worker.online ? "Ton Mac prépare le reel…" : "En attente de ton Mac (éteint ou en veille)…")}
               </p>
               <Progress value={reel?.status === "working" ? reel.progress : undefined} />
-              <p className="mt-2 text-[12px] text-ink-3">Compte une à deux minutes. Tu peux quitter la page : le reel arrivera dans la bibliothèque.</p>
+              <p className="mt-2 text-[12px] text-ink-3">{reviewOld ? "Compte une à deux minutes. Tu peux quitter la page : le reel arrivera dans la bibliothèque." : "Compte une à deux minutes. Dès qu'il est prêt, il s'ouvre dans l'écran de montage pour le retoucher. Tu peux aussi quitter la page."}</p>
+            </div>
+          )}
+          {editing.length > 0 && (
+            <div className="mb-4 rounded-xl border border-line bg-surface p-3">
+              <p className="mb-2 text-[12.5px] font-medium text-ink-2">Reels à retoucher ou à valider</p>
+              <div className="flex flex-wrap gap-2">
+                {editing.slice(0, 6).map((j) => (
+                  <Link key={j.id} href={`/videos/montage/${j.id}`} className="press flex items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 text-[12.5px] hover:border-accent/50">
+                    <Clapperboard className="size-3.5 text-accent" />
+                    <span className="max-w-[220px] truncate">{j.title}</span>
+                    <span className="text-ink-3">version {j.versions.at(-1)!.n}</span>
+                  </Link>
+                ))}
+              </div>
             </div>
           )}
           {animOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">{"Le programme de ton Mac ne sait pas encore écrire les animations demandées (version 0.7.0) : ces scènes auront l'animation standard."}</p>}

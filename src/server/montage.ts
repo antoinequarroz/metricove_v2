@@ -1,7 +1,8 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, type AudioSettings, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, type AudioSettings, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
+import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db } from "./db";
 
 /* ---------- Tables ---------- */
@@ -304,8 +305,8 @@ export function release(job: MontageJob, status: MontageJob["status"]) {
 
 export const previewPath = (jobId: string, n: number) => path.join(dir("montage", path.basename(jobId)), `v${n}.mp4`);
 
-export function addVersion(job: MontageJob, edl: Edl, by: MontageVersion["by"], notes?: string) {
-  const v: MontageVersion = { n: (job.versions.at(-1)?.n ?? 0) + 1, edl, by, notes: notes?.slice(0, 2000), preview: false, createdAt: new Date().toISOString() };
+export function addVersion(job: MontageJob, edl: Edl, by: MontageVersion["by"], notes?: string, reel?: ReelPlan) {
+  const v: MontageVersion = { n: (job.versions.at(-1)?.n ?? 0) + 1, edl, ...(reel ? { reel } : {}), by, notes: notes?.slice(0, 2000), preview: false, createdAt: new Date().toISOString() };
   job.versions.push(v);
   return v;
 }
@@ -458,6 +459,115 @@ export function cleanMarks(raw: unknown): MontageMark[] | string {
     marks.push({ id: str(m.id, 60) || `m${i + 1}`, version, t: Math.max(0, t), text, image });
   }
   return marks;
+}
+
+/* ---------- Animated reel: the plan of a version ---------- */
+
+/** A reel version has no edit list. */
+export const EMPTY_EDL: Edl = { format: "9:16", segments: [] };
+
+const FX = {
+  enter: ["rise", "type", "punch", "slide", "blur"],
+  transition: ["auto", "up", "circle", "side", "cut"],
+  decor: ["ring", "dots", "bars", "none"],
+} as const;
+
+function cleanFx(raw: unknown): ReelFx | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const pick = <T extends string>(v: unknown, among: readonly T[]) => (among.includes(v as T) ? (v as T) : among[0]);
+  return { enter: pick(r.enter, FX.enter), transition: pick(r.transition, FX.transition), decor: pick(r.decor, FX.decor), accent: (str(r.accent, 60) ?? "").replace(/\s+/g, " ").trim(), count: r.count === true };
+}
+
+/** Code written by Claude on the Mac. The Mac checks it again before every render; here only its size is bounded. */
+function cleanCode(raw: unknown): ReelCode | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.html !== "string" || typeof r.js !== "string" || r.html.length > 20_000 || r.js.length > 15_000) return undefined;
+  const css = typeof r.css === "string" ? r.css : "";
+  if (css.length > 12_000) return undefined;
+  const at = num(r.at);
+  return { html: r.html, css, js: r.js, ...(at !== undefined && Number.isInteger(at) && at >= 0 && at < 20 ? { at } : {}) };
+}
+
+const PACES = ["calm", "normal", "fast"] as const;
+
+/**
+ * The plan of a reel version. From the Mac (`base` left out): taken as it is, code included.
+ * From the page: the code never travels through the browser, so each scene takes the code of the scene with the same id
+ * in `base` when the page still marks it `custom`. A whole custom scene whose text changed loses its code (the text is in it).
+ */
+export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan | string {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const seen = new Set<string>();
+  const scenes: ReelScene[] = [];
+  for (const x of (Array.isArray(r.scenes) ? (r.scenes as Record<string, unknown>[]) : []).slice(0, 16)) {
+    const title = (str(x?.title, 120) ?? "").replace(/\r/g, "").trim();
+    const body = (str(x?.body, 240) ?? "").replace(/\r/g, "").trim();
+    if (!title && !body) continue;
+    let id = (str(x?.id, 40) ?? "").replace(/[^\w-]/g, "");
+    if (!id || seen.has(id)) id = `s-${crypto.randomUUID().slice(0, 8)}`;
+    seen.add(id);
+    const seconds = num(x?.seconds);
+    const dur = num(x?.dur);
+    const anim = (str(x?.anim, 300) ?? "").replace(/\s+/g, " ").trim();
+    const fx = cleanFx(x?.fx);
+    const old = base?.scenes.find((s) => s.id === id);
+    const art = base ? (x?.custom === "art" && old?.art && old.title === title && old.body === body ? old.art : undefined) : cleanCode(x?.art);
+    const layer = art ? undefined : base ? (x?.custom === "layer" ? old?.layer : undefined) : cleanCode(x?.layer);
+    scenes.push({
+      id,
+      title,
+      body,
+      ...(anim ? { anim } : {}),
+      ...(seconds !== undefined && seconds >= 1.5 ? { seconds: Math.round(Math.min(15, seconds) * 10) / 10 } : {}),
+      ...(x?.cut === true ? { cut: true } : {}),
+      ...(fx ? { fx } : {}),
+      ...(art ? { art } : {}),
+      ...(layer ? { layer } : {}),
+      ...(!base && dur !== undefined && dur > 0 && dur < 60 ? { dur } : {}),
+    });
+  }
+  if (!scenes.some((s) => !s.cut)) return "Garde au moins une scène";
+  if (scenes.filter((s) => !s.cut).length > 8) return "8 scènes au plus";
+  const volume = num(r.volume);
+  const duration = num(r.duration);
+  return {
+    scenes,
+    look,
+    logo: r.logo !== false,
+    music: r.music !== false,
+    volume: volume === undefined ? (base?.volume ?? 0.7) : Math.min(1, Math.max(0, volume)),
+    pace: PACES.find((p) => p === r.pace) ?? base?.pace ?? "normal",
+    ...(base?.direction ? { direction: base.direction } : str(r.direction, 1000)?.trim() ? { direction: str(r.direction, 1000)!.trim() } : {}),
+    ...(!base && duration !== undefined && duration > 0 ? { duration } : {}),
+  };
+}
+
+/** The plan as the page gets it: the code stays on the server, the page only learns that there is some. */
+export function pageReel(plan: ReelPlan): ReelPlan {
+  return { ...plan, scenes: plan.scenes.map(({ art, layer, ...s }) => ({ ...s, ...(art ? { custom: "art" as const } : layer ? { custom: "layer" as const } : {}) })) };
+}
+
+/**
+ * A job as the page gets it. For a reel: no code from Claude in the plans, and a link in place of each drawing.
+ * The Mac gets the whole job when it takes it (worker/claim).
+ */
+export function pageJob(job: MontageJob): MontageJob {
+  if (job.kind !== "motion") return job;
+  return {
+    ...job,
+    ...(job.marks ? { marks: job.marks.map((m) => ({ ...m, image: m.image ? `/api/montage/jobs/${job.id}/marks/${m.id}` : undefined })) } : {}),
+    versions: job.versions.map((v) => (v.reel ? { ...v, reel: pageReel(v.reel) } : v)),
+  };
+}
+
+/** A reel whose last request failed goes back to its last good version: the versions edited by hand that never got a video are dropped. */
+export function restoreReel(job: MontageJob) {
+  while (job.versions.length > 1 && job.versions.at(-1)!.by === "edit" && !job.versions.at(-1)!.preview) job.versions.pop();
+  job.marks = undefined;
+  job.range = undefined;
+  job.base = undefined;
 }
 
 /* ---------- Subtitle style per project ---------- */

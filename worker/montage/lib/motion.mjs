@@ -3,11 +3,12 @@
 // La page est rendue par HyperFrames, puis ffmpeg ajoute la musique (ou une piste muette).
 import { copyFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { ensureDir, home, run, log } from "./util.mjs";
 import { googleFaces } from "./fonts.mjs";
 import { pickTrack } from "./audio.mjs";
-import { writeArts } from "./motion-art.mjs";
+import { writeArts, checkArt } from "./motion-art.mjs";
 
 const W = 1080, H = 1920, FPS = 30;
 export const MAX_SCENES = 8;
@@ -69,7 +70,8 @@ export function cleanLayer(l, n = 1) {
   if (BAD_HTML.test(html) || BAD_CSS.test(css) || BAD_JS.test(js)) return undefined;
   for (const t of html.matchAll(/<\s*\/?\s*([a-z][\w:-]*)/gi)) if (!LAYER_TAGS.has(t[1].toLowerCase())) return undefined;
   // Ses classes et ses identifiants portent son préfixe : les animations de la page (.w, .num, .rule…) ne les touchent pas.
-  const own = new RegExp(`^k${n}-[\\w-]+$`);
+  // (Le numéro n'est pas imposé : une scène déplacée dans l'écran de montage garde son calque.)
+  const own = /^k\d+-[\w-]+$/;
   for (const a of html.matchAll(/\s(class|id)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
     if (!(a[3] ?? a[4] ?? a[5] ?? "").split(/\s+/).filter(Boolean).every((k) => own.test(k))) return undefined;
   }
@@ -88,6 +90,13 @@ export function cleanMotion(m = {}) {
   const logo = typeof l.logo === "string" && l.logo.length <= 400_000 && /^data:image\/(png|jpeg|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(l.logo) ? l.logo : "";
   const scenes = (Array.isArray(m.scenes) ? m.scenes : [])
     .map((s) => ({
+      // Ce que l'écran de montage garde d'une version à l'autre : l'identité de la scène, sa durée choisie, si elle
+      // est coupée, et le code que Claude a écrit pour elle (revérifié avant chaque rendu).
+      id: String(s?.id || "").replace(/[^\w-]/g, "").slice(0, 40) || `s-${randomUUID().slice(0, 8)}`,
+      ...(Number(s?.seconds) >= 1.5 ? { seconds: Math.min(15, Number(s.seconds)) } : {}),
+      ...(s?.cut === true ? { cut: true } : {}),
+      ...(s?.layer && typeof s.layer === "object" ? { layer: s.layer } : {}),
+      ...(s?.art && typeof s.art === "object" ? { art: s.art } : {}),
       title: String(s?.title || "").replace(/\r/g, "").trim().slice(0, 120),
       body: String(s?.body || "").replace(/\r/g, "").trim().slice(0, 240),
       // Consigne de motion design libre : Claude écrit lui-même cette scène (lib/motion-art.mjs).
@@ -99,7 +108,12 @@ export function cleanMotion(m = {}) {
     .slice(0, MAX_SCENES);
   return {
     scenes,
+    // Avec ou sans le logo du projet (l'image elle-même arrive avec la tâche).
+    logo: m.logo !== false,
     music: m.music !== false,
+    // Volume de la musique (0 à 1) et morceau choisi dans le dossier du Mac.
+    volume: Number.isFinite(Number(m.volume)) && m.volume !== null && m.volume !== undefined ? Math.min(1, Math.max(0, Number(m.volume))) : 0.7,
+    track: String(m.track || "").replace(/[\/\\\0]/g, "").slice(0, 120),
     pace: Object.hasOwn(PACE, m.pace) ? m.pace : "normal",
     // Un rythme choisi par Antoine : Claude ne le change pas.
     paceSet: Object.hasOwn(PACE, m.pace),
@@ -170,7 +184,8 @@ function titleSize(title, condensed) {
 
 /** Durée d'une scène : le temps de la lire, plus celui de l'animation. */
 export const sceneSeconds = (s, last, pace = "normal") =>
-  (Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.length + s.body.length))) + (s.anim ? 1.5 : 0) + (last ? 1.2 : 0)) * (PACE[pace] || 1);
+  // Une durée choisie par Antoine dans l'écran de montage passe avant le calcul.
+  s.seconds ? s.seconds : (Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.length + s.body.length))) + (s.anim ? 1.5 : 0) + (last ? 1.2 : 0)) * (PACE[pace] || 1);
 
 /** Un mot sans casse, accent ni ponctuation, pour reconnaître les mots à mettre en couleur. */
 const bare = (w) => String(w).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
@@ -202,8 +217,9 @@ export function motionPage(motion, fonts = { display: [], body: [] }, gsap = GSA
   const els = [], js = [], extraCss = [];
 
   scenes.forEach((s, i) => {
-    const c = colors(look, i);
     const art = arts[i];
+    // Une scène libre a ses couleurs écrites dans son code : elle garde celles de la place pour laquelle elle a été écrite.
+    const c = colors(look, art && Number.isInteger(s.art?.at) ? s.art.at : i);
     const t0 = starts[i], d = durs[i];
     // La scène existe dès le début de sa transition (0,3 s avant son tour) : elle recouvre la précédente.
     const on = Math.max(0, t0 - 0.3);
@@ -373,7 +389,7 @@ ${js.join("\n")}
 tl.to({},{duration:0.01},${f(total - 0.01)});
 window.__timelines["main"]=tl; tl.seek(0);
 </script></body></html>`;
-  return { html, duration: total };
+  return { html, duration: total, durs };
 }
 
 /**
@@ -404,16 +420,29 @@ async function brokenArts(cfg, hf, arts) {
   return named.length ? named : Object.keys(arts);
 }
 
-/** Fabrique le reel d'une tâche "motion". Renvoie { video, duration, notes }. */
-export async function makeMotion(cfg, job, dir, step = async () => {}, direct = null) {
-  const motion = cleanMotion(job.motion);
-  if (!motion.scenes.length) throw new Error("Aucune scène à animer.");
-  const notes = [];
+/** Le code d'une scène libre écrit pour la scène `from`, replacé sur la scène `to` (ses sélecteurs commencent par #sN). */
+export function moveArt(art, from, to) {
+  if (from === to) return art;
+  const re = new RegExp(`#s${from}(?![\\w-])`, "g");
+  return { html: art.html, css: art.css.replace(re, `#s${to}`), js: art.js.replace(re, `#s${to}`) };
+}
+
+/**
+ * Rend un plan de reel tel quel (sans rien demander à Claude) : `plan` = cleanMotion(...) dont les scènes portent
+ * au besoin `seconds`, `cut`, `layer` et `art` ({ html, css, js, at } : `at` = la place pour laquelle il a été écrit).
+ * Le code est revérifié, testé dans Chrome, et retiré s'il casse le rendu. `fresh` : les id des scènes dont le code
+ * vient d'être écrit (retouche) ; si quelque chose casse, il est retiré en premier et le code des autres scènes reste.
+ * Renvoie { video, duration, notes, plan } : `plan` est ce qui a vraiment été rendu (code retiré là où il a été
+ * refusé, `dur` = secondes de chaque scène à l'écran), à garder avec la version.
+ */
+export async function renderPlan(cfg, plan, dir, step = async () => {}, notes = [], fresh = new Set()) {
+  const kept = plan.scenes.filter((s) => !s.cut);
+  if (!kept.length) throw new Error("Aucune scène à animer.");
   const hf = ensureDir(join(dir, "hf"));
   ensureDir(join(hf, "assets"));
 
-  await step("Préparation des polices…", 0.05);
-  const F = FONTS[motion.look.font];
+  await step("Préparation des polices…", 0.12);
+  const F = FONTS[plan.look.font];
   const fonts = { display: [], body: [] };
   for (const [k, part] of Object.entries({ display: F.display, body: F.body })) {
     if (k === "body" && F.body.spec === F.display.spec) { fonts.body = fonts.display; continue; }
@@ -425,7 +454,6 @@ export async function makeMotion(cfg, job, dir, step = async () => {}, direct = 
       fonts[k].push({ url: `assets/${name}`, rules: x.rules });
     });
   }
-
   // `gsapFile` (config) : une copie de gsap.min.js sur le Mac, pour rendre sans réseau.
   const local = cfg.gsapFile && existsSync(home(cfg.gsapFile));
   if (local) copyFileSync(home(cfg.gsapFile), join(hf, "assets", "gsap.min.js"));
@@ -433,10 +461,117 @@ export async function makeMotion(cfg, job, dir, step = async () => {}, direct = 
   writeFileSync(join(hf, "hyperframes.json"), JSON.stringify({ paths: { assets: "assets" }, media: { autoProxy: true } }));
   writeFileSync(join(hf, "package.json"), JSON.stringify({ name: "metricove-reel", private: true, type: "module" }));
 
+  // Le code gardé avec le plan repasse les mêmes contrôles que le jour où Claude l'a écrit.
+  const arts = {};
+  const scenes = kept.map((s, i) => {
+    const out = { ...s };
+    delete out.art; delete out.layer;
+    if (s.art) {
+      const at = Number.isInteger(s.art.at) ? s.art.at : i;
+      const ok = checkArt(s.art, at);
+      if (typeof ok === "string") notes.push(`Scène ${i + 1} : animation sur mesure refusée (${ok}), animation standard.`);
+      else { arts[i] = moveArt(ok, at, i); out.art = { ...ok, at }; }
+    } else if (s.layer) {
+      const ok = cleanLayer(s.layer, i + 1);
+      if (ok) out.layer = ok;
+      else notes.push(`Scène ${i + 1} : animation de fond refusée par les règles de sécurité, décor standard.`);
+    }
+    return out;
+  });
+  let live = { ...plan, scenes };
+  if (Object.keys(arts).length) {
+    await step("Vérification des animations…", 0.16);
+    writeFileSync(join(hf, "index.html"), motionPage(live, fonts, gsapSrc, arts).html);
+    const drop = (list) => {
+      for (const i of list) {
+        delete arts[i];
+        delete scenes[i].art;
+        notes.push(`Scène ${Number(i) + 1} : l'animation de Claude plante dans Chrome, animation standard.`);
+      }
+    };
+    let bad = await brokenArts(cfg, hf, arts);
+    const isNew = (i) => fresh.has(scenes[i].id);
+    // Une erreur que l'on ne sait pas attribuer désigne toutes les scènes libres : on retire d'abord celles qui viennent d'être écrites.
+    if (bad.length > 1 && bad.length === Object.keys(arts).length && bad.some(isNew) && !bad.every(isNew)) {
+      drop(bad.filter(isNew));
+      writeFileSync(join(hf, "index.html"), motionPage(live, fonts, gsapSrc, arts).html);
+      bad = await brokenArts(cfg, hf, arts);
+    }
+    drop(bad);
+  }
+
+  const silent = join(dir, "reel-muet.mp4");
+  const render = async (m, a) => {
+    const page = motionPage(m, fonts, gsapSrc, a);
+    writeFileSync(join(hf, "index.html"), page.html);
+    rmSync(silent, { force: true });
+    await run("npx", ["--yes", cfg.hyperframes, "render", "--format", "mp4", "--fps", String(FPS), "--workers", "1", "-o", silent, "--quiet", "."], { cwd: hf });
+    if (!existsSync(silent)) throw new Error("Le rendu du reel n'a produit aucune vidéo.");
+    return page;
+  };
+  await step(`Animation des ${scenes.length} scènes…`, 0.2);
+  let page;
+  try {
+    page = await render(live, arts);
+  } catch (e) {
+    const coded = (x) => !!(x.layer || x.art);
+    if (!scenes.some(coded)) throw e;
+    log("rendu refusé avec les animations de Claude :", String(e.message).slice(0, 300));
+    // Premier filet (retouche) : seul le code qui vient d'être écrit est retiré, celui des autres scènes reste.
+    if (scenes.some((x) => coded(x) && fresh.has(x.id)) && scenes.some((x) => coded(x) && !fresh.has(x.id))) {
+      await step("Nouvel essai sans la nouvelle animation…", 0.45);
+      const older = { ...live, scenes: scenes.map((x) => (fresh.has(x.id) ? (({ layer: _l, art: _a, ...y }) => y)(x) : x)) };
+      const olderArts = Object.fromEntries(Object.entries(arts).filter(([i]) => !fresh.has(scenes[i].id)));
+      try {
+        page = await render(older, olderArts);
+        live = older;
+        notes.push("La nouvelle animation écrite par Claude a fait échouer le rendu : ces scènes ont l'animation standard, le reste du reel n'a pas bougé.");
+      } catch (e2) {
+        log("toujours refusé :", String(e2.message).slice(0, 300));
+      }
+    }
+    if (!page) {
+      // Dernier filet : on garde les choix d'entrées, de transitions et de décors, sans aucun code de Claude.
+      notes.push("Une animation écrite par Claude a fait échouer le rendu : le reel est sorti sans ses animations sur mesure.");
+      await step("Nouvel essai avec les animations standard…", 0.5);
+      live = { ...live, scenes: scenes.map(({ layer: _l, art: _a, ...x }) => x) };
+      page = await render(live, {});
+    }
+  }
+  const duration = page.duration;
+
+  await step("Son et finition…", 0.85);
+  const out = join(dir, "reel.mp4");
+  const track = plan.music ? pickTrack(cfg, plan.track || "", notes) : null;
+  const fade = Math.max(0, duration - 1.2);
+  const audio = track
+    ? ["-stream_loop", "-1", "-i", track, "-filter_complex", `[1:a]atrim=0:${f(duration)},volume=${f(plan.volume ?? 0.7)},afade=t=in:d=0.4,afade=t=out:st=${f(fade)}:d=1.2[a]`, "-map", "0:v", "-map", "[a]"]
+    : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v", "-map", "1:a"];
+  await run("ffmpeg", ["-v", "error", "-y", "-i", silent, ...audio, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", String(FPS),
+    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f(duration), "-movflags", "+faststart", out]);
+  rmSync(silent, { force: true });
+  rmSync(hf, { recursive: true, force: true });
+  for (const n of notes) log("note :", n);
+  // Le plan rendu : les scènes coupées gardent leur place, les autres portent leur durée à l'écran.
+  let k = 0;
+  const { look: _look, paceSet: _p, ...rest } = live;
+  const done = { ...rest, look: { ...plan.look, logo: "" }, duration, scenes: plan.scenes.map((s) => (s.cut ? s : { ...live.scenes[k], dur: Number(page.durs[k++].toFixed(3)) })) };
+  return { video: out, duration, notes, plan: done };
+}
+
+/**
+ * Fabrique le reel d'une tâche "motion" pour la première fois : Claude dirige et écrit les animations demandées,
+ * puis le plan est rendu. Renvoie { video, duration, notes, plan }.
+ */
+export async function makeMotion(cfg, job, dir, step = async () => {}, direct = null) {
+  const motion = cleanMotion(job.motion);
+  if (!motion.scenes.length) throw new Error("Aucune scène à animer.");
+  const notes = [];
+
   // Consigne générale : Claude choisit les animations de chaque scène et écrit ses calques HyperFrames (derrière le texte).
   let directed = motion;
   if (motion.direction && direct) {
-    await step("Claude imagine les animations…", 0.06);
+    await step("Claude imagine les animations…", 0.04);
     try {
       directed = await direct(cfg, motion, dir);
       const layers = directed.scenes.filter((x) => x.layer).length;
@@ -447,67 +582,28 @@ export async function makeMotion(cfg, job, dir, step = async () => {}, direct = 
     }
   }
 
-  // Scènes libres (consigne d'une scène) : Claude écrit leur code, le worker le vérifie, puis HyperFrames le teste dans Chrome.
-  let arts = {};
+  // Scènes libres (consigne d'une scène) : Claude écrit leur code ; il est vérifié puis testé dans Chrome au rendu.
   if (directed.scenes.some((s) => s.anim)) {
-    await step("Claude écrit les animations demandées…", 0.1);
-    const n = directed.scenes.length;
-    const ctx = {
-      look: directed.look,
-      fonts: { display: F.display.family, body: F.body.family },
-      durs: directed.scenes.map((s, i) => sceneSeconds(s, i === n - 1, directed.pace)),
-      n,
-      colors: (i) => {
-        const c = colors(directed.look, i);
-        return { ...c, bgLabel: HEX.test(c.bg) ? c.bg : `dégradé autour de ${directed.look.accent}` };
-      },
-    };
-    const r = await writeArts(cfg, directed, ctx, dir);
-    arts = r.arts;
+    await step("Claude écrit les animations demandées…", 0.08);
+    const r = await writeArts(cfg, directed, artContext(directed), dir);
     notes.push(...r.notes);
-    if (Object.keys(arts).length) {
-      writeFileSync(join(hf, "index.html"), motionPage(directed, fonts, gsapSrc, arts).html);
-      const broken = await brokenArts(cfg, hf, arts);
-      for (const i of broken) {
-        delete arts[i];
-        notes.push(`Scène ${Number(i) + 1} : l'animation de Claude plante dans Chrome, animation standard.`);
-      }
-    }
+    directed = { ...directed, scenes: directed.scenes.map((s, i) => (r.arts[i] ? { ...s, art: { ...r.arts[i], at: i } } : s)) };
   }
+  return renderPlan(cfg, directed, dir, step, notes);
+}
 
-  const silent = join(dir, "reel-muet.mp4");
-  const render = async (m, a) => {
-    const page = motionPage(m, fonts, gsapSrc, a);
-    writeFileSync(join(hf, "index.html"), page.html);
-    rmSync(silent, { force: true });
-    await run("npx", ["--yes", cfg.hyperframes, "render", "--format", "mp4", "--fps", String(FPS), "--workers", "1", "-o", silent, "--quiet", "."], { cwd: hf });
-    if (!existsSync(silent)) throw new Error("Le rendu du reel n'a produit aucune vidéo.");
-    return page.duration;
+/** Ce que Claude doit savoir pour écrire une scène libre : polices, couleurs et durées du plan. */
+export function artContext(plan) {
+  const F = FONTS[plan.look.font];
+  const n = plan.scenes.length;
+  return {
+    look: plan.look,
+    fonts: { display: F.display.family, body: F.body.family },
+    durs: plan.scenes.map((s, i) => sceneSeconds(s, i === n - 1, plan.pace)),
+    n,
+    colors: (i) => {
+      const c = colors(plan.look, i);
+      return { ...c, bgLabel: HEX.test(c.bg) ? c.bg : `dégradé autour de ${plan.look.accent}` };
+    },
   };
-  await step(`Animation des ${motion.scenes.length} scènes…`, 0.2);
-  let duration;
-  try {
-    duration = await render(directed, arts);
-  } catch (e) {
-    if (!Object.keys(arts).length && !directed.scenes.some((x) => x.layer)) throw e;
-    // Dernier filet : le code de Claude a fait échouer le rendu. On garde ses choix d'entrées, de transitions et de décors, sans son code.
-    log("rendu refusé avec les animations de Claude, nouvel essai sans elles :", String(e.message).slice(0, 300));
-    notes.push("Une animation écrite par Claude a fait échouer le rendu : le reel est sorti sans ses animations sur mesure.");
-    await step("Nouvel essai avec les animations standard…", 0.5);
-    duration = await render({ ...directed, scenes: directed.scenes.map(({ layer: _l, ...x }) => x) }, {});
-  }
-
-  await step("Son et finition…", 0.85);
-  const out = join(dir, "reel.mp4");
-  const track = motion.music ? pickTrack(cfg, "", notes) : null;
-  const fade = Math.max(0, duration - 1.2);
-  const audio = track
-    ? ["-stream_loop", "-1", "-i", track, "-filter_complex", `[1:a]atrim=0:${f(duration)},volume=0.7,afade=t=in:d=0.4,afade=t=out:st=${f(fade)}:d=1.2[a]`, "-map", "0:v", "-map", "[a]"]
-    : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v", "-map", "1:a"];
-  await run("ffmpeg", ["-v", "error", "-y", "-i", silent, ...audio, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", String(FPS),
-    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f(duration), "-movflags", "+faststart", out]);
-  rmSync(silent, { force: true });
-  rmSync(hf, { recursive: true, force: true });
-  for (const n of notes) log("note :", n);
-  return { video: out, duration, notes };
 }

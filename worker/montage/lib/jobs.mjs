@@ -1,4 +1,5 @@
 // Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion (contrat docs/MONTAGE.md).
+// Un reel animé (kind "motion") a ses propres actions motion (création ou retouche par Claude) et preview (retouche à la main).
 import { statSync, rmSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { ensureDir, assertSpace, themeFor, log, round } from "./util.mjs";
@@ -13,7 +14,8 @@ import { writeCaption } from "./caption.mjs";
 import { makeCover } from "./cover.mjs";
 import { withFont } from "./fonts.mjs";
 import { writePost } from "./post.mjs";
-import { makeMotion } from "./motion.mjs";
+import { cleanMotion, makeMotion, renderPlan } from "./motion.mjs";
+import { reviseMotion, writeReelMarks } from "./motion-revise.mjs";
 import { directMotion } from "./motion-direct.mjs";
 
 export async function handle(api, cfg, { job, action, rushes = [], media }) {
@@ -44,16 +46,47 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       rmSync(dir, { recursive: true, force: true });
       return;
     }
-    if (action === "motion") {
+    if (job.kind === "motion") {
       assertSpace(cfg);
       // « Annuler le reel » supprime la tâche : on s'arrête à l'étape suivante au lieu d'envoyer une vidéo dont personne ne veut.
       const alive = async () => api.dryRun || (await api.req("GET", `/api/montage/jobs/${job.id}`, { raw: true })).status !== 404;
       const guarded = async (s, p) => { if (!(await alive())) throw new Error("reel annulé"); return step(s, p); };
+      const versions = job.versions || [];
+      // Le plan d'une version, avec le logo du projet (jamais gardé dans la tâche : il arrive avec elle).
+      const planOf = (v) => cleanMotion({ ...v.reel, look: { ...v.reel.look, logo: v.reel.logo === false ? "" : job.motion?.look?.logo } });
       try {
-        const r = await makeMotion(cfg, job, dir, guarded, directMotion);
-        await guarded("Envoi vers la bibliothèque…", 0.92);
+        if (action === "preview") {
+          // Version retouchée à la main dans l'écran de montage : le plan est rendu tel quel, sans Claude.
+          const v = versions[versions.length - 1];
+          if (!v?.reel) throw new Error("Version du reel introuvable.");
+          const r = await renderPlan(cfg, planOf(v), dir, guarded);
+          await guarded("Envoi de l'aperçu…", 0.92);
+          const upload = await api.upload(r.video, `reel-${job.id}-v${v.n}.mp4`);
+          await api.setPreview(job.id, v.n, upload, undefined, { reel: r.plan, notes: r.notes.join("\n") });
+          log(`[${job.id.slice(0, 8)}] aperçu du reel envoyé (version ${v.n}, ${r.duration.toFixed(1)} s)`);
+          return;
+        }
+        if (action !== "motion") throw new Error(`Action inconnue pour un reel : ${action}`);
+        const from = versions.find((v) => v.n === job.base && v.reel) || [...versions].reverse().find((v) => v.reel);
+        let r;
+        if (from) {
+          // Retouche demandée dans l'écran de montage : Claude ne modifie que le passage visé.
+          await guarded("Claude prépare la retouche…", 0.04);
+          const rev = await reviseMotion(cfg, planOf(from), { feedback: job.feedback, marks: writeReelMarks(job, dir), range: job.range }, dir);
+          r = await renderPlan(cfg, rev.plan, dir, guarded, rev.notes, rev.fresh);
+        } else {
+          r = await makeMotion(cfg, job, dir, guarded, directMotion);
+        }
+        await guarded("Envoi vers l'écran de montage…", 0.92);
         const upload = await api.upload(r.video, `${slug(job.title)}.mp4`);
-        await api.final(job.id, upload, job.title, r.notes.join("\n"));
+        try {
+          await api.addVersion(job.id, { reel: r.plan, notes: r.notes.join("\n"), upload });
+        } catch (e) {
+          // Un serveur qui ne connaît pas encore l'écran de montage du reel : la vidéo part dans la bibliothèque, comme avant.
+          if (from || !/→ 400/.test(String(e.message))) throw e;
+          const again = await api.upload(r.video, `${slug(job.title)}.mp4`);
+          await api.final(job.id, again, job.title, r.notes.join("\n"));
+        }
         log(`[${job.id.slice(0, 8)}] reel animé envoyé (${r.duration.toFixed(1)} s)`);
       } finally {
         rmSync(dir, { recursive: true, force: true });

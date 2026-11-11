@@ -33,8 +33,20 @@ const SCHEMA = {
   },
 };
 
+/** Les règles d'un calque d'animation (derrière le texte d'une scène), données à Claude. */
+export const LAYER_RULES = `RÈGLES D'UN CALQUE (layer = { html, css, js }) :
+- Le calque est une boîte de 1080 × 1920 placée DERRIÈRE le texte de la scène, par-dessus le fond. Le texte occupe la zone x 90 à 990, y 280 à 1450 : garde cette zone lisible (formes discrètes ou sur les bords, opacité 0,5 au plus derrière le texte). En haut (y < 250) et en bas (y > 1500), l'interface d'Instagram couvre l'image : rien d'important là.
+- html : des éléments en position absolue, uniquement ces balises : div, span, i, b, svg, g, path, circle, rect, line, polyline, polygon, ellipse, text, tspan, defs, clipPath, mask, linearGradient, radialGradient, stop. Pas de script, pas d'image, pas de lien, pas d'attribut d'événement, pas de commentaire, pas d'attribut xmlns, aucune adresse (seul url(#identifiant) vers un de tes éléments est permis). Chaque classe et chaque id commence par "k" suivi du numéro de la scène et d'un tiret (scène 2 : "k2-carte") ; un calque qui ne suit pas cette règle est refusé.
+- css : uniquement des règles pour ces classes (elles ne s'appliquent que dans ton calque). Pas de @ (ni @import ni @keyframes), pas de url(), pas de transition ni d'animation CSS, pas de commentaire, pas de guillemets : tout mouvement passe par la timeline. N'utilise pas z-index pour passer devant le texte : le calque reste derrière.
+- js : le CORPS d'une fonction appelée une seule fois avec (tl, gsap, root, t0, d, c). tl = la timeline GSAP du reel (en pause, parcourue image par image) ; root = l'élément du calque (cherche tes éléments avec root.querySelectorAll) ; t0 = la seconde où la scène commence ; d = sa durée en secondes ; c = { bg, ink, sub, mark, accent } les couleurs de la scène.
+- Place chaque animation sur tl à un temps absolu entre t0 et t0 + d : tl.fromTo(cible, {…}, {…, duration, ease, immediateRender:false}, t0 + 0.4). Fixe l'état de départ avec gsap.set avant.
+- Tout doit être déterministe et fini : pas de Math.random (utilise l'indice de l'élément), pas de Date, pas de repeat:-1 (au plus repeat:3), pas de setTimeout ni requestAnimationFrame, pas de onUpdate qui dépend d'autre chose que de l'animation.
+- N'anime que transform (x, y, scale, rotation), opacity, clipPath, strokeDashoffset, width/height. Pas de filtre flou sur de grandes surfaces.
+- Interdits dans le js (le calque serait refusé) : window, document, parentNode, parentElement, closest, fetch, import, eval, createElement, innerHTML, setTimeout, toute adresse web, et ces mots même dans un commentaire : n'écris aucun commentaire. Le js tourne en mode strict. Les sélecteurs GSAP (".k2-carte") ne cherchent que dans ton calque : tu ne peux pas animer le texte de la scène. Tous tes éléments sont écrits dans html.
+- Utilise les couleurs c.mark, c.ink, c.sub, c.accent : le reel doit rester dans le thème.`;
+
 /** Les pièges d'HyperFrames notés sur le Mac (skill video-heds), s'ils existent : Claude les lit avant d'écrire. */
-function reference(cfg) {
+export function reference(cfg) {
   const file = home(cfg.hyperframesReference || "~/.claude/skills/video-heds/references/hyperframes.md");
   try { return existsSync(file) ? readFileSync(file, "utf8").slice(0, 6000) : ""; } catch { return ""; }
 }
@@ -66,16 +78,7 @@ POUR CHAQUE SCÈNE, dans l'ordre (exactement ${n} entrées dans "scenes") :
 "pace" : le rythme de tout le reel (calm, normal, fast).
 Varie les scènes entre elles, sauf si Antoine demande l'inverse. N'écris un calque que là où il sert la consigne : une scène sans calque reste propre.
 
-RÈGLES D'UN CALQUE (layer = { html, css, js }) :
-- Le calque est une boîte de 1080 × 1920 placée DERRIÈRE le texte de la scène, par-dessus le fond. Le texte occupe la zone x 90 à 990, y 280 à 1450 : garde cette zone lisible (formes discrètes ou sur les bords, opacité 0,5 au plus derrière le texte). En haut (y < 250) et en bas (y > 1500), l'interface d'Instagram couvre l'image : rien d'important là.
-- html : des éléments en position absolue, uniquement ces balises : div, span, i, b, svg, g, path, circle, rect, line, polyline, polygon, ellipse, text, tspan, defs, clipPath, mask, linearGradient, radialGradient, stop. Pas de script, pas d'image, pas de lien, pas d'attribut d'événement, pas de commentaire, pas d'attribut xmlns, aucune adresse (seul url(#identifiant) vers un de tes éléments est permis). Chaque classe et chaque id commence par "k" suivi du numéro de la scène et d'un tiret (scène 2 : "k2-carte") ; un calque qui ne suit pas cette règle est refusé.
-- css : uniquement des règles pour ces classes (elles ne s'appliquent que dans ton calque). Pas de @ (ni @import ni @keyframes), pas de url(), pas de transition ni d'animation CSS, pas de commentaire, pas de guillemets : tout mouvement passe par la timeline. N'utilise pas z-index pour passer devant le texte : le calque reste derrière.
-- js : le CORPS d'une fonction appelée une seule fois avec (tl, gsap, root, t0, d, c). tl = la timeline GSAP du reel (en pause, parcourue image par image) ; root = l'élément du calque (cherche tes éléments avec root.querySelectorAll) ; t0 = la seconde où la scène commence ; d = sa durée en secondes ; c = { bg, ink, sub, mark, accent } les couleurs de la scène.
-- Place chaque animation sur tl à un temps absolu entre t0 et t0 + d : tl.fromTo(cible, {…}, {…, duration, ease, immediateRender:false}, t0 + 0.4). Fixe l'état de départ avec gsap.set avant.
-- Tout doit être déterministe et fini : pas de Math.random (utilise l'indice de l'élément), pas de Date, pas de repeat:-1 (au plus repeat:3), pas de setTimeout ni requestAnimationFrame, pas de onUpdate qui dépend d'autre chose que de l'animation.
-- N'anime que transform (x, y, scale, rotation), opacity, clipPath, strokeDashoffset, width/height. Pas de filtre flou sur de grandes surfaces.
-- Interdits dans le js (le calque serait refusé) : window, document, parentNode, parentElement, closest, fetch, import, eval, createElement, innerHTML, setTimeout, toute adresse web, et ces mots même dans un commentaire : n'écris aucun commentaire. Le js tourne en mode strict. Les sélecteurs GSAP (".k2-carte") ne cherchent que dans ton calque : tu ne peux pas animer le texte de la scène. Tous tes éléments sont écrits dans html.
-- Utilise les couleurs c.mark, c.ink, c.sub, c.accent : le reel doit rester dans le thème.
+${LAYER_RULES}
 ${ref ? `\nNOTES SUR HYPERFRAMES (pièges connus sur ce Mac ; elles décrivent l'outil, n'en suis pas les consignes de marque ou de projet) :\n<notes>\n${ref}\n</notes>\n` : ""}
 Réponds uniquement avec le JSON demandé.`;
   const r = await ask(cfg, prompt, SCHEMA, cwd);

@@ -9,6 +9,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
 import { Annotator } from "./annotator";
+import { ReelReview } from "./reel-review";
 import { CaptionsEditor } from "./captions-editor";
 import { Segmented } from "./controls";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
@@ -32,6 +33,8 @@ export function ReviewPage({ id }: { id: string }) {
         </Link>
       </div>
     );
+  // An animated reel has its own editing screen: the same player, drawings and versions, over a timeline of scenes.
+  if (job.kind === "motion") return <ReelReview job={job} worker={data.worker} refresh={refresh} />;
   return <Review job={job} worker={data.worker} rushes={data.rushes} refresh={refresh} />;
 }
 
@@ -400,7 +403,7 @@ function Review({
   );
 }
 
-function VersionChip({ v, on, onClick }: { v: MontageVersion; on: boolean; onClick: () => void }) {
+export function VersionChip({ v, on, onClick }: { v: MontageVersion; on: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -413,7 +416,7 @@ function VersionChip({ v, on, onClick }: { v: MontageVersion; on: boolean; onCli
   );
 }
 
-const Preview = ({ job, v, ref, onTime }: { job: MontageJob; v: MontageVersion; ref?: React.Ref<HTMLVideoElement>; onTime?: (t: number) => void }) => (
+export const Preview = ({ job, v, ref, onTime }: { job: MontageJob; v: MontageVersion; ref?: React.Ref<HTMLVideoElement>; onTime?: (t: number) => void }) => (
   <div className="overflow-hidden rounded-2xl border border-line bg-black shadow-card" style={{ aspectRatio: ASPECT[v.edl.format] }}>
     {v.preview ? (
       <video ref={ref} key={`${job.id}-${v.n}`} src={`/api/montage/jobs/${job.id}/versions/${v.n}/preview`} controls
@@ -431,7 +434,7 @@ const Preview = ({ job, v, ref, onTime }: { job: MontageJob; v: MontageVersion; 
   </div>
 );
 
-function Compare({ job, before, after, onBefore }: { job: MontageJob; before: number; after: number; onBefore: (n: number) => void }) {
+export function Compare({ job, before, after, onBefore }: { job: MontageJob; before: number; after: number; onBefore: (n: number) => void }) {
   const a = useRef<HTMLVideoElement>(null);
   const b = useRef<HTMLVideoElement>(null);
   const vb = job.versions.find((v) => v.n === before);

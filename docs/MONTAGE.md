@@ -245,6 +245,7 @@ l'apparence du projet.
 - Worker 0.6.0 (`lib/motion.mjs`) : page HTML animée (GSAP) rendue par HyperFrames en MP4, polices Google téléchargées une
   fois, puis ffmpeg ajoute un morceau du dossier musique (`music`), sinon une piste muette. La vidéo est envoyée comme un
   rendu final (`POST /api/montage/jobs/:id/final`) : elle entre dans la bibliothèque et la tâche passe à `done` avec `mediaId`.
+  Depuis le worker 0.9.0, ce chemin n'est plus qu'un repli : le reel devient la version 1 de sa tâche (voir « Écran de montage du reel »).
 - Durée d'une scène : `min(7, max(2,8, 1,9 + 0,058 × caractères))` secondes, plus 1,2 s pour la dernière, le tout multiplié par le
   rythme (`calm` × 1,25, `fast` × 0,8). La page du Studio affiche la même estimation, ou une fourchette quand Claude
   choisit le rythme.
@@ -276,3 +277,17 @@ l'apparence du projet.
   choisit le rythme. `hyperframesReference` (config, facultatif) : notes HyperFrames données à Claude.
 - Une scène qui porte sa propre consigne (`anim`) reste une scène libre : la consigne générale ne lui donne que sa transition.
 
+
+#### Écran de montage du reel (worker 0.9.0)
+
+Un reel généré n'arrive plus directement dans la bibliothèque : il devient la version 1 de sa tâche (`status: "review"`) et s'ouvre dans `/videos/montage/<id>` (`src/components/montage/reel-review.tsx`). Antoine le regarde, le retouche, puis le valide.
+
+- **Plan** : chaque version garde `reel` (`ReelPlan`, `src/lib/montage.ts`) : les scènes dans l'ordre (`id`, textes, `fx`, durée voulue `seconds`, `cut`, durée rendue `dur`), le style, la musique (`music`, `volume`), le rythme. Le code écrit par Claude (`layer`, `art`) reste dans le plan côté serveur et Mac ; la page ne reçoit que `custom: "layer" | "art"` (`pageReel`). `renderPlan` (worker) refait exactement la vidéo d'un plan : les scènes non touchées gardent le même plan d'une version à l'autre (la barre de progression, le numéro et le bonus de durée de la dernière scène suivent leur place ; une scène libre garde les couleurs de la place pour laquelle elle a été écrite, `art.at`). Si un code tout juste écrit casse le rendu, il est retiré en premier et le code des autres scènes reste.
+- **Première génération** : `POST /api/montage/jobs/:id/versions` avec `{ reel, notes, upload }`. Un ancien serveur répond 400 : le worker retombe alors sur `/final` (ancien comportement).
+- **Demande à Claude** : `PATCH /jobs/:id { revise, marks?, range?: [début, fin], from? }` → action `motion`. Le worker (`lib/motion-revise.mjs`) ne laisse Claude modifier que les scènes qui recoupent le passage (plus de 0,15 s) ou qui portent une note dessinée ; tout changement ailleurs est ignoré. Sans passage ni note, toutes les scènes sont ouvertes. Le code rendu passe par les mêmes contrôles (`cleanLayer`, `checkArt`).
+- **Retouche à la main** : `PATCH /jobs/:id { reel, from }` → nouvelle version `by: "edit"` et action `preview` (rendu sans Claude). Le serveur reprend le code des scènes par `id` depuis la version de départ (`cleanReel`) ; un texte modifié fait retomber une scène libre (`art`) en animation standard, car son code contenait l'ancien texte.
+- **Validation** : `PATCH /jobs/:id { approve: n }` range l'aperçu de la version (déjà en pleine qualité) dans la bibliothèque, sans passer par le Mac.
+- **Corps envoyés par le worker pour un reel** : `POST /versions` `{ reel, notes, upload }` ; `POST /versions/:n/preview` `{ upload, reel, notes? }`.
+- **Échec d'une retouche** : si le reel a déjà une version avec vidéo, la tâche revient à `review` avec `error` (affichée dans la page) ; les versions retouchées à la main restées sans vidéo sont retirées, le texte de la demande est gardé pour être reformulé. Sans aucune version, la tâche passe à `failed` (bouton « Réessayer »).
+- **Reprendre une demande** : `PATCH /jobs/:id { withdraw: true }` tant que le Mac n'a pas commencé (`status: "queued"`).
+- **Ce que la page reçoit** : `pageJob` (`src/server/montage.ts`) retire le code de Claude et remplace les dessins par un lien ; seul `worker/claim` donne la tâche entière.
