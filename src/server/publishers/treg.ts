@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import type { Account, Network, Post, TargetResult } from "@/lib/types";
 import { signedCoverUrl, signedMediaUrl } from "../media-url";
 import type { MediaFile, Publisher } from "./types";
+import { fetchTregStats } from "./treg-stats";
 
 // treg (https://treg.to) relays calls to each network's API with its own OAuth apps,
 // using the accounts connected in treg. Path parameters go in the query string.
@@ -28,21 +29,25 @@ type CallInit = {
   body?: unknown;
   form?: Record<string, string | boolean | undefined>;
   headers?: Record<string, string>;
+  /** Milliseconds before giving up. Two minutes by default. */
+  timeout?: number;
 };
 
 let team = "main";
+/** Picks the team (token) the next calls use. Only inside `inTurn`. */
+export const setTeam = (label: string) => void (team = label);
 const token = () => tregTokens().get(team) ?? "";
 
 // `team` says which token every call uses. A sync and a publication must not switch it under
 // each other's feet (a publication waits minutes on Instagram): they take turns.
 let turn: Promise<unknown> = Promise.resolve();
-function inTurn<T>(work: () => Promise<T>): Promise<T> {
+export function inTurn<T>(work: () => Promise<T>): Promise<T> {
   const run = turn.then(work, work);
   turn = run.catch(() => {});
   return run;
 }
 
-async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ data: T; headers: Headers }> {
+export async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ data: T; headers: Headers }> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(init.query ?? {})) if (v !== undefined) qs.set(k, String(v));
   let body: string | undefined;
@@ -60,7 +65,7 @@ async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ dat
     method: init.method ?? (body ? "POST" : "GET"),
     headers: { "X-Treg-Token": token(), ...(type ? { "Content-Type": type } : {}), ...init.headers },
     body,
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(init.timeout ?? 120_000),
   });
   const text = await res.text();
   if (!res.ok) {
@@ -89,7 +94,7 @@ class AmbiguousError extends Error {}
  * the call goes again by tool name, /call/facebook/<path>, which always means the Page connection.
  * Without `catalog` (stories have no catalog entry), the call goes by tool name directly.
  */
-async function graph<T = unknown>(path: string, init: CallInit & { catalog?: string; pageId?: string } = {}): Promise<{ data: T; headers: Headers }> {
+export async function graph<T = unknown>(path: string, init: CallInit & { catalog?: string; pageId?: string } = {}): Promise<{ data: T; headers: Headers }> {
   const { catalog, pageId, ...rest } = init;
   if (catalog) {
     try {
@@ -558,6 +563,10 @@ export const tregPublisher: Publisher = {
 
   syncAccounts() {
     return inTurn(() => syncAll());
+  },
+
+  fetchStats(accounts, opts) {
+    return fetchTregStats(accounts, opts);
   },
 
   publish(post, accounts, media) {
