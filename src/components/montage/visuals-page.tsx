@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { isImageFile } from "@/lib/image";
-import { MAX_SCENES, type MontageJob } from "@/lib/montage";
+import { MAX_DIRECTION, MAX_SCENES, type MontageJob } from "@/lib/montage";
 import { lookOf, sameLook } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
@@ -39,6 +39,11 @@ const POST_WORKER = [0, 2, 0];
 const MOTION_WORKER = [0, 6, 0];
 /** Oldest Mac program that lets Claude write a scene's animation (free motion design). */
 const ANIM_WORKER = [0, 7, 0];
+/** First worker that follows a direction for the whole reel and a pace. */
+const DIRECT_WORKER = [0, 8, 0];
+const PACES = { calm: 1.25, normal: 1, fast: 0.8 } as const;
+type Pace = keyof typeof PACES;
+const DIRECTION_KEY = "metricove-reel-direction-v1";
 const atLeast = (version: string | undefined, min: number[]) => {
   const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
   for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
@@ -273,12 +278,36 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   const [reelId, setReelId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [music, setMusic] = useState(true);
+  const [direction, setDirection] = useState("");
+  /** "auto": normal, or what Claude chooses when there is a direction. */
+  const [pace, setPace] = useState<Pace | "auto">("auto");
+  useEffect(() => {
+    if (!motion) return;
+    try {
+      setDirection(localStorage.getItem(DIRECTION_KEY) ?? "");
+    } catch {}
+  }, [motion]);
+  const writeDirection = (v: string) => {
+    setDirection(v);
+    try {
+      localStorage.setItem(DIRECTION_KEY, v);
+    } catch {}
+  };
+  const directOld = motion && (!!direction.trim() || pace !== "auto") && !!data?.worker.version && !atLeast(data.worker.version, DIRECT_WORKER);
   /** The reel that just came back: shown above the scenes until the next one. */
   const [reelMedia, setReelMedia] = useState<string | null>(null);
   const reel = data?.jobs.find((j) => j.id === reelId);
   const motionOld = motion && !!data?.worker.version && !atLeast(data.worker.version, MOTION_WORKER);
   const animOld = motion && !motionOld && !!data?.worker.version && !atLeast(data.worker.version, ANIM_WORKER) && deck.slides.some((s) => s.anim?.trim());
-  const seconds = Math.round(deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0));
+  const baseSeconds = deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0);
+  // With a direction and no pace, Claude chooses the pace: the length is only known as a range. An old Mac ignores both.
+  const seconds = directOld
+    ? `environ ${Math.round(baseSeconds)} s`
+    : pace !== "auto"
+      ? `environ ${Math.round(baseSeconds * PACES[pace])} s`
+      : direction.trim()
+        ? `entre ${Math.round(baseSeconds * PACES.fast)} et ${Math.round(baseSeconds * PACES.calm)} s`
+        : `environ ${Math.round(baseSeconds)} s`;
   const playMedia = useStore((s) => s.playMedia);
 
   // A reel asked earlier (this visit or another): follow it, show it when it is there, clean up after it.
@@ -293,6 +322,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
           setReelMedia(j.mediaId);
           useStore.getState().load().catch(() => {});
           toast.success("Ton reel animé est prêt", { description: "Il est dans la bibliothèque. Regarde-le, puis programme-le." });
+          if (j.notes) toast.warning("À savoir sur ce reel", { description: j.notes, duration: 15_000 });
         } else if (j.status === "failed") toast.error("Le reel n'a pas pu être généré", { description: j.error, duration: 12_000 });
         if (j.id === reelId) setReelId(null);
         montageApi(`/api/montage/jobs/${j.id}`, { method: "DELETE" }).catch(() => {});
@@ -328,6 +358,8 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
           look: { ...lookOf(deck), logo: undefined },
           logo: !!deck.logo,
           music,
+          direction: direction.trim() || undefined,
+          pace: pace === "auto" ? undefined : pace,
           projectId: styled ?? (activeProject !== "all" ? activeProject : undefined),
         }),
       });
@@ -503,7 +535,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
               </div>
               <div className="flex flex-wrap items-center gap-1 text-[12.5px] text-ink-3">
                 <span className="mr-1">
-                  {motion ? `Scène ${index + 1} sur ${deck.slides.length} · environ ${seconds} s en tout` : deck.slides.length > 1 ? `Visuel ${index + 1} sur ${deck.slides.length} · carrousel` : "Un seul visuel · post photo"}
+                  {motion ? `Scène ${index + 1} sur ${deck.slides.length} · ${seconds} en tout` : deck.slides.length > 1 ? `Visuel ${index + 1} sur ${deck.slides.length} · carrousel` : "Un seul visuel · post photo"}
                 </span>
                 <IconButton label={motion ? "Reculer cette scène" : "Reculer ce visuel"} onClick={() => move(-1)} disabled={index === 0}>
                   <ArrowUp className="size-3.5 -rotate-90" />
@@ -619,6 +651,32 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                   </Field>
                 )}
               </Panel>
+
+              {motion && (
+                <Panel title="Animations">
+                  <Field label="Consignes pour tout le reel (facultatif)">
+                    <textarea
+                      aria-label="Consignes pour tout le reel"
+                      value={direction}
+                      onChange={(e) => writeDirection(e.target.value)}
+                      rows={4}
+                      maxLength={MAX_DIRECTION}
+                      placeholder={"Ex. : des livres qui tombent en cascade, le mot clé entouré d'un trait, un compteur sur le chiffre, transitions rapides."}
+                      className={cn(inputClass, "resize-y py-2 leading-snug")}
+                    />
+                  </Field>
+                  <p className="text-[12px] text-ink-3">{"Pour tout le reel : Claude choisit l'entrée du texte, les transitions et le décor de chaque scène, et ajoute des animations HyperFrames derrière le texte, dans tes couleurs. Pour une scène entièrement sur mesure, remplis plutôt le champ « Animation » de cette scène. Compte une à deux minutes de plus."}</p>
+                  {directOld && <p className="text-[12px] text-warn">{"Le programme de ton Mac est trop ancien pour suivre des consignes générales ou un rythme (version 0.8.0) : le reel sortira sans eux."}</p>}
+                  <Field label="Rythme">
+                    <select aria-label="Rythme" value={pace} onChange={(e) => setPace(e.target.value as Pace | "auto")} className={inputClass}>
+                      <option value="auto">{direction.trim() ? "Au choix de Claude" : "Normal"}</option>
+                      <option value="calm">Calme</option>
+                      {direction.trim() && <option value="normal">Normal</option>}
+                      <option value="fast">Rapide</option>
+                    </select>
+                  </Field>
+                </Panel>
+              )}
 
               {motion && (
                 <Panel title="Musique">

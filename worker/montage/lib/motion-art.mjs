@@ -94,7 +94,7 @@ RÈGLES TECHNIQUES (le code qui ne les suit pas est refusé et la scène retombe
 - Au plus 150 éléments par scène. Des courbes vives (expo.out, back.out(1.6), power3.inOut), des mouvements qui ont du sens, rien qui clignote.
 - Tout se termine avant T + D - 0,45.
 
-${motion.scenes.map((s, i) => (s.anim ? brief(s, i, ctx) : "")).filter(Boolean).join("\n\n")}
+${motion.direction ? `CONSIGNE GÉNÉRALE D'ANTOINE POUR TOUT LE REEL (à respecter aussi, la consigne de la scène passe avant) : ${motion.direction}\n\n` : ""}${motion.scenes.map((s, i) => (s.anim ? brief(s, i, ctx) : "")).filter(Boolean).join("\n\n")}
 
 Réponds uniquement avec le JSON demandé : une entrée par scène ci-dessus, avec son "index".`;
 

@@ -152,6 +152,8 @@ export type PostRequest = {
 };
 
 export const MAX_SCENES = 8;
+/** Length of the animation direction of a reel. */
+export const MAX_DIRECTION = 1000;
 
 /** kind "motion": an animated reel (9:16, no rush) made of text scenes in the look of the project. */
 export type MotionRequest = {
@@ -163,6 +165,10 @@ export type MotionRequest = {
   logo?: boolean;
   /** A track of the Mac's music folder under the scenes (none when the folder is empty). */
   music: boolean;
+  /** What Antoine asks of the animations: Claude picks them per scene and writes HyperFrames layers (worker 0.8.0). */
+  direction?: string;
+  /** Speed of the whole reel; left out, Claude chooses when there is a direction, else normal. */
+  pace?: "calm" | "normal" | "fast";
   project?: string;
 };
 
@@ -182,6 +188,8 @@ export type MontageJob = {
   /** kind "post": a whole post written by Claude from an idea (slide texts and the description). */
   post?: PostRequest;
   motion?: MotionRequest;
+  /** What the Mac has to say about the finished video (a reel that fell back to the standard animations). */
+  notes?: string;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
   cover?: { mediaId: string; project?: string; instructions?: string };
   rushIds: string[];

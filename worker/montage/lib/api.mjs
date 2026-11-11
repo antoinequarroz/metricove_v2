@@ -38,7 +38,7 @@ export class Api {
   addVersion(id, data) { return this.req("POST", `/api/montage/jobs/${id}/versions`, { json: data }); }
   /** Aperçu d'une version modifiée ; `broll` = plans trouvés (source, ref, thumb), réenregistrés dans la version. */
   setPreview(id, n, upload, broll) { return this.req("POST", `/api/montage/jobs/${id}/versions/${n}/preview`, { json: { upload, ...(broll ? { broll } : {}) } }); }
-  final(id, upload, title) { return this.req("POST", `/api/montage/jobs/${id}/final`, { json: { upload, title } }); }
+  final(id, upload, title, notes) { return this.req("POST", `/api/montage/jobs/${id}/final`, { json: { upload, title, ...(notes ? { notes } : {}) } }); }
   /** Vidéo de plus dans la bibliothèque (formats en plus du rendu final). Renvoie { media }. */
   addMedia(upload, title) { return this.req("POST", "/api/media", { json: { upload, title } }); }
   scan(rushes) { return this.req("POST", "/api/montage/rushes/scan", { json: { rushes } }); }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { MAX_SCENES, type MontageFormat, type MontageJob } from "@/lib/montage";
+import { MAX_DIRECTION, MAX_SCENES, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
@@ -33,6 +33,8 @@ type Body = {
   look?: unknown;
   logo?: boolean;
   music?: boolean;
+  direction?: unknown;
+  pace?: unknown;
 };
 
 /**
@@ -191,6 +193,8 @@ function motionJob(b: Body) {
   // The logo stays out of the job (the list of jobs is read every few seconds): the Mac gets it when it takes the job.
   const { logo: _logo, ...stored } = look;
   void _logo;
+  const direction = typeof b.direction === "string" ? b.direction.replace(/\r\n?/g, "\n").trim().slice(0, MAX_DIRECTION) : "";
+  const pace = (["calm", "normal", "fast"] as const).find((p) => p === b.pace);
   const now = new Date().toISOString();
   const job: MontageJob = {
     id: crypto.randomUUID(),
@@ -200,7 +204,7 @@ function motionJob(b: Body) {
     status: "queued",
     action: "motion",
     brief: { format: "9:16" },
-    motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, project: project?.name },
+    motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, ...(direction ? { direction } : {}), ...(pace ? { pace } : {}), project: project?.name },
     rushIds: [],
     versions: [],
     createdAt: now,

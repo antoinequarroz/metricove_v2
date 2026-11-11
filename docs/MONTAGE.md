@@ -245,8 +245,9 @@ l'apparence du projet.
 - Worker 0.6.0 (`lib/motion.mjs`) : page HTML animée (GSAP) rendue par HyperFrames en MP4, polices Google téléchargées une
   fois, puis ffmpeg ajoute un morceau du dossier musique (`music`), sinon une piste muette. La vidéo est envoyée comme un
   rendu final (`POST /api/montage/jobs/:id/final`) : elle entre dans la bibliothèque et la tâche passe à `done` avec `mediaId`.
-- Durée d'une scène : `min(7, max(2,8, 1,9 + 0,058 × caractères))` secondes, plus 1,2 s pour la dernière. La page du Studio
-  affiche la même estimation.
+- Durée d'une scène : `min(7, max(2,8, 1,9 + 0,058 × caractères))` secondes, plus 1,2 s pour la dernière, le tout multiplié par le
+  rythme (`calm` × 1,25, `fast` × 0,8). La page du Studio affiche la même estimation, ou une fourchette quand Claude
+  choisit le rythme.
 - `gsapFile` (config du Mac, facultatif) : copie locale de `gsap.min.js` pour rendre sans réseau.
 
 #### Scènes libres (worker 0.7.0)
@@ -258,4 +259,20 @@ l'apparence du projet.
 - Vérifications avant le rendu (`checkArt`) : CSS limité à `#sN`, sans @règle ni animation CSS ; aucun lien externe, aucun
   script dans le HTML ; JS sans réseau, minuterie, `Date`, `Math.random` ni `window`, compilé à blanc. Puis
   `hyperframes validate` charge la page dans Chrome : une scène qui lève une erreur reprend l'animation standard.
-- Si le rendu échoue quand même, le reel est refait avec l'animation standard partout. Les notes partent dans le log du Mac.
+- Si le rendu échoue quand même, le reel est refait avec l'animation standard partout. Les notes partent avec le rendu final (`notes`) : la page les montre.
+
+#### Consignes pour tout le reel (worker 0.8.0)
+
+- `direction` (1000 caractères) et `pace` (`calm`, `normal`, `fast`) dans la demande.
+  Avec une consigne, `lib/motion-direct.mjs` demande à Claude, pour chaque scène, une entrée du texte (`rise`, `type`,
+  `punch`, `slide`, `blur`), une transition (`auto`, `up`, `circle`, `side`, `cut`), un décor (`ring`, `dots`, `bars`,
+  `none`), un mot en couleur, un compteur, et au besoin un calque HyperFrames `{ html, css, js }` placé derrière le texte
+  (le `js` est le corps d'une fonction `(tl, gsap, root, t0, d, c)` qui ajoute ses animations à la timeline). Chaque calque
+  est vérifié (`cleanLayer` : taille, balises permises, classes préfixées `k<n>-`, pas de réseau, pas de script, pas du
+  mot `document` ni de remontée vers la page, css sans `@` ni animation) puis enfermé dans sa scène (css imbriqué sous
+  `#x<i>`, html posé dans sa boîte, sélecteurs GSAP limités à la boîte par `gsap.context`). Un calque refusé laisse sa
+  scène avec un décor prêt à l'emploi ; si le rendu échoue avec les calques, le reel est rendu une seconde fois sans eux.
+  Ces replis sont dits à Antoine : le Mac envoie `notes` avec le rendu final, la page les montre. Sans `pace`, Claude
+  choisit le rythme. `hyperframesReference` (config, facultatif) : notes HyperFrames données à Claude.
+- Une scène qui porte sa propre consigne (`anim`) reste une scène libre : la consigne générale ne lui donne que sa transition.
+
