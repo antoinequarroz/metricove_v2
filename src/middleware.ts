@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { safeEqual, SESSION_COOKIE, validMediaSignature } from "./server/auth";
-import { currentSessionToken } from "./server/password";
+import { currentSessionToken, mediaSecret } from "./server/password";
 
 // Everything is private once a password is set (APP_PASSWORD, or the one changed in Réglages).
 // Scripts (Hermes, Claude Code) can use "Authorization: Bearer <API_TOKEN>" on /api routes.
@@ -16,7 +16,7 @@ export async function middleware(req: NextRequest) {
   // Covers are signed with "<id>:cover", so a video link can't be reused for its cover and the other way round.
   const media = req.nextUrl.pathname.match(/^\/api\/media\/([^/]+)\/(file|cover)$/);
   const signed = media && (media[2] === "file" ? media[1] : `${media[1]}:cover`);
-  if ((req.method === "GET" || req.method === "HEAD") && signed && (await validMediaSignature(signed, req.nextUrl.searchParams.get("exp"), req.nextUrl.searchParams.get("sig"))))
+  if ((req.method === "GET" || req.method === "HEAD") && signed && (await validMediaSignature(signed, req.nextUrl.searchParams.get("exp"), req.nextUrl.searchParams.get("sig"), mediaSecret())))
     return NextResponse.next();
 
   const cookie = req.cookies.get(SESSION_COOKIE)?.value;

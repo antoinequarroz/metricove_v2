@@ -20,7 +20,10 @@ type FacebookTeam = {
   team: string;
   choice: string;
   used?: string;
+  goneChoice?: string;
+  auto?: string;
   byName: boolean;
+  severalPages: boolean;
   connections: { id: string; name?: string; kind: "page" | "instagram"; method?: string; page?: string; usable: boolean }[];
   error?: string;
 };
@@ -35,12 +38,15 @@ const dateFr = (iso: string) => new Date(iso).toLocaleString("fr-CH", { dateStyl
 
 export function SettingsPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [failed, setFailed] = useState("");
 
-  const load = () =>
-    fetch("/api/settings")
+  const load = () => {
+    setFailed("");
+    return fetch("/api/settings")
       .then((r) => json<Overview>(r))
       .then(setOverview)
-      .catch((e: Error) => toast.error("Réglages illisibles", { description: e.message }));
+      .catch((e: Error) => setFailed(e.message));
+  };
 
   useEffect(() => {
     load();
@@ -56,7 +62,16 @@ export function SettingsPage() {
       </header>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
         <div className="mx-auto flex max-w-3xl flex-col gap-8">
-          <PasswordSection overview={overview} onChanged={load} />
+          {!overview && failed && (
+            <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 px-4 py-3 text-[13px]">
+              <span className="size-2 shrink-0 rounded-full bg-warn" />
+              <p className="min-w-0 flex-1">Réglages illisibles : {failed}</p>
+              <Button size="sm" onClick={load}>
+                Réessayer
+              </Button>
+            </div>
+          )}
+          {overview && <PasswordSection overview={overview} onChanged={load} />}
           {overview?.publisher.name === "treg" && <FacebookSection />}
           <InfoSection overview={overview} />
         </div>
@@ -78,12 +93,12 @@ function Section({ title, hint, children, delay = 0 }: { title: string; hint?: R
 const inputClass =
   "h-10 w-full rounded-lg border border-line-strong bg-surface px-3 text-[14px] outline-none focus:border-accent/60 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
 
-function PasswordSection({ overview, onChanged }: { overview: Overview | null; onChanged: () => void }) {
+function PasswordSection({ overview, onChanged }: { overview: Overview; onChanged: () => void }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
-  const source = overview?.password.source;
+  const source = overview.password.source;
   const needsCurrent = source !== "none";
   const mismatch = confirm.length > 0 && next !== confirm;
   const tooShort = next.length > 0 && next.length < 10;
@@ -115,30 +130,30 @@ function PasswordSection({ overview, onChanged }: { overview: Overview | null; o
     <Section
       title="Mot de passe"
       hint={
-        source === "app" && overview?.password.changedAt
-          ? `Changé dans Metricove le ${dateFr(overview.password.changedAt)}.`
+        source === "app"
+          ? overview.password.changedAt
+            ? `Changé dans Metricove le ${dateFr(overview.password.changedAt)}.`
+            : "Changé dans Metricove."
           : source === "env"
             ? "Celui du fichier .env du serveur (APP_PASSWORD). Une fois changé ici, c'est le nouveau qui compte."
-            : source === "none"
-              ? "Aucun mot de passe : tout le monde peut ouvrir Metricove. Choisissez-en un."
-              : undefined
+            : "Aucun mot de passe : tout le monde peut ouvrir Metricove. Choisissez-en un."
       }
     >
       <form onSubmit={submit} className="flex flex-col gap-3 p-4">
         {needsCurrent && (
           <label className="flex flex-col gap-1.5">
             <span className="text-[12.5px] font-medium text-ink-2">Mot de passe actuel</span>
-            <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} className={inputClass} />
+            <input type="password" autoComplete="current-password" maxLength={200} value={current} onChange={(e) => setCurrent(e.target.value)} className={inputClass} />
           </label>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5">
             <span className="text-[12.5px] font-medium text-ink-2">Nouveau mot de passe</span>
-            <input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className={inputClass} />
+            <input type="password" autoComplete="new-password" maxLength={200} value={next} onChange={(e) => setNext(e.target.value)} className={inputClass} />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-[12.5px] font-medium text-ink-2">Confirmer</span>
-            <input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className={inputClass} />
+            <input type="password" autoComplete="new-password" maxLength={200} value={confirm} onChange={(e) => setConfirm(e.target.value)} className={inputClass} />
           </label>
         </div>
         <p className={cn("text-[12.5px]", mismatch || tooShort ? "text-danger" : "text-ink-3")}>
@@ -165,13 +180,15 @@ function FacebookSection() {
   const [teams, setTeams] = useState<FacebookTeam[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const load = async () => {
     setLoading(true);
+    setError("");
     try {
       setTeams((await json<{ teams: FacebookTeam[] }>(await fetch("/api/settings/facebook"))).teams);
     } catch (e) {
-      toast.error("Connexions Facebook illisibles", { description: (e as Error).message });
+      setError((e as Error).message);
     } finally {
       setLoading(false);
     }
@@ -182,6 +199,8 @@ function FacebookSection() {
   }, []);
 
   const choose = async (team: string, choice: string) => {
+    // Nothing to do while a choice is being saved, or when it is already the one in place.
+    if (saving || teams?.find((t) => t.team === team)?.choice === choice) return;
     setSaving(team);
     try {
       const body = await json<{ teams: FacebookTeam[] }>(
@@ -205,7 +224,15 @@ function FacebookSection() {
       hint="Quand une équipe treg a plusieurs connexions Facebook, Metricove prend seul la bonne : une Page choisie, la plus récente d'abord. Vous pouvez en imposer une."
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <span className="text-[12.5px] text-ink-3">{teams ? `${withFacebook.length} équipe${withFacebook.length > 1 ? "s" : ""} avec Facebook` : "Lecture des connexions treg…"}</span>
+        <span className={cn("min-w-0 text-[12.5px]", error && !loading ? "text-danger" : "text-ink-3")}>
+          {loading
+            ? "Lecture des connexions treg…"
+            : error
+              ? `Connexions illisibles : ${error}`
+              : teams
+                ? `${withFacebook.length} équipe${withFacebook.length > 1 ? "s" : ""} avec Facebook`
+                : "Lecture des connexions treg…"}
+        </span>
         <Button size="sm" variant="ghost" onClick={load} disabled={loading}>
           <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
           Relire
@@ -226,10 +253,20 @@ function FacebookSection() {
           {t.error ? (
             <p className="mt-2 text-[12.5px] text-danger">{t.error}</p>
           ) : (
-            <div className="mt-2.5 flex flex-col gap-1" role="radiogroup" aria-label={`Connexion Facebook de l'équipe ${t.team}`}>
+            <div className="mt-2.5 flex flex-col gap-1" role="group" aria-label={`Connexion Facebook de l'équipe ${t.team}`}>
+              {t.goneChoice && (
+                <p className="mb-1 rounded-lg bg-surface-2 px-2.5 py-2 text-[12.5px] text-ink-2">
+                  La connexion n° {t.goneChoice} que vous aviez imposée n&apos;existe plus, ou n&apos;a plus de Page. Metricove est revenu en automatique.
+                </p>
+              )}
+              {t.severalPages && (
+                <p className="mb-1 rounded-lg bg-surface-2 px-2.5 py-2 text-[12.5px] text-ink-2">
+                  Cette équipe a plusieurs connexions avec une Page. Votre choix décide de la Page que Metricove affiche et vise, mais c&apos;est treg qui décide quelle connexion répond. Pour être sûr du résultat, gardez une seule Page par équipe treg.
+                </p>
+              )}
               <Choice
                 label="Automatique"
-                detail={t.used ? `utilise la connexion n° ${t.used}` : "aucune connexion avec une Page"}
+                detail={t.auto ? (t.choice === "auto" ? `utilise la connexion n° ${t.auto}` : `prendrait la connexion n° ${t.auto}`) : "aucune connexion avec une Page"}
                 selected={t.choice === "auto"}
                 disabled={saving === t.team}
                 onSelect={() => choose(t.team, "auto")}
@@ -245,11 +282,11 @@ function FacebookSection() {
                     onSelect={() => choose(t.team, c.id)}
                   />
                 ) : (
-                  <div key={c.id} className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-ink-3">
+                  <div key={c.id} className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-ink-3">
                     <span className="size-4 shrink-0" />
-                    <span className="min-w-0 truncate">
+                    <span className="min-w-0">
                       {c.kind === "instagram" ? "Instagram via la Page" : c.name || "Connexion Facebook"} · n° {c.id}
-                      <span className="ml-1.5">{c.kind === "instagram" ? "(sert à Instagram, pas choisissable)" : "(aucune Page choisie : vide, à supprimer dans treg)"}</span>
+                      <span className="ml-1.5 max-sm:ml-0 max-sm:block">{c.kind === "instagram" ? "(sert à Instagram, pas choisissable)" : "(aucune Page choisie : vide, à supprimer dans treg)"}</span>
                     </span>
                   </div>
                 ),
@@ -266,12 +303,11 @@ function Choice({ label, detail, selected, disabled, onSelect }: { label: string
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={selected}
-      disabled={disabled}
-      onClick={onSelect}
+      aria-pressed={selected}
+      aria-disabled={disabled || undefined}
+      onClick={() => !disabled && onSelect()}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 disabled:opacity-60",
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent/50 aria-disabled:opacity-60",
         selected ? "bg-accent-soft" : "hover:bg-ink/[0.04]",
       )}
     >
@@ -290,7 +326,7 @@ function InfoSection({ overview }: { overview: Overview | null }) {
   if (!overview) return null;
   const rows: [string, React.ReactNode, boolean][] = [
     ["Publication", overview.publisher.name === "demo" ? "Mode démo" : `${overview.publisher.label}${overview.publisher.detail ? ` · ${overview.publisher.detail}` : ""}`, overview.publisher.ready && overview.publisher.name !== "demo"],
-    ["Équipes treg", overview.teams.length ? overview.teams.join(", ") : "Aucune", overview.teams.length > 0],
+    ...(overview.publisher.name === "treg" ? [["Équipes treg", overview.teams.length ? overview.teams.join(", ") : "Aucune", overview.teams.length > 0] as [string, React.ReactNode, boolean]] : []),
     ["Adresse publique", overview.publicUrl ?? "Non définie (PUBLIC_URL)", !!overview.publicUrl],
     ["Jeton pour les scripts", overview.apiToken ? "Défini (Hermes, Claude Code, Mac)" : "Non défini (API_TOKEN)", overview.apiToken],
   ];
@@ -308,7 +344,7 @@ function InfoSection({ overview }: { overview: Overview | null }) {
         <div key={label} className={cn("flex items-center gap-3 px-4 py-2.5 text-[13px]", i && "border-t border-line")}>
           <span className={cn("size-1.5 shrink-0 rounded-full", ok ? "bg-ok" : "bg-warn")} />
           <span className="w-44 shrink-0 font-medium max-sm:w-32">{label}</span>
-          <span className="min-w-0 truncate text-ink-3">{value}</span>
+          <span className="min-w-0 break-words text-ink-3">{value}</span>
         </div>
       ))}
     </Section>

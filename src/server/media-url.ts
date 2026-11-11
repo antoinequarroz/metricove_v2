@@ -1,11 +1,10 @@
 import crypto from "node:crypto";
+import { mediaSecret } from "./password";
 
 // Instagram, Facebook and Co. download the videos themselves, from a public URL.
 // The URL is signed and expires, so the rest of the app stays private.
 
-const secret = () => process.env.MEDIA_URL_SECRET || process.env.API_TOKEN || process.env.APP_PASSWORD || "";
-
-export function mediaSignature(id: string, exp: number, key = secret()) {
+export function mediaSignature(id: string, exp: number, key = mediaSecret()) {
   return crypto.createHmac("sha256", key).update(`media:${id}:${exp}`).digest("hex");
 }
 

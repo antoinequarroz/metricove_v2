@@ -3,9 +3,9 @@ import { SESSION_COOKIE } from "@/server/auth";
 import { checkPassword, currentSessionToken, passwordRequired, SESSION_MAX_AGE } from "@/server/password";
 
 export async function POST(req: Request) {
-  const { password: given } = (await req.json().catch(() => ({}))) as { password?: string };
+  const { password: given } = (await req.json().catch(() => ({}))) as { password?: unknown };
   if (!passwordRequired()) return NextResponse.json({ ok: true });
-  if (!checkPassword(given)) {
+  if (!(await checkPassword(given))) {
     await new Promise((r) => setTimeout(r, 600));
     return NextResponse.json({ error: "Mot de passe incorrect" }, { status: 401 });
   }

@@ -21,8 +21,7 @@ export function safeEqual(a: string, b: string) {
 }
 
 /** Checks a signed video URL (see server/media-url.ts), used by platforms that fetch our videos. */
-export async function validMediaSignature(id: string, exp: string | null, sig: string | null) {
-  const secret = process.env.MEDIA_URL_SECRET || process.env.API_TOKEN || process.env.APP_PASSWORD || "";
+export async function validMediaSignature(id: string, exp: string | null, sig: string | null, secret: string) {
   if (!secret || !exp || !sig || Number(exp) * 1000 < Date.now()) return false;
   return safeEqual(sig, await hmac(secret, `media:${id}:${exp}`));
 }

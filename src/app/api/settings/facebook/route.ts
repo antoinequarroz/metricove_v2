@@ -13,9 +13,9 @@ export async function GET() {
 
 /** Sets a team's Facebook connection: "auto", or a connection id. */
 export async function PUT(req: Request) {
-  const { team, choice } = (await req.json().catch(() => ({}))) as { team?: string; choice?: string };
-  if (!team || !tregTokens().has(team)) return NextResponse.json({ error: "Équipe treg inconnue" }, { status: 400 });
-  if (!choice || !/^(auto|[\w-]{1,64})$/.test(choice)) return NextResponse.json({ error: "Choix invalide" }, { status: 400 });
+  const { team, choice } = (await req.json().catch(() => ({}))) as { team?: unknown; choice?: unknown };
+  if (typeof team !== "string" || !tregTokens().has(team)) return NextResponse.json({ error: "Équipe treg inconnue" }, { status: 400 });
+  if (typeof choice !== "string" || !/^(auto|[\w-]{1,64})$/.test(choice)) return NextResponse.json({ error: "Choix invalide" }, { status: 400 });
   setSetting(facebookSettingKey(team), choice === "auto" ? null : choice);
   return NextResponse.json({ teams: await facebookOverview() });
 }

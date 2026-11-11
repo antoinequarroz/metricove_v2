@@ -153,10 +153,10 @@ type Conn = {
   resource?: { ref?: string; id?: string };
 };
 
-/** The current team's connections, or undefined when treg does not say. */
-async function connections(): Promise<Conn[] | undefined> {
+/** A team's connections (the current team by default), or undefined when treg does not say. */
+async function connections(label = team): Promise<Conn[] | undefined> {
   try {
-    const res = await fetch(`${base()}/connections`, { headers: { "X-Treg-Token": token() }, signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(`${base()}/connections`, { headers: { "X-Treg-Token": tregTokens().get(label) ?? "" }, signal: AbortSignal.timeout(30_000) });
     if (!res.ok) return undefined;
     const body = (await res.json()) as Conn[] | { connections?: Conn[]; items?: Conn[] };
     return Array.isArray(body) ? body : (body.connections ?? body.items ?? []);
@@ -193,53 +193,68 @@ async function facebookPageId(): Promise<string | undefined> {
   const all = await connections();
   if (!all) return undefined;
   if (all.filter(onGraph).length > 1) byNameTeams.add(team);
+  else byNameTeams.delete(team);
   const fb = pickFacebook(all, getSetting<string>(facebookSettingKey(team)));
   return fb && connRef(fb);
 }
 
 export type FacebookTeamOverview = {
   team: string;
+  /** "auto", or the id of the imposed connection while it still exists. */
   choice: string;
+  /** An imposed connection that no longer exists or lost its Page: Metricove is back on automatic. */
+  goneChoice?: string;
   /** Id of the connection Metricove uses now. */
   used?: string;
+  /** Id of the connection the automatic rule picks. */
+  auto?: string;
   /** Calls go by tool name because treg sees two connections on Facebook. */
   byName: boolean;
+  /** Two connections with a Page in one team: treg decides which one answers, Metricove can't aim. */
+  severalPages: boolean;
   connections: { id: string; name?: string; kind: "page" | "instagram"; method?: string; page?: string; usable: boolean }[];
   error?: string;
 };
 
-/** For the Réglages page: each team's Facebook connections and the one Metricove picks. */
-export function facebookOverview(): Promise<FacebookTeamOverview[]> {
-  return inTurn(async () => {
-    const out: FacebookTeamOverview[] = [];
-    for (const label of tregTokens().keys()) {
-      team = label;
-      const choice = getSetting<string>(facebookSettingKey(label)) ?? "auto";
-      const all = await connections();
-      if (!all) {
-        out.push({ team: label, choice, byName: false, connections: [], error: "treg ne répond pas pour cette équipe" });
-        continue;
-      }
-      const graphConns = all.filter(onGraph);
-      if (graphConns.length > 1) byNameTeams.add(label);
-      const used = pickFacebook(all, choice);
-      out.push({
-        team: label,
-        choice,
-        used: used?.id !== undefined ? String(used.id) : undefined,
-        byName: byNameTeams.has(label),
-        connections: graphConns.map((c) => ({
-          id: String(c.id ?? ""),
-          name: c.name,
-          kind: c.provider === "facebook" ? "page" : "instagram",
-          method: c.authorization_method,
-          page: connRef(c),
-          usable: c.provider === "facebook" && !!connRef(c),
-        })),
-      });
+const connId = (c: Conn | undefined) => (c?.id !== undefined ? String(c.id) : undefined);
+
+/**
+ * For the Réglages page: each team's Facebook connections and the one Metricove picks.
+ * Reads each team with its own token, without the shared `team`, so it never waits behind a publication.
+ */
+export async function facebookOverview(): Promise<FacebookTeamOverview[]> {
+  const out: FacebookTeamOverview[] = [];
+  for (const label of tregTokens().keys()) {
+    const stored = getSetting<string>(facebookSettingKey(label)) ?? "auto";
+    const all = await connections(label);
+    if (!all) {
+      out.push({ team: label, choice: stored, byName: false, severalPages: false, connections: [], error: "treg ne répond pas pour cette équipe" });
+      continue;
     }
-    return out;
-  });
+    const graphConns = all.filter(onGraph);
+    if (graphConns.length > 1) byNameTeams.add(label);
+    else byNameTeams.delete(label);
+    const used = connId(pickFacebook(all, stored));
+    const gone = stored !== "auto" && used !== stored;
+    out.push({
+      team: label,
+      choice: gone ? "auto" : stored,
+      goneChoice: gone ? stored : undefined,
+      used,
+      auto: connId(pickFacebook(all, undefined)),
+      byName: byNameTeams.has(label),
+      severalPages: all.filter((c) => c.provider === "facebook" && connRef(c)).length > 1,
+      connections: graphConns.map((c) => ({
+        id: String(c.id ?? ""),
+        name: c.name,
+        kind: c.provider === "facebook" ? "page" : "instagram",
+        method: c.authorization_method,
+        page: connRef(c),
+        usable: c.provider === "facebook" && !!connRef(c),
+      })),
+    });
+  }
+  return out;
 }
 
 /** treg provider name → Metricove network. */
