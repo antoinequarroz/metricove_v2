@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getPost, listAccounts, savePost } from "@/server/db";
+import { postProblems } from "@/lib/formats";
+import { getMedia, getPost, listAccounts, savePost } from "@/server/db";
 import { tick } from "@/server/scheduler";
-import type { Post } from "@/lib/types";
+import type { Network, Post, PostFormat } from "@/lib/types";
 
 const STATUSES = ["draft", "scheduled"] as const;
 const ORIGINS = ["manual", "claude-code", "hermes"] as const;
@@ -11,7 +12,8 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Partial<Post> | null;
   if (!body) return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
 
-  const accounts = new Set(listAccounts().map((a) => a.id));
+  const all = listAccounts();
+  const accounts = new Set(all.map((a) => a.id));
   const accountIds = Array.isArray(body.accountIds) ? body.accountIds.filter((id) => accounts.has(id)) : [];
   const when = new Date(body.scheduledAt ?? "");
   const status = STATUSES.find((s) => s === body.status) ?? "draft";
@@ -26,8 +28,20 @@ export async function POST(req: Request) {
   // Accounts that already got this video keep their result, so publishing again (after a
   // failure on another network) never sends a duplicate. A new video starts from scratch.
   const mediaId = body.mediaId || undefined;
+  const format: PostFormat | undefined = body.format === "story" ? "story" : undefined;
+
+  // The same rules as the editor, so a script can't schedule a post the networks would refuse.
+  if (status === "scheduled") {
+    const media = mediaId ? getMedia(mediaId) : undefined;
+    if (mediaId && !media) return NextResponse.json({ error: "Média introuvable" }, { status: 400 });
+    const networks = [...new Set(all.filter((a) => accountIds.includes(a.id)).map((a) => a.network))] as Network[];
+    const problems = postProblems({ format, media, networks });
+    if (problems.length) return NextResponse.json({ error: problems[0] }, { status: 422 });
+  }
+
+  // A story and a feed post are two different publications: results don't carry over.
   const kept =
-    existing?.results && existing.mediaId === mediaId
+    existing?.results && existing.mediaId === mediaId && existing.format === format
       ? Object.fromEntries(Object.entries(existing.results).filter(([id, r]) => r.status === "published" && accountIds.includes(id)))
       : {};
 
@@ -37,6 +51,7 @@ export async function POST(req: Request) {
     accountIds,
     caption: String(body.caption ?? "").slice(0, 70_000),
     mediaId,
+    format,
     scheduledAt: when.toISOString(),
     status,
     origin: ORIGINS.find((o) => o === body.origin) ?? existing?.origin ?? "manual",

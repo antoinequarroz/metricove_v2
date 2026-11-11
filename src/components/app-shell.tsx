@@ -18,7 +18,7 @@ import { ProjectMark, ProjectSwitcher } from "./projects";
 
 const NAV = [
   { href: "/calendar", label: "Calendrier", Icon: CalendarDays },
-  { href: "/videos", label: "Vidéos", Icon: Clapperboard, countKey: "videos" as const },
+  { href: "/videos", label: "Médias", Icon: Clapperboard, countKey: "videos" as const },
   { href: "/accounts", label: "Comptes", Icon: Users },
   { href: "#", label: "Statistiques", Icon: BarChart3, soon: true },
   { href: "#", label: "Réglages", Icon: Settings, soon: true },

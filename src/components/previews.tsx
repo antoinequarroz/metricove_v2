@@ -2,11 +2,15 @@
 
 import { Bookmark, Heart, MessageCircle, MoreHorizontal, Repeat2, Send, Share, ThumbsUp, BarChart2, Globe2 } from "lucide-react";
 import { ThumbsDown } from "lucide-react";
-import type { Account, Media, YouTubeOptions } from "@/lib/types";
+import { IG_PHOTO_RATIO, ratioOf } from "@/lib/formats";
+import type { Account, Media, PostFormat, YouTubeOptions } from "@/lib/types";
 import { cn, fmt } from "@/lib/utils";
 import { Avatar, MediaThumb } from "./ui";
 
-type Props = { account: Account; caption: string; media?: Media; date: Date; youtube?: YouTubeOptions };
+type Props = { account: Account; caption: string; media?: Media; date: Date; youtube?: YouTubeOptions; format?: PostFormat };
+
+/** The shape a photo takes in a feed: its own ratio, within what the feeds show. */
+const photoRatio = (m: Media) => Math.min(IG_PHOTO_RATIO.max, Math.max(IG_PHOTO_RATIO.min, ratioOf(m)));
 
 function Caption({ text, className }: { text: string; className?: string }) {
   if (!text.trim()) return <span className="text-ink-3 italic">Votre texte apparaîtra ici…</span>;
@@ -36,9 +40,13 @@ export function InstagramPreview({ account, caption, media }: Props) {
         <MoreHorizontal className="ml-auto size-4" />
       </div>
       {media ? (
-        <MediaThumb media={media} playable className={cn("w-full rounded-none", media.aspect === "16:9" ? "aspect-video" : media.aspect === "1:1" ? "aspect-square" : "aspect-[4/5]")} />
+        media.kind === "image" ? (
+          <MediaThumb media={media} playable className="w-full rounded-none" style={{ aspectRatio: photoRatio(media) }} />
+        ) : (
+          <MediaThumb media={media} playable className={cn("w-full rounded-none", media.aspect === "16:9" ? "aspect-video" : media.aspect === "1:1" ? "aspect-square" : "aspect-[4/5]")} />
+        )
       ) : (
-        <div className="flex aspect-[4/5] items-center justify-center bg-surface-2 text-[12px] text-ink-3">Instagram exige une image ou une vidéo</div>
+        <div className="flex aspect-[4/5] items-center justify-center bg-surface-2 text-[12px] text-ink-3">Instagram exige une photo ou une vidéo</div>
       )}
       <div className="flex items-center gap-3.5 px-3 pt-2.5">
         <Heart className="size-[22px]" />
@@ -132,7 +140,12 @@ export function FacebookPreview({ account, caption, media, date }: Props) {
       <p className="px-3 pb-3 leading-snug">
         <Caption text={caption} />
       </p>
-      {media && <MediaThumb media={media} playable className="aspect-video w-full rounded-none" />}
+      {media &&
+        (media.kind === "image" ? (
+          <MediaThumb media={media} playable className="w-full rounded-none" style={{ aspectRatio: photoRatio(media) }} />
+        ) : (
+          <MediaThumb media={media} playable className="aspect-video w-full rounded-none" />
+        ))}
       <div className="flex justify-around border-t border-line py-2 text-[13px] font-medium text-ink-2">
         <span className="flex items-center gap-1.5"><ThumbsUp className="size-4" />J&apos;aime</span>
         <span className="flex items-center gap-1.5"><MessageCircle className="size-4" />Commenter</span>
@@ -207,7 +220,44 @@ export function TikTokPreview({ account, caption, media }: Props) {
   );
 }
 
+/** A story as the phone shows it: full screen, the account on top, gone after 24 hours. */
+export function StoryPreview({ account, media: picked }: Props) {
+  const instagram = account.network === "instagram";
+  // The feed cover of a video plays no part in a story: show the video itself.
+  const media = picked && { ...picked, cover: undefined };
+  return (
+    <div className="relative mx-auto aspect-[9/16] w-[260px] overflow-hidden rounded-[22px] bg-[#111] text-white shadow-card ring-1 ring-line">
+      {media ? (
+        <>
+          {/* A photo or a video that isn't 9:16 is shown whole, on a blurred copy of itself. */}
+          <MediaThumb media={media} showMeta={false} className="absolute inset-0 scale-125 rounded-none opacity-60 blur-2xl" />
+          <MediaThumb media={media} playable showMeta={false} contain className="absolute inset-0 rounded-none" />
+        </>
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-[12px] text-white/60">Ajoutez une photo ou une vidéo pour la story</div>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/55 to-transparent px-2.5 pt-2 pb-8">
+        <div className="h-[2px] overflow-hidden rounded-full bg-white/35">
+          <div className="h-full w-1/3 rounded-full bg-white" />
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-[12px]">
+          <Avatar account={account} size={26} badge={false} />
+          <span className="truncate font-semibold">{instagram ? account.handle : account.name}</span>
+          <span className="text-white/70">à l&apos;instant</span>
+          <MoreHorizontal className="ml-auto size-4" />
+        </div>
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/55 to-transparent px-3 pt-8 pb-3">
+        <span className="flex h-8 flex-1 items-center rounded-full border border-white/50 px-3.5 text-[11.5px] text-white/85">{instagram ? "Envoyer un message" : "Répondre…"}</span>
+        <Heart className="size-5" />
+        <Send className="size-5" />
+      </div>
+    </div>
+  );
+}
+
 export function PostPreview(props: Props) {
+  if (props.format === "story" && (props.account.network === "instagram" || props.account.network === "facebook")) return <StoryPreview {...props} />;
   switch (props.account.network) {
     case "youtube":
       return <YouTubePreview {...props} />;

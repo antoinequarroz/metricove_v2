@@ -7,7 +7,7 @@ import { duration, fmt } from "@/lib/utils";
 import { CoverControl } from "./cover";
 import { Button, SourceTag } from "./ui";
 
-/** Plays a library video in a window. Opened with useStore().playMedia(id). */
+/** Plays a library video, or shows a photo, in a window. Opened with useStore().playMedia(id). */
 export function VideoPlayer() {
   const id = useStore((s) => s.playing);
   const media = useStore((s) => s.media);
@@ -26,6 +26,15 @@ export function VideoPlayer() {
         <Dialog.Popup className="dialog-popup fixed top-1/2 left-1/2 z-[70] flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 outline-none sm:w-auto">
           {m?.url && (
             <>
+              {m.kind === "image" ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={m.id}
+                  src={m.url}
+                  alt={m.title}
+                  className="max-h-[calc(100dvh-140px)] w-auto max-w-full rounded-xl bg-black object-contain shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)]"
+                />
+              ) : (
               <video
                 key={m.id}
                 src={m.url}
@@ -39,12 +48,13 @@ export function VideoPlayer() {
                 }
                 style={wide ? undefined : { aspectRatio: m.aspect === "1:1" ? "1 / 1" : "9 / 16" }}
               />
+              )}
               <div className="flex w-full max-w-[min(960px,100%)] items-center gap-3 rounded-xl border border-white/10 bg-[rgba(20,19,17,0.85)] px-3 py-2 text-white backdrop-blur">
                 <div className="min-w-0 flex-1">
                   <Dialog.Title className="truncate text-[13.5px] font-medium">{m.title}</Dialog.Title>
                   <p className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-[12px] whitespace-nowrap text-white/60">
                     <SourceTag source={m.source} onMedia />
-                    <span className="tabular font-mono">{duration(m.duration)}</span>·<span>{m.aspect}</span><span className="max-sm:hidden">· {fmt(m.createdAt, "d MMM")}</span>
+                    {m.kind === "image" ? <span className="tabular font-mono">{m.width && m.height ? `${m.width} × ${m.height}` : "Photo"}</span> : <><span className="tabular font-mono">{duration(m.duration)}</span>·<span>{m.aspect}</span></>}<span className="max-sm:hidden">· {fmt(m.createdAt, "d MMM")}</span>
                     {uses > 0 && <span className="max-sm:hidden">· dans {uses} post{uses > 1 ? "s" : ""}</span>}
                   </p>
                 </div>
@@ -65,9 +75,11 @@ export function VideoPlayer() {
                   <X className="size-4" />
                 </Dialog.Close>
               </div>
-              <div className="w-full max-w-[min(960px,100%)] rounded-xl border border-white/10 bg-[rgba(20,19,17,0.85)] px-3 py-2 backdrop-blur">
-                <CoverControl media={m} tone="dark" />
-              </div>
+              {m.kind !== "image" && (
+                <div className="w-full max-w-[min(960px,100%)] rounded-xl border border-white/10 bg-[rgba(20,19,17,0.85)] px-3 py-2 backdrop-blur">
+                  <CoverControl media={m} tone="dark" />
+                </div>
+              )}
             </>
           )}
         </Dialog.Popup>

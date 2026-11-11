@@ -308,6 +308,7 @@ function PostChip({ post }: { post: Post }) {
               <NetworkBadge key={n} network={n} size="xs" className="!size-3 !rounded-[3px] !p-[1.5px]" />
             ))}
           </span>
+          {post.format === "story" && <span className="rounded-[4px] bg-accent-soft px-1 text-[9.5px] leading-[14px] font-semibold tracking-wide text-accent uppercase">Story</span>}
           {post.origin !== "manual" && (
             <span className="ml-auto text-ink-3" title={post.origin === "hermes" ? "Créé par Hermes" : "Vidéo Claude Code"}>
               {post.origin === "hermes" ? <Bot className="size-3" /> : <Sparkles className="size-3" />}
@@ -401,6 +402,7 @@ function WeekView() {
                             <NetworkBadge key={n} network={n} size="xs" className="!size-3 !rounded-[3px] !p-[1.5px]" />
                           ))}
                         </span>
+                        {p.format === "story" && <span className="rounded-[4px] bg-accent-soft px-1 text-[9.5px] leading-[14px] font-semibold tracking-wide text-accent uppercase">Story</span>}
                       </span>
                       <span className="line-clamp-2 text-[11.5px] leading-snug">{p.caption}</span>
                     </span>
@@ -454,7 +456,10 @@ function ListView() {
                     <span className="tabular w-11 font-mono text-[12.5px] text-ink-2">{fmt(p.scheduledAt, "HH:mm")}</span>
                     {m ? <MediaThumb media={m} showMeta={false} className="h-12 w-9 shrink-0 rounded-md" /> : <span className="h-12 w-9 shrink-0 rounded-md border border-dashed border-line-strong" />}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px]">{p.caption}</span>
+                      <span className="flex items-center gap-2 text-[13.5px]">
+                        {p.format === "story" && <span className="rounded-[4px] bg-accent-soft px-1 text-[9.5px] leading-[14px] font-semibold tracking-wide text-accent uppercase">Story</span>}
+                        <span className="truncate">{p.caption || (p.format === "story" ? "Story" : "")}</span>
+                      </span>
                       <span className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
                         <AvatarStack accounts={accs} size={16} />
                         {accs.map((a) => `@${a.handle}`).join(", ")}

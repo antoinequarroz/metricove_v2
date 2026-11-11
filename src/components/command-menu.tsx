@@ -51,7 +51,7 @@ export function CommandMenu() {
             Vue liste
           </Item>
           <Item onSelect={() => run(() => router.push("/videos"))} icon={<Clapperboard className="size-4" />}>
-            Bibliothèque vidéo
+            Bibliothèque de médias
           </Item>
           <Item onSelect={() => run(() => router.push("/accounts"))} icon={<Users className="size-4" />}>
             Comptes connectés

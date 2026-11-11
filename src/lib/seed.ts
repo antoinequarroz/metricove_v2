@@ -20,13 +20,13 @@ function at(base: Date, dayOffset: number, h: number, m = 0) {
 
 export function seedMedia(now = new Date()): Media[] {
   return [
-    { id: "m1", title: "Teaser automatisation Hermes", duration: 28, aspect: "9:16", source: "claude-code", createdAt: subDays(now, 0).toISOString(), hues: [18, 340] },
-    { id: "m2", title: "Behind the scenes : setup VPS", duration: 47, aspect: "9:16", source: "claude-code", createdAt: subDays(now, 1).toISOString(), hues: [250, 200] },
-    { id: "m3", title: "3 astuces calendrier éditorial", duration: 35, aspect: "1:1", source: "claude-code", createdAt: subDays(now, 1).toISOString(), hues: [150, 90] },
-    { id: "m4", title: "Démo Metricove v2", duration: 62, aspect: "16:9", source: "claude-code", createdAt: subDays(now, 2).toISOString(), hues: [210, 280] },
-    { id: "m5", title: "Story : nouveautés de la semaine", duration: 14, aspect: "9:16", source: "hermes", createdAt: subDays(now, 3).toISOString(), hues: [40, 10] },
-    { id: "m6", title: "Interview client (cut court)", duration: 51, aspect: "9:16", source: "upload", createdAt: subDays(now, 4).toISOString(), hues: [190, 230] },
-    { id: "m7", title: "Timelapse montage vidéo", duration: 22, aspect: "9:16", source: "claude-code", createdAt: subDays(now, 5).toISOString(), hues: [300, 20] },
+    { kind: "video", id: "m1", title: "Teaser automatisation Hermes", duration: 28, aspect: "9:16", source: "claude-code", createdAt: subDays(now, 0).toISOString(), hues: [18, 340] },
+    { kind: "video", id: "m2", title: "Behind the scenes : setup VPS", duration: 47, aspect: "9:16", source: "claude-code", createdAt: subDays(now, 1).toISOString(), hues: [250, 200] },
+    { kind: "video", id: "m3", title: "3 astuces calendrier éditorial", duration: 35, aspect: "1:1", source: "claude-code", createdAt: subDays(now, 1).toISOString(), hues: [150, 90] },
+    { kind: "video", id: "m4", title: "Démo Metricove v2", duration: 62, aspect: "16:9", source: "claude-code", createdAt: subDays(now, 2).toISOString(), hues: [210, 280] },
+    { kind: "video", id: "m5", title: "Story : nouveautés de la semaine", duration: 14, aspect: "9:16", source: "hermes", createdAt: subDays(now, 3).toISOString(), hues: [40, 10] },
+    { kind: "video", id: "m6", title: "Interview client (cut court)", duration: 51, aspect: "9:16", source: "upload", createdAt: subDays(now, 4).toISOString(), hues: [190, 230] },
+    { kind: "video", id: "m7", title: "Timelapse montage vidéo", duration: 22, aspect: "9:16", source: "claude-code", createdAt: subDays(now, 5).toISOString(), hues: [300, 20] },
   ];
 }
 
