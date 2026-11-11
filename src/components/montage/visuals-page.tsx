@@ -496,18 +496,20 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_800px]">
             {/* ---------- Preview and slides: stays in view while the settings scroll ---------- */}
             <div className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
-              <div className="flex items-center justify-center rounded-2xl border border-line bg-bg-2/60 p-5 max-sm:p-3">
+              {/* On a computer the small visuals stand in a column beside the big one: the height goes to the preview. */}
+              <div className="flex min-w-0 flex-col gap-3 lg:flex-row-reverse">
+              <div className="flex min-w-0 flex-1 items-center justify-center rounded-2xl border border-line bg-bg-2/60 p-5 max-sm:p-3">
                 {/* On a wide screen the visual is as tall as the window allows, so the whole column fits without scrolling. */}
                 <div
                   className={cn("w-full lg:max-w-[var(--fit)]", deck.format === "9:16" ? "max-lg:max-w-[300px]" : deck.format === "1:1" ? "max-lg:max-w-[460px]" : "max-lg:max-w-[400px]")}
-                  style={{ "--fit": `max(200px, calc((100dvh - ${motion ? 440 : 400}px) * ${W / HEIGHTS[deck.format]}))` } as React.CSSProperties}
+                  style={{ "--fit": `max(200px, calc((100dvh - 310px) * ${W / HEIGHTS[deck.format]}))` } as React.CSSProperties}
                 >
                   <SlideCanvas deck={deck} index={index} fonts={fonts} className="rounded-xl shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)]" />
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <div className="scroll-thin flex min-w-0 flex-1 gap-2 overflow-x-auto p-1" role="tablist" aria-label={motion ? "Scènes" : "Visuels"}>
+              <div className="flex items-center gap-2 lg:items-start">
+                <div className="scroll-thin flex min-w-0 flex-1 gap-2 overflow-x-auto p-1 lg:max-h-[max(240px,calc(100dvh-270px))] lg:flex-none lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto" role="tablist" aria-label={motion ? "Scènes" : "Visuels"}>
                   {deck.slides.map((s, i) => (
                     <button
                       key={s.id}
@@ -537,6 +539,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                   )}
                 </div>
               </div>
+              </div>
               <div className="flex flex-wrap items-center gap-1 text-[12.5px] text-ink-3">
                 <span className="mr-1">
                   {motion ? `Scène ${index + 1} sur ${deck.slides.length} · ${seconds} en tout` : deck.slides.length > 1 ? `Visuel ${index + 1} sur ${deck.slides.length} · carrousel` : "Un seul visuel · post photo"}
@@ -555,7 +558,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                 </IconButton>
                 {story && deck.slides.length > 1 && <span className="ml-auto text-warn">En story, chaque visuel devient une story à part.</span>}
               </div>
-              {motion && <p className="text-[12px] text-ink-3">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut. Pour un motion design sur mesure, décris-le dans « Animation » : Claude écrit la scène."}</p>}
+              {motion && <p className="text-[12px] text-ink-3 lg:[@media(max-height:860px)]:hidden">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut. Pour un motion design sur mesure, décris-le dans « Animation » : Claude écrit la scène."}</p>}
             </div>
 
             {/* ---------- Settings: two columns of panels on a very wide screen ---------- */}
