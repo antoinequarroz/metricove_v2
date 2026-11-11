@@ -3,11 +3,11 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Popover } from "@base-ui-components/react/popover";
 import { addDays, setHours, startOfDay } from "date-fns";
-import { Bot, CalendarClock, Crop, ImagePlus, Images, Sparkles, Trash2, Upload, X, Hash, Smile } from "lucide-react";
+import { Bot, CalendarClock, ChevronLeft, ChevronRight, Crop, ImagePlus, Images, Plus, Sparkles, Trash2, Upload, X, Hash, Smile } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { MontageJob } from "@/lib/montage";
-import { fitsInstagramFeed, IG_PHOTO_RATIO, instagramRefusesFile, postProblems, ratioOf, STORY_NETWORKS } from "@/lib/formats";
+import { CAROUSEL_MAX, fitsInstagramFeed, IG_PHOTO_RATIO, instagramRefusesFile, postMediaIds, postProblems, ratioOf, STORY_NETWORKS } from "@/lib/formats";
 import { cropImageToRatio, isImageFile, MEDIA_ACCEPT, VIDEO_FILE } from "@/lib/image";
 import { outcomeOf, readableError, summary, waitsInTikTok } from "@/lib/publish-result";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
@@ -74,7 +74,9 @@ function ComposerForm() {
     return fromProject.length ? fromProject : accounts.filter((a) => a.connected).slice(0, 1).map((a) => a.id);
   });
   const [caption, setCaption] = useState(existing?.caption ?? "");
-  const [mediaId, setMediaId] = useState<string | undefined>(existing?.mediaId ?? presetMedia);
+  // One media for a plain post, several for a carousel, in the order they will show.
+  const [mediaIds, setMediaIds] = useState<string[]>(() => (existing ? postMediaIds(existing) : presetMedia ? [presetMedia] : []));
+  const setMediaId = (id: string | undefined) => setMediaIds((ids) => (id ? [id, ...ids.slice(1).filter((x) => x !== id)] : ids.slice(1)));
   const [format, setFormat] = useState<PostFormat>(existing?.format ?? "feed");
   const uploadMedia = useStore((s) => s.uploadMedia);
   const [cropping, setCropping] = useState(false);
@@ -90,7 +92,9 @@ function ComposerForm() {
 
   const selectedAccounts = accounts.filter((a) => selected.includes(a.id));
   const previewAccount = selectedAccounts.find((a) => a.id === previewId) ?? selectedAccounts[0];
-  const m = media.find((x) => x.id === mediaId);
+  const items = mediaIds.map((id) => media.find((x) => x.id === id)).filter((x): x is Media => !!x);
+  const m = items[0];
+  const carousel = items.length > 1;
   const when = new Date(`${day}T${time}`);
   const networks = [...new Set(selectedAccounts.map((a) => a.network))] as Network[];
   /** Instagram and Facebook are the only ones with stories and photos: the format choice shows with them. */
@@ -100,12 +104,16 @@ function ComposerForm() {
   // A story shows no text: its length doesn't matter.
   const tooLong = story ? [] : networks.filter((n) => caption.length > NETWORKS[n].limit);
   const hasYoutube = networks.includes("youtube");
-  const problems = postProblems({ format: story ? "story" : "feed", media: m, networks });
-  // What Instagram would refuse about this photo, and that one click can fix.
-  const photoMisfit = !!m && m.kind === "image" && !story && networks.includes("instagram") && !fitsInstagramFeed(m);
-  const photoNotJpeg = !!m && networks.includes("instagram") && instagramRefusesFile(m);
-  // Those two already show next to the photo, with their fix.
-  const otherProblems = problems.filter((p) => !/^Instagram (refuse cette photo|n'accepte que les photos JPEG)/.test(p));
+  const problems = postProblems({ format: story ? "story" : "feed", items, networks });
+  // What Instagram would refuse about a photo, and that one click can fix.
+  const misfit = (x: Media) => x.kind === "image" && !story && networks.includes("instagram") && !fitsInstagramFeed(x);
+  const notJpeg = (x: Media) => networks.includes("instagram") && instagramRefusesFile(x);
+  const photoMisfit = !!m && !carousel && misfit(m);
+  const photoNotJpeg = !!m && !carousel && notJpeg(m);
+  /** In a carousel: the photos Instagram would refuse as they are. */
+  const toFix = carousel && !story ? items.filter((x) => misfit(x) || notJpeg(x)) : [];
+  // Those already show next to the photo, with their fix.
+  const otherProblems = problems.filter((p) => !/^Instagram (refuse cette photo|refuse une photo du carrousel|n'accepte que les photos JPEG)/.test(p));
   const shortProblem =
     hasYoutube && !story && yt.format === "short" && m && m.kind === "video" ? (m.aspect !== "9:16" ? "Un Short doit être une vidéo verticale (9:16)." : m.duration > 180 ? "Un Short dure 3 minutes maximum." : "") : "";
 
@@ -134,6 +142,8 @@ function ComposerForm() {
         accountIds: selected,
         caption,
         mediaId: m?.id,
+        // Always sent, so that going back to a single media ends the carousel on the server too.
+        mediaIds: items.map((x) => x.id),
         format: story ? "story" : "feed",
         scheduledAt: (now ? new Date() : when).toISOString(),
         status,
@@ -144,7 +154,7 @@ function ComposerForm() {
       const n = selectedAccounts.length;
       if (status === "scheduled" && now) followPublish(saved.id);
       else
-        toast.success(status === "draft" ? "Brouillon enregistré" : story ? "Story programmée" : "Post programmé", {
+        toast.success(status === "draft" ? "Brouillon enregistré" : story ? "Story programmée" : carousel ? "Carrousel programmé" : "Post programmé", {
           description: status === "draft" ? undefined : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${n} compte${n > 1 ? "s" : ""}.`,
         });
     } catch (e) {
@@ -165,30 +175,54 @@ function ComposerForm() {
         Object.values(p.results ?? {}).some((r) => r.externalId?.startsWith("inbox:") && Date.now() - new Date(r.at).getTime() < 24 * 3600_000),
     );
 
-  /** Cuts the middle of the photo so Instagram's feed accepts it, as a new photo in the library. */
+  /** Cuts the middle of a photo so Instagram's feed accepts it, as a new photo in the library that takes its place. */
+  const fixPhoto = async (x: Media) => {
+    if (!x.url) throw new Error("Fichier introuvable");
+    const cut = misfit(x);
+    // Only cut when the feed needs it. Otherwise the photo is just saved again as a JPEG.
+    const ratio = !cut ? ratioOf(x) : ratioOf(x) < IG_PHOTO_RATIO.min ? IG_PHOTO_RATIO.min : IG_PHOTO_RATIO.max;
+    const file = await cropImageToRatio(x.url, ratio, x.title);
+    const fixed = await uploadMedia(file, undefined, (cut ? `${x.title} (${ratio < 1 ? "4:5" : "1,91:1"})` : x.title).slice(0, 200));
+    // Same place in the order. Nothing happens if the person removed the photo meanwhile.
+    setMediaIds((ids) => ids.map((id) => (id === x.id ? fixed.id : id)));
+  };
+
   const cropForInstagram = async () => {
-    if (!m?.url) return;
-    const from = m.id;
+    const list = carousel ? toFix : m ? [m] : [];
+    if (!list.length) return;
+    const cut = list.some(misfit);
     setCropping(true);
     try {
-      // Only cut when the feed needs it. Otherwise the photo is just saved again as a JPEG.
-      const ratio = !photoMisfit ? ratioOf(m) : ratioOf(m) < IG_PHOTO_RATIO.min ? IG_PHOTO_RATIO.min : IG_PHOTO_RATIO.max;
-      const file = await cropImageToRatio(m.url, ratio, m.title);
-      const cropped = await uploadMedia(file, undefined, (photoMisfit ? `${m.title} (${ratio < 1 ? "4:5" : "1,91:1"})` : m.title).slice(0, 200));
-      // Only if the person hasn't picked something else meanwhile.
-      setMediaId((cur) => (cur === from ? cropped.id : cur));
-      toast.success(photoMisfit ? "Photo recadrée" : "Photo convertie en JPEG", { description: "L'originale reste dans la bibliothèque." });
+      for (const x of list) await fixPhoto(x);
+      const n = list.length;
+      toast.success(n > 1 ? `${n} photos ${cut ? "recadrées" : "converties en JPEG"}` : cut ? "Photo recadrée" : "Photo convertie en JPEG", {
+        description: n > 1 ? "Les originales restent dans la bibliothèque." : "L'originale reste dans la bibliothèque.",
+      });
     } catch (e) {
-      toast.error(photoMisfit ? "Recadrage impossible" : "Conversion impossible", { description: (e as Error).message });
+      toast.error(cut ? "Recadrage impossible" : "Conversion impossible", { description: (e as Error).message });
     } finally {
       setCropping(false);
     }
   };
 
+  const addMedia = (id: string) => {
+    if (mediaIds.includes(id)) return void toast("Ce média est déjà dans le post");
+    if (mediaIds.length >= CAROUSEL_MAX) return void toast.error(`Un carrousel prend ${CAROUSEL_MAX} photos ou vidéos au plus`);
+    setMediaIds((ids) => (ids.includes(id) || ids.length >= CAROUSEL_MAX ? ids : [...ids, id]));
+  };
+  const moveMedia = (i: number, by: -1 | 1) =>
+    setMediaIds((ids) => {
+      const j = i + by;
+      if (j < 0 || j >= ids.length) return ids;
+      const next = [...ids];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+
   const hermesOn = useStore((s) => s.integrations.hermes);
   const [thinking, setThinking] = useState<string | null>(null);
   // Claude listens to videos. For a photo, it writes from the draft text alone.
-  const videoId = m?.kind === "video" ? m.id : undefined;
+  const videoId = items.find((x) => x.kind === "video")?.id;
 
   const applySuggestion = (text: string, youtubeTitle?: string) => {
     setCaption(text);
@@ -255,7 +289,7 @@ function ComposerForm() {
   return (
     <>
       <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
-        <Dialog.Title className="text-[15px] font-semibold">{existing ? (story ? "Modifier la story" : "Modifier le post") : story ? "Nouvelle story" : "Nouveau post"}</Dialog.Title>
+        <Dialog.Title className="text-[15px] font-semibold">{existing ? (story ? "Modifier la story" : carousel ? "Modifier le carrousel" : "Modifier le post") : story ? "Nouvelle story" : carousel ? "Nouveau carrousel" : "Nouveau post"}</Dialog.Title>
         {existing && <StatusPill status={existing.status} inbox={waitsInTikTok(existing)} />}
         <Dialog.Close className="press ml-auto flex size-8 items-center justify-center rounded-lg text-ink-3 hover:bg-ink/5 hover:text-ink" aria-label="Fermer">
           <X className="size-4" />
@@ -398,7 +432,9 @@ function ComposerForm() {
                   <p className="text-[12px] text-ink-3">
                     {story
                       ? "Visible 24 heures, en plein écran. Photo ou vidéo de 60 secondes au plus."
-                      : m?.kind === "image"
+                      : carousel
+                        ? "Carrousel : les photos et vidéos défilent dans un même post, avec le texte en légende."
+                        : m?.kind === "image"
                         ? "Photo dans le fil, avec le texte en légende."
                         : "Reel sur Instagram, vidéo ou texte sur Facebook. Une photo donne un post photo."}
                   </p>
@@ -407,8 +443,15 @@ function ComposerForm() {
             )}
 
             <section>
-              <Label>{story ? "Photo ou vidéo" : "Média"}</Label>
-              {m ? (
+              <div className="mb-2 flex items-center gap-2">
+                <Label className="mb-0">{story ? "Photo ou vidéo" : carousel ? "Carrousel" : "Média"}</Label>
+                {carousel && (
+                  <span className="tabular font-mono text-[11px] text-ink-3">
+                    {items.length}/{CAROUSEL_MAX}
+                  </span>
+                )}
+              </div>
+              {m && !carousel ? (
                 <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-2.5">
                   <MediaThumb media={m} showMeta={false} playable className="h-16 w-12 rounded-md" />
                   <div className="min-w-0 flex-1">
@@ -425,6 +468,12 @@ function ComposerForm() {
                       )}
                     </div>
                   </div>
+                  {hasSocial && !story && (
+                    <MediaPicker onPick={addMedia} title="Ajouter une photo ou une vidéo pour faire un carrousel">
+                      <Plus className="mr-1 size-3.5" />
+                      <span className="text-[12.5px]">Ajouter</span>
+                    </MediaPicker>
+                  )}
                   <MediaPicker onPick={setMediaId}>
                     <span className="text-[12.5px]">Changer</span>
                   </MediaPicker>
@@ -433,7 +482,69 @@ function ComposerForm() {
                   </Button>
                 </div>
               ) : null}
-              {m && m.kind === "video" && !story && networks.includes("instagram") && (
+              {carousel && (
+                <div className="rounded-xl border border-line bg-surface-2/60 p-2.5">
+                  <ul className="scroll-thin flex gap-2 overflow-x-auto pb-1">
+                    {items.map((x, i) => {
+                      const bad = toFix.includes(x) || (networks.includes("facebook") && x.kind === "video" && !story);
+                      return (
+                        <li key={x.id} className="group/item relative w-[72px] shrink-0">
+                          <MediaThumb media={x} showMeta={false} playable className={cn("aspect-[4/5] w-full rounded-md", bad && "ring-2 ring-warn")} />
+                          <span className="tabular pointer-events-none absolute top-1 left-1 flex size-[18px] items-center justify-center rounded-full bg-black/65 font-mono text-[10px] font-semibold text-white">
+                            {i + 1}
+                          </span>
+                          {!locked && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setMediaIds((ids) => ids.filter((id) => id !== x.id))}
+                                aria-label={`Retirer le média ${i + 1}`}
+                                className="press absolute top-1 right-1 flex size-[18px] items-center justify-center rounded-full bg-black/65 text-white hover:bg-black/85"
+                              >
+                                <X className="size-3" />
+                              </button>
+                              <div className="mt-1 flex items-center justify-between">
+                                <button
+                                  type="button"
+                                  disabled={i === 0}
+                                  onClick={() => moveMedia(i, -1)}
+                                  aria-label={`Avancer le média ${i + 1}`}
+                                  className="press flex size-6 items-center justify-center rounded-md text-ink-3 hover:bg-ink/5 hover:text-ink disabled:opacity-30"
+                                >
+                                  <ChevronLeft className="size-3.5" />
+                                </button>
+                                <span className="text-[10.5px] text-ink-3">{x.kind === "image" ? "Photo" : duration(x.duration)}</span>
+                                <button
+                                  type="button"
+                                  disabled={i === items.length - 1}
+                                  onClick={() => moveMedia(i, 1)}
+                                  aria-label={`Reculer le média ${i + 1}`}
+                                  className="press flex size-6 items-center justify-center rounded-md text-ink-3 hover:bg-ink/5 hover:text-ink disabled:opacity-30"
+                                >
+                                  <ChevronRight className="size-3.5" />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </li>
+                      );
+                    })}
+                    {items.length < CAROUSEL_MAX && !locked && (
+                      <li className="w-[72px] shrink-0">
+                        <MediaPicker onPick={addMedia} tile title="Ajouter une photo ou une vidéo">
+                          <Plus className="size-4 text-ink-3" />
+                        </MediaPicker>
+                      </li>
+                    )}
+                  </ul>
+                  <p className="mt-1.5 text-[12px] text-ink-3">
+                    {networks.includes("instagram")
+                      ? "Instagram affiche tout le carrousel au format du premier média."
+                      : "Les photos s'affichent ensemble dans un même post, dans cet ordre."}
+                  </p>
+                </div>
+              )}
+              {m && !carousel && m.kind === "video" && !story && networks.includes("instagram") && (
                 <div className="mt-2 rounded-xl border border-line bg-surface-2/60 p-2.5">
                   <CoverControl media={m} accountIds={selected} />
                 </div>
@@ -448,6 +559,19 @@ function ComposerForm() {
                   <Button size="sm" type="button" disabled={cropping} onClick={cropForInstagram}>
                     <Crop className="size-3.5" />
                     {photoMisfit ? (cropping ? "Recadrage…" : `Recadrer en ${ratioOf(m!) < IG_PHOTO_RATIO.min ? "4:5" : "1,91:1"}`) : cropping ? "Conversion…" : "Convertir en JPEG"}
+                  </Button>
+                </div>
+              )}
+              {toFix.length > 0 && !locked && (
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warn/30 bg-warn/10 px-3.5 py-2.5 text-[12.5px]">
+                  <p className="min-w-[200px] flex-1">
+                    {toFix.some(misfit)
+                      ? `${toFix.length > 1 ? `${toFix.length} photos sont` : "Une photo est"} hors format pour Instagram (entre 4:5 et 1,91:1, en JPEG).`
+                      : `Instagram n'accepte que les photos JPEG (${toFix.length} à convertir).`}
+                  </p>
+                  <Button size="sm" type="button" disabled={cropping} onClick={cropForInstagram}>
+                    <Crop className="size-3.5" />
+                    {toFix.some(misfit) ? (cropping ? "Recadrage…" : toFix.length > 1 ? "Recadrer ces photos" : "Recadrer la photo") : cropping ? "Conversion…" : "Convertir en JPEG"}
                   </Button>
                 </div>
               )}
@@ -622,7 +746,7 @@ function ComposerForm() {
           <div className="p-5">
             {previewAccount ? (
               <div key={previewAccount.id} className="rise mx-auto max-w-[360px]">
-                <PostPreview account={previewAccount} caption={caption} media={m} date={isNaN(when.getTime()) ? new Date() : when} youtube={yt} format={story ? "story" : "feed"} />
+                <PostPreview account={previewAccount} caption={caption} media={m} items={carousel ? items : undefined} date={isNaN(when.getTime()) ? new Date() : when} youtube={yt} format={story ? "story" : "feed"} />
                 <p className="mt-3 text-center text-[11.5px] text-ink-3">
                   Aperçu {story && STORY_NETWORKS.includes(previewAccount.network) ? "story " : ""}
                   {NETWORKS[previewAccount.network].label} · @{previewAccount.handle}
@@ -690,7 +814,7 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
 type PickerKind = "all" | Media["kind"];
 
 /** The library in a popover: pick a photo or a video, or import one without leaving the editor. */
-function MediaPicker({ children, onPick, block }: { children: React.ReactNode; onPick: (id: string) => void; block?: boolean }) {
+function MediaPicker({ children, onPick, block, tile, title }: { children: React.ReactNode; onPick: (id: string) => void; block?: boolean; /** A square "+" at the end of a carousel. */ tile?: boolean; title?: string }) {
   const media = useStore((s) => s.media);
   const uploadMedia = useStore((s) => s.uploadMedia);
   const [open, setOpen] = useState(false);
@@ -716,11 +840,15 @@ function MediaPicker({ children, onPick, block }: { children: React.ReactNode; o
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
+        title={title}
+        aria-label={tile ? title : undefined}
         className={cn(
           "press",
           block
             ? "flex w-full flex-col items-center gap-1 rounded-xl border border-dashed border-line-strong bg-surface-2/40 px-4 py-6 hover:border-accent/50 hover:bg-accent-soft/40"
-            : "inline-flex h-7 items-center rounded-lg border border-line-strong bg-surface px-2.5 hover:bg-surface-2",
+            : tile
+              ? "flex aspect-[4/5] w-full items-center justify-center rounded-md border border-dashed border-line-strong bg-surface-2/40 hover:border-accent/50 hover:bg-accent-soft/40"
+              : "inline-flex h-7 items-center rounded-lg border border-line-strong bg-surface px-2.5 hover:bg-surface-2",
         )}
       >
         {children}

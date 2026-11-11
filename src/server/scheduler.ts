@@ -36,22 +36,31 @@ export async function tick() {
 async function publishOne(post: Post) {
   const publisher = getPublisher();
   const accounts = listAccounts().filter((a) => post.accountIds.includes(a.id));
-  const row = post.mediaId ? getMediaRow(post.mediaId) : undefined;
-  const media: MediaFile | undefined = row
-    ? {
-        id: row.id,
-        title: row.file ?? row.title,
-        kind: row.kind === "image" ? "image" : "video",
-        duration: row.duration,
-        path: row.file ? path.join(DATA_DIR, "media", row.file) : undefined,
-        mime: mimeOfFile(row.file) ?? "video/mp4",
-        cover: row.cover ? path.join(DATA_DIR, "media", row.cover) : undefined,
-      }
-    : undefined;
+  const fileOf = (id: string): MediaFile | undefined => {
+    const row = getMediaRow(id);
+    return row
+      ? {
+          id: row.id,
+          title: row.file ?? row.title,
+          kind: row.kind === "image" ? "image" : "video",
+          duration: row.duration,
+          path: row.file ? path.join(DATA_DIR, "media", row.file) : undefined,
+          mime: mimeOfFile(row.file) ?? "video/mp4",
+          cover: row.cover ? path.join(DATA_DIR, "media", row.cover) : undefined,
+        }
+      : undefined;
+  };
+  const media = post.mediaId ? fileOf(post.mediaId) : undefined;
+  // A carousel: every media in order. A missing one stops the publication rather than posting fewer.
+  const items = post.mediaIds && post.mediaIds.length > 1 ? post.mediaIds.map(fileOf) : undefined;
+  if (items?.some((f) => !f?.path)) {
+    savePost({ ...post, status: "failed", error: "Une photo ou une vidéo du carrousel a été supprimée de la bibliothèque." });
+    return;
+  }
 
   // Only accounts not already published, so a retry never posts twice.
   const pending = accounts.filter((a) => post.results?.[a.id]?.status !== "published");
-  const results = { ...post.results, ...(await publisher.publish(post, pending, media)) };
+  const results = { ...post.results, ...(await publisher.publish(post, pending, media, items as MediaFile[] | undefined)) };
   const failed = Object.entries(results).filter(([, r]) => r.status === "failed");
 
   savePost({

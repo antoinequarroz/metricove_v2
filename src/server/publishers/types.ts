@@ -13,6 +13,9 @@ export interface Publisher {
    * a failure goes in that account's `error`. `paid` allows networks that charge per call (X).
    */
   fetchStats?(accounts: Account[], opts: { paid: boolean }): Promise<{ stats: AccountStats[]; posts: PostStat[]; warnings: string[] }>;
-  /** Publishes one post on each of its accounts. Never throws: errors go in the results. */
-  publish(post: Post, accounts: Account[], media?: MediaFile): Promise<Record<string, TargetResult>>;
+  /**
+   * Publishes one post on each of its accounts. Never throws: errors go in the results.
+   * `items` holds every media of a carousel, in order (the first is also `media`).
+   */
+  publish(post: Post, accounts: Account[], media?: MediaFile, items?: MediaFile[]): Promise<Record<string, TargetResult>>;
 }

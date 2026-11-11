@@ -86,6 +86,8 @@ export function db() {
   if (!mediaCols.includes("width")) conn.exec("alter table media add column width integer");
   if (!mediaCols.includes("height")) conn.exec("alter table media add column height integer");
   if (!cols.includes("format")) conn.exec("alter table posts add column format text");
+  // Carousels: every media of the post, in order, as JSON.
+  if (!cols.includes("media_ids")) conn.exec("alter table posts add column media_ids text");
   globalForDb.__metricoveDb = conn;
   maybeSeed(conn);
   return conn;
@@ -259,6 +261,7 @@ type PostRow = {
   error: string | null;
   youtube: string | null;
   format?: string | null;
+  media_ids?: string | null;
 };
 
 const toPost = (r: PostRow): Post => ({
@@ -266,6 +269,7 @@ const toPost = (r: PostRow): Post => ({
   accountIds: JSON.parse(r.account_ids),
   caption: r.caption,
   mediaId: r.media_id ?? undefined,
+  mediaIds: r.media_ids ? JSON.parse(r.media_ids) : undefined,
   format: r.format === "story" ? "story" : undefined,
   scheduledAt: r.scheduled_at,
   status: r.status,
@@ -287,16 +291,18 @@ export function getPost(id: string): Post | undefined {
 export function savePost(p: Post) {
   db()
     .prepare(
-      `insert into posts (id, account_ids, caption, media_id, scheduled_at, status, origin, results, error, youtube, format, updated_at)
-       values (@id, @accountIds, @caption, @mediaId, @scheduledAt, @status, @origin, @results, @error, @youtube, @format, @now)
-       on conflict(id) do update set account_ids=excluded.account_ids, caption=excluded.caption, media_id=excluded.media_id,
+      `insert into posts (id, account_ids, caption, media_id, media_ids, scheduled_at, status, origin, results, error, youtube, format, updated_at)
+       values (@id, @accountIds, @caption, @mediaId, @mediaIds, @scheduledAt, @status, @origin, @results, @error, @youtube, @format, @now)
+       on conflict(id) do update set account_ids=excluded.account_ids, caption=excluded.caption, media_id=excluded.media_id, media_ids=excluded.media_ids,
          scheduled_at=excluded.scheduled_at, status=excluded.status, origin=excluded.origin, results=excluded.results,
          error=excluded.error, youtube=excluded.youtube, format=excluded.format, updated_at=excluded.updated_at`,
     )
     .run({
       ...p,
       accountIds: JSON.stringify(p.accountIds),
-      mediaId: p.mediaId ?? null,
+      // A carousel keeps its first media in media_id, so older code still finds a thumbnail.
+      mediaId: p.mediaIds?.[0] ?? p.mediaId ?? null,
+      mediaIds: p.mediaIds && p.mediaIds.length > 1 ? JSON.stringify(p.mediaIds) : null,
       results: p.results ? JSON.stringify(p.results) : null,
       error: p.error ?? null,
       youtube: p.youtube ? JSON.stringify(p.youtube) : null,

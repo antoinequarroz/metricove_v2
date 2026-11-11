@@ -46,6 +46,7 @@ Toutes les requêtes portent `Authorization: Bearer $METRICOVE_TOKEN`.
    - Pour modifier un post, ajoute son `id`.
    - `mediaId` attache une vidéo ou une photo de la bibliothèque (`media[].kind` vaut `video` ou `image`).
    - `"format":"story"` en fait une story Instagram ou Facebook (photo, ou vidéo de 60 secondes au plus). Sans ce champ, c'est une publication dans le fil.
+   - `"mediaIds":["id1","id2"]` en fait un carrousel Instagram ou Facebook (2 à 10 médias, dans l'ordre ; Facebook ne prend que des photos).
    - Pour YouTube, ajoute `"youtube":{"title":"…","format":"video|short","privacy":"public"}`.
 
 3. **Déplacer un post** : `PATCH $METRICOVE_URL/api/posts/<id>` avec `{"scheduledAt":"…"}`.

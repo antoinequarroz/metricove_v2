@@ -16,7 +16,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, Sparkles, Bot } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Sparkles, Bot, Images } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
@@ -309,6 +309,7 @@ function PostChip({ post }: { post: Post }) {
             ))}
           </span>
           {post.format === "story" && <span className="shrink-0 rounded-[4px] bg-accent-soft px-1 text-[9.5px] leading-[14px] font-semibold tracking-wide text-accent uppercase">Story</span>}
+{(post.mediaIds?.length ?? 0) > 1 && post.format !== "story" && <span className="tabular inline-flex shrink-0 items-center gap-0.5 rounded-[4px] bg-ink/[0.07] px-1 font-mono text-[9.5px] leading-[14px] font-semibold text-ink-2" title={`Carrousel de ${post.mediaIds!.length} médias`}><Images className="size-2.5" />{post.mediaIds!.length}</span>}
           {post.origin !== "manual" && (
             <span className="ml-auto text-ink-3" title={post.origin === "hermes" ? "Créé par Hermes" : "Vidéo Claude Code"}>
               {post.origin === "hermes" ? <Bot className="size-3" /> : <Sparkles className="size-3" />}
@@ -403,6 +404,7 @@ function WeekView() {
                           ))}
                         </span>
                         {p.format === "story" && <span className="shrink-0 rounded-[4px] bg-accent-soft px-1 text-[9.5px] leading-[14px] font-semibold tracking-wide text-accent uppercase">Story</span>}
+{(p.mediaIds?.length ?? 0) > 1 && p.format !== "story" && <span className="tabular inline-flex shrink-0 items-center gap-0.5 rounded-[4px] bg-ink/[0.07] px-1 font-mono text-[9.5px] leading-[14px] font-semibold text-ink-2" title={`Carrousel de ${p.mediaIds!.length} médias`}><Images className="size-2.5" />{p.mediaIds!.length}</span>}
                       </span>
                       <span className="line-clamp-2 text-[11.5px] leading-snug">{p.caption || (p.format === "story" ? "Story" : "")}</span>
                     </span>
@@ -458,6 +460,7 @@ function ListView() {
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2 text-[13.5px]">
                         {p.format === "story" && <span className="shrink-0 rounded-[4px] bg-accent-soft px-1 text-[9.5px] leading-[14px] font-semibold tracking-wide text-accent uppercase">Story</span>}
+{(p.mediaIds?.length ?? 0) > 1 && p.format !== "story" && <span className="tabular inline-flex shrink-0 items-center gap-0.5 rounded-[4px] bg-ink/[0.07] px-1 font-mono text-[9.5px] leading-[14px] font-semibold text-ink-2" title={`Carrousel de ${p.mediaIds!.length} médias`}><Images className="size-2.5" />{p.mediaIds!.length}</span>}
                         <span className="truncate">{p.caption || (p.format === "story" ? "Story" : "")}</span>
                       </span>
                       <span className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
