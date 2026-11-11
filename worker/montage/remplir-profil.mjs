@@ -2,11 +2,11 @@
 // Remplit le profil de style d'un projet dans Metricove (Réglages → Styles) à partir d'un fichier de profils/.
 //   node remplir-profil.mjs livrematch            remplit le profil
 //   node remplir-profil.mjs livrematch --dry-run  montre ce qui serait envoyé, sans rien changer
-// Ce qui existe déjà est gardé : la couleur, la signature, le logo, les images, les posts modèles et les idées
-// déjà saisis. Le ton est remplacé. Les posts modèles viennent du fichier, puis des posts déjà publiés du projet.
+// L'apparence et le ton du fichier remplacent ceux du profil. Ce qui est gardé : la signature, le logo déjà
+// déposé, les images, les posts modèles et les idées déjà saisis. Les posts modèles viennent du fichier, puis des posts déjà publiés du projet.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { HERE, loadConfig } from "./lib/util.mjs";
+import { HERE, home, loadConfig } from "./lib/util.mjs";
 import { Api } from "./lib/api.mjs";
 
 const args = process.argv.slice(2);
@@ -48,15 +48,25 @@ const kept = unique(texts([...(spec.examples || []), ...fromFile, ...current.ref
 const examples = unique([...kept, ...unique(published).slice(0, spec.publishedExamples ?? 0)]).slice(0, 8);
 const ideas = unique(texts([...current.refs.ideas.map((e) => e.text), ...(spec.ideas || [])])).slice(0, 50);
 
+// Logo : celui du fichier, seulement si le profil n'en a pas encore.
+let logo;
+const logoFile = spec.logoFile ? home(spec.logoFile) : "";
+if (logoFile && !current.look.logo && existsSync(logoFile)) {
+  const type = { svg: "image/svg+xml", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" }[logoFile.split(".").pop().toLowerCase()];
+  const data = readFileSync(logoFile).toString("base64");
+  if (type && data.length < 390_000) logo = `data:${type};base64,${data}`;
+}
+
 const body = {
-  ...(spec.look ? { look: spec.look } : {}),
+  ...(spec.look ? { look: { ...spec.look, ...(logo ? { logo } : {}) } } : {}),
   ...(spec.tone ? { tone: spec.tone } : {}),
   ...(spec.skill ? { skill: spec.skill } : {}),
   refs: { examples: examples.map((text) => ({ text })), ideas: ideas.map((text) => ({ text })) },
 };
 
 console.log(`Projet : ${project.name}`);
-console.log(`Apparence : ${spec.look ? Object.entries(spec.look).map(([k, v]) => `${k}=${v}`).join(", ") : "inchangée"} (couleur, signature et logo gardés)`);
+console.log(`Apparence : ${spec.look ? `fond ${spec.look.theme}${spec.look.fields ? ` (${spec.look.fields.map((f) => f.bg).join(", ")})` : ""}, accent ${spec.look.accent || "inchangé"}, police ${spec.look.font}` : "inchangée"} (signature gardée)`);
+console.log(`Logo : ${current.look.logo ? "celui du profil est gardé" : logo ? `repris de ${logoFile}` : "aucun"}`);
 console.log(`Ton : ${spec.tone ? `${spec.tone.length} caractères` : "inchangé"}`);
 console.log(`Posts modèles : ${examples.length} (dont ${examples.filter((e) => published.includes(e) && !kept.includes(e)).length} pris dans tes posts publiés)`);
 for (const e of examples) console.log(`  · ${e.split("\n")[0].slice(0, 90)}`);

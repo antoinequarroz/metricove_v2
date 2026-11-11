@@ -3,7 +3,7 @@
 // Visuals made in the Studio: a carousel (2 to 10 slides) or a single image, drawn on a canvas.
 // The same drawing code makes the preview on screen and the 1080-pixel JPEG that is published.
 
-import type { Look, LookTheme } from "./profiles";
+import type { Look, LookField, LookTheme } from "./profiles";
 
 export type VisualFormat = "4:5" | "1:1" | "9:16";
 export type ThemeId = LookTheme;
@@ -48,6 +48,7 @@ export const THEMES: { value: ThemeId; label: string }[] = [
   { value: "night", label: "Nuit" },
   { value: "accent", label: "Couleur" },
   { value: "gradient", label: "Dégradé" },
+  { value: "custom", label: "Perso" },
 ];
 
 export const ACCENTS = ["#ff5a1f", "#e11d48", "#7c3aed", "#2563eb", "#0d9488", "#16a34a", "#ca8a04", "#171716"];
@@ -59,6 +60,9 @@ export const emptyDeck = (): Deck => ({
   theme: "paper",
   accent: ACCENTS[0],
   font: "serif",
+  fields: [],
+  grid: false,
+  pill: false,
   align: "left",
   valign: "middle",
   grain: true,
@@ -89,8 +93,20 @@ const isDark = (hex: string) => {
 
 type Palette = { ink: string; sub: string; mark: string };
 
-function palette(deck: Deck, onPhoto: boolean): Palette {
+/** The field of a slide in the "custom" theme: the fields of the brand, taken in turn. */
+function fieldOf(deck: Deck, index: number): LookField | undefined {
+  if (deck.theme !== "custom") return undefined;
+  const fields = deck.fields?.length ? deck.fields : [{ bg: "#15161f", ink: "#f7f5ed" }];
+  return fields[index % fields.length];
+}
+
+function palette(deck: Deck, onPhoto: boolean, field?: LookField): Palette {
   if (onPhoto) return { ink: "#ffffff", sub: "rgba(255,255,255,0.86)", mark: deck.accent };
+  if (field) {
+    // A mark the same color as the field would vanish: it takes the color of the text instead.
+    const mark = deck.accent.toLowerCase() === field.bg.toLowerCase() ? field.ink : deck.accent;
+    return { ink: field.ink, sub: mix(field.ink, rgb(field.bg), 0.3), mark };
+  }
   switch (deck.theme) {
     case "night":
       return { ink: "#f6f3ec", sub: "#aaa69c", mark: deck.accent };
@@ -105,20 +121,29 @@ function palette(deck: Deck, onPhoto: boolean): Palette {
 
 /* ---------- Fonts ---------- */
 
-export type Fonts = { serif: string; sans: string };
+export type Fonts = { serif: string; sans: string; grotesque: string; manrope: string };
 
 /** The app's own fonts, as the canvas must name them. */
 export function appFonts(): Fonts {
   const css = getComputedStyle(document.body);
   const serif = css.getPropertyValue("--font-display-serif").trim();
   const sans = css.getPropertyValue("--font-geist-sans").trim();
-  return { serif: `${serif ? `${serif}, ` : ""}Georgia, serif`, sans: `${sans ? `${sans}, ` : ""}system-ui, sans-serif` };
+  const grotesque = css.getPropertyValue("--font-grotesque").trim();
+  const manrope = css.getPropertyValue("--font-manrope").trim();
+  const withFallback = (name: string, rest: string) => `${name ? `${name}, ` : ""}${rest}`;
+  return {
+    serif: withFallback(serif, "Georgia, serif"),
+    sans: withFallback(sans, "system-ui, sans-serif"),
+    grotesque: withFallback(grotesque, withFallback(sans, "system-ui, sans-serif")),
+    manrope: withFallback(manrope, withFallback(sans, "system-ui, sans-serif")),
+  };
 }
 
 /** Waits until the fonts are ready, so the first drawing does not use a fallback. */
 export async function loadFonts(f: Fonts) {
   if (!document.fonts?.load) return;
-  await Promise.all([document.fonts.load(`400 80px ${f.serif}`), document.fonts.load(`400 40px ${f.sans}`), document.fonts.load(`600 40px ${f.sans}`), document.fonts.load(`700 80px ${f.sans}`)]).catch(() => {});
+  const wanted = [`400 80px ${f.serif}`, `400 40px ${f.sans}`, `600 40px ${f.sans}`, `700 80px ${f.sans}`, `700 80px ${f.grotesque}`, `500 40px ${f.manrope}`, `700 40px ${f.manrope}`];
+  await Promise.all(wanted.map((font) => document.fonts.load(font))).catch(() => {});
 }
 
 /* ---------- Photos ---------- */
@@ -226,35 +251,53 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, max: number): string[
 
 const widest = (ctx: CanvasRenderingContext2D, lines: string[]) => Math.max(0, ...lines.map((l) => ctx.measureText(l).width));
 
-type Block = { lines: string[]; size: number; lineHeight: number; font: string };
+/** Sets the context up to write at a size: the font, and for some fonts the spacing of the letters. */
+type Style = (size: number) => void;
+type Block = { lines: string[]; size: number; lineHeight: number };
 
 /** The biggest size, from `from` down to `to`, at which the text fits in the box. */
-function fit(ctx: CanvasRenderingContext2D, text: string, font: (size: number) => string, box: { width: number; height: number }, from: number, to: number, leading: number): Block {
+function fit(ctx: CanvasRenderingContext2D, text: string, style: Style, box: { width: number; height: number }, from: number, to: number, leading: number): Block {
   let size = from;
   // A word cut in two is the last resort: the text shrinks first. A word too wide even at the smallest size
   // (a link) is cut anyway, so it must not drag the whole text down.
-  ctx.font = font(to);
+  style(to);
   const words = text.split(/\s+/).filter((w) => w && ctx.measureText(w).width <= box.width);
   for (;;) {
-    ctx.font = font(size);
+    style(size);
     const lines = wrap(ctx, text, box.width);
     const lineHeight = Math.round(size * leading);
     const cut = words.some((w) => ctx.measureText(w).width > box.width);
-    if (size <= to || (!cut && lines.length * lineHeight <= box.height && widest(ctx, lines) <= box.width)) return { lines, size, lineHeight, font: font(size) };
+    if (size <= to || (!cut && lines.length * lineHeight <= box.height && widest(ctx, lines) <= box.width)) return { lines, size, lineHeight };
     size -= 4;
   }
 }
 
 /** Keeps only the lines that fit in `height`, and ends the last one with "…" when some were dropped. */
-function clamp(ctx: CanvasRenderingContext2D, block: Block, height: number, width: number): Block {
+function clamp(ctx: CanvasRenderingContext2D, block: Block, style: Style, height: number, width: number): Block {
   const n = Math.max(1, Math.floor(height / block.lineHeight));
   if (block.lines.length <= n) return block;
-  ctx.font = block.font;
+  style(block.size);
   const lines = block.lines.slice(0, n);
   let last = lines[n - 1].replace(/[\s.,;:!?]+$/, "");
   while (last && ctx.measureText(`${last}…`).width > width) last = last.slice(0, -1);
   lines[n - 1] = `${last}…`;
   return { ...block, lines };
+}
+
+/** Letter spacing and width of the letters, where the browser's canvas knows them (else the plain font). */
+function spacing(ctx: CanvasRenderingContext2D, letter: number, stretch: CanvasFontStretch = "normal") {
+  if ("letterSpacing" in ctx) ctx.letterSpacing = `${letter.toFixed(2)}px`;
+  if ("fontStretch" in ctx) ctx.fontStretch = stretch;
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 /* ---------- Drawing ---------- */
@@ -268,7 +311,9 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
   const H = HEIGHTS[deck.format];
   const total = deck.slides.length;
   const photo = slide?.photo ? photoOf(slide.photo, onPhotoReady) : undefined;
-  const pal = palette(deck, !!photo);
+  const field = fieldOf(deck, index);
+  const pal = palette(deck, !!photo, field);
+  const brand = deck.font === "grotesque";
   ctx.save();
   ctx.textBaseline = "alphabetic";
 
@@ -298,9 +343,9 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
   } else {
-    ctx.fillStyle = deck.theme === "night" ? "#151514" : deck.theme === "accent" ? deck.accent : "#f4f1ea";
+    ctx.fillStyle = field ? field.bg : deck.theme === "night" ? "#151514" : deck.theme === "accent" ? deck.accent : "#f4f1ea";
     ctx.fillRect(0, 0, W, H);
-    if (deck.theme !== "accent") {
+    if (deck.theme !== "accent" && !field) {
       // A soft tint of the accent in a corner, so a plain background is not flat.
       const glow = ctx.createRadialGradient(W * 0.9, 0, 0, W * 0.9, 0, W * 0.95);
       const [r, g, b] = rgb(deck.accent);
@@ -309,6 +354,16 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H);
     }
+  }
+  if (deck.grid && !photo) {
+    // Fine squared lines in the color of the text, eight squares across.
+    const step = W / 8;
+    ctx.save();
+    ctx.globalAlpha = 0.09;
+    ctx.fillStyle = pal.ink;
+    for (let x = step; x < W; x += step) ctx.fillRect(Math.round(x) - 1, 0, 2, H);
+    for (let y = step; y < H; y += step) ctx.fillRect(0, Math.round(y) - 1, W, 2);
+    ctx.restore();
   }
   if (deck.grain) {
     ctx.save();
@@ -325,15 +380,28 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
   const safe = deck.format === "9:16" ? 150 : 0;
   const top = pad + safe;
   const bottom = H - pad - safe;
-  const small = `600 30px ${fonts.sans}`;
+  const small = brand ? `700 30px ${fonts.manrope}` : `600 30px ${fonts.sans}`;
+  spacing(ctx, 0);
   let headRoom = 0;
   let footRoom = 0;
   if (deck.numbers && total > 1) {
+    const label = `${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`;
     ctx.font = small;
-    ctx.fillStyle = pal.sub;
     ctx.textAlign = "left";
-    ctx.fillText(`${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}`, pad, top + 24);
-    headRoom = 80;
+    if (deck.pill) {
+      // A small label in the accent color, like a tag on a card.
+      const w = ctx.measureText(label).width + 44;
+      ctx.fillStyle = deck.accent;
+      roundRect(ctx, pad, top - 10, w, 54, 27);
+      ctx.fill();
+      ctx.fillStyle = isDark(deck.accent) ? "#ffffff" : "#15161f";
+      ctx.fillText(label, pad + 22, top + 27);
+      headRoom = 96;
+    } else {
+      ctx.fillStyle = pal.sub;
+      ctx.fillText(label, pad, top + 24);
+      headRoom = 80;
+    }
   }
   const handle = deck.handle.trim();
   const logo = deck.logo ? photoOf(deck.logo, onPhotoReady) : undefined;
@@ -380,20 +448,26 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
     const box = { x: pad, y: top + headRoom, width: W - pad * 2, height: bottom - footRoom - (top + headRoom) };
     const mark = title ? 46 : 0;
     const gap = title && body ? 44 : 0;
-    const titleFont = (size: number) => (deck.font === "serif" ? `400 ${size}px ${fonts.serif}` : `700 ${size}px ${fonts.sans}`);
-    const bodyFont = (size: number) => `400 ${size}px ${fonts.sans}`;
+    // Brand font: tight, slightly narrow titles (as on the site), and Manrope for the texts.
+    const titleStyle: Style = (size) => {
+      ctx.font = brand ? `700 ${size}px ${fonts.grotesque}` : deck.font === "serif" ? `400 ${size}px ${fonts.serif}` : `700 ${size}px ${fonts.sans}`;
+      spacing(ctx, brand ? -0.035 * size : 0, brand ? "semi-condensed" : "normal");
+    };
+    const bodyStyle: Style = (size) => {
+      ctx.font = brand ? `500 ${size}px ${fonts.manrope}` : `400 ${size}px ${fonts.sans}`;
+      spacing(ctx, 0);
+    };
+    const titleFrom = brand ? (title.length > 60 ? 100 : 136) : deck.font === "serif" ? (title.length > 60 ? 112 : 148) : title.length > 60 ? 92 : 124;
+    const titleLeading = brand ? 1 : deck.font === "serif" ? 1.04 : 1.1;
     // The text keeps at least a third of the height when there is a title, and the title takes the rest.
-    let b0 = body ? fit(ctx, body, bodyFont, { width: box.width, height: title ? box.height * 0.42 : box.height }, title ? 44 : 64, 30, 1.42) : undefined;
+    let b0 = body ? fit(ctx, body, bodyStyle, { width: box.width, height: title ? box.height * 0.42 : box.height }, title ? 44 : 64, 30, 1.42) : undefined;
     let bodyH = b0 ? b0.lines.length * b0.lineHeight : 0;
-    const longTitle = title.length > 60;
-    let t0 = title
-      ? fit(ctx, title, titleFont, { width: box.width, height: box.height - bodyH - gap - mark }, deck.font === "serif" ? (longTitle ? 112 : 148) : longTitle ? 92 : 124, 48, deck.font === "serif" ? 1.04 : 1.1)
-      : undefined;
+    let t0 = title ? fit(ctx, title, titleStyle, { width: box.width, height: box.height - bodyH - gap - mark }, titleFrom, 48, titleLeading) : undefined;
     // Texts too long even at the smallest size are cut with "…" instead of running over the edge.
-    if (t0) t0 = clamp(ctx, t0, body ? box.height * 0.5 - mark : box.height - mark, box.width);
+    if (t0) t0 = clamp(ctx, t0, titleStyle, body ? box.height * 0.5 - mark : box.height - mark, box.width);
     const titleH = t0 ? t0.lines.length * t0.lineHeight : 0;
     if (b0) {
-      b0 = clamp(ctx, b0, box.height - mark - titleH - gap, box.width);
+      b0 = clamp(ctx, b0, bodyStyle, box.height - mark - titleH - gap, box.width);
       bodyH = b0.lines.length * b0.lineHeight;
     }
     const blockH = mark + titleH + gap + bodyH;
@@ -406,7 +480,7 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
       ctx.fillStyle = pal.mark;
       ctx.fillRect(center ? W / 2 - 44 : box.x, y, 88, 10);
       y += mark;
-      ctx.font = t0.font;
+      titleStyle(t0.size);
       ctx.fillStyle = pal.ink;
       for (const line of t0.lines) {
         ctx.fillText(line, x, y + t0.size * 0.86);
@@ -415,7 +489,7 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
       y += gap;
     }
     if (b0) {
-      ctx.font = b0.font;
+      bodyStyle(b0.size);
       ctx.fillStyle = title ? pal.sub : pal.ink;
       for (const line of b0.lines) {
         ctx.fillText(line, x, y + b0.size * 0.9);

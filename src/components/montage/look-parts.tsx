@@ -3,7 +3,7 @@
 import { AlignCenter, AlignLeft, ImagePlus, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { Look } from "@/lib/profiles";
+import { DEFAULT_FIELD, type Look, MAX_FIELDS } from "@/lib/profiles";
 import { shrinkLogo } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import { ACCENTS, type Deck, drawSlide, type Fonts, HEIGHTS, THEMES, W } from "@/lib/visuals";
@@ -62,6 +62,8 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
 /** The controls of a look: background, color, text, signature, logo. Used by the Studio and by the style profiles. */
 export function LookControls({ look, onChange, suggestedHandle }: { look: Look; onChange: (p: Partial<Look>) => void; suggestedHandle?: string }) {
   const logoInput = useRef<HTMLInputElement>(null);
+  const fields = look.fields ?? [];
+  const setField = (i: number, p: Partial<Look["fields"][number]>) => onChange({ fields: fields.map((f, j) => (j === i ? { ...f, ...p } : f)) });
   const importLogo = async (file: File | undefined) => {
     if (!file) return;
     try {
@@ -73,7 +75,36 @@ export function LookControls({ look, onChange, suggestedHandle }: { look: Look; 
   return (
     <>
       <Field label="Fond">
-        <Segmented value={look.theme} onChange={(theme) => onChange({ theme })} options={THEMES} />
+        <Segmented value={look.theme} onChange={(theme) => onChange(theme === "custom" && !fields.length ? { theme, fields: [DEFAULT_FIELD] } : { theme })} options={THEMES} />
+        {look.theme === "custom" && (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2/40 p-2">
+            {fields.map((f, i) => (
+              <div key={i} className="flex items-center gap-2 text-[12px] text-ink-2">
+                <span className="w-14 shrink-0 text-ink-3">Fond {i + 1}</span>
+                <Swatch label={`Couleur du fond ${i + 1}`} value={f.bg} onChange={(bg) => setField(i, { bg })} />
+                <span className="text-ink-3">Texte</span>
+                <Swatch label={`Couleur du texte sur le fond ${i + 1}`} value={f.ink} onChange={(ink) => setField(i, { ink })} />
+                <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ background: f.bg, color: f.ink }}>
+                  Aa
+                </span>
+                {fields.length > 1 && (
+                  <button type="button" onClick={() => onChange({ fields: fields.filter((_, j) => j !== i) })} aria-label={`Retirer le fond ${i + 1}`} title="Retirer" className="press ml-auto grid size-6 place-items-center rounded-md text-ink-3 hover:text-danger">
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center gap-2">
+              {fields.length < MAX_FIELDS && (
+                <Button size="sm" type="button" onClick={() => onChange({ fields: [...fields, { bg: fields.at(-1)?.ink ?? "#f7f5ed", ink: fields.at(-1)?.bg ?? "#15161f" }] })}>
+                  <Plus className="size-3.5" />
+                  Autre fond
+                </Button>
+              )}
+              {fields.length > 1 && <span className="text-[11.5px] text-ink-3">Les visuels prennent ces fonds à tour de rôle.</span>}
+            </div>
+          </div>
+        )}
       </Field>
       <Field label="Couleur">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -106,6 +137,7 @@ export function LookControls({ look, onChange, suggestedHandle }: { look: Look; 
             options={[
               { value: "serif", label: "Élégant" },
               { value: "sans", label: "Net" },
+              { value: "grotesque", label: "Grotesque" },
             ]}
           />
           <div className="flex rounded-lg border border-line bg-bg-2/70 p-0.5">
@@ -165,8 +197,18 @@ export function LookControls({ look, onChange, suggestedHandle }: { look: Look; 
       </Field>
       <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
         <Toggle label="Grain" checked={look.grain} onChange={(grain) => onChange({ grain })} />
+        <Toggle label="Quadrillage" checked={!!look.grid} onChange={(grid) => onChange({ grid })} />
         <Toggle label="Numéros de page" checked={look.numbers} onChange={(numbers) => onChange({ numbers })} />
+        {look.numbers && <Toggle label="En étiquette" checked={!!look.pill} onChange={(pill) => onChange({ pill })} />}
       </div>
     </>
+  );
+}
+
+function Swatch({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="press relative size-7 shrink-0 cursor-pointer rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.15)]" style={{ background: value }} title={`${label} : ${value}`}>
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" aria-label={label} />
+    </label>
   );
 }
