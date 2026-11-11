@@ -99,3 +99,44 @@ export type AppState = {
   publisher: { name: string; label: string; ready: boolean; detail?: string };
   integrations: { hermes: boolean; inbox: boolean };
 };
+
+/** Numbers read from a network for one account. Missing values mean the network does not give them. */
+export type AccountStats = {
+  accountId: string;
+  fetchedAt: string;
+  followers?: number;
+  /** Days covered by views, reach and interactions. */
+  period?: number;
+  views?: number;
+  reach?: number;
+  /** Likes, comments, shares and saves together. */
+  interactions?: number;
+  /** Why the last refresh failed. The numbers above are then the last ones that worked. */
+  error?: string;
+};
+
+/** One post as the network reports it. */
+export type PostStat = {
+  accountId: string;
+  network: Network;
+  externalId: string;
+  caption?: string;
+  url?: string;
+  thumb?: string;
+  publishedAt?: string;
+  views?: number;
+  reach?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  saves?: number;
+};
+
+export type StatsPayload = {
+  accounts: AccountStats[];
+  posts: PostStat[];
+  /** Follower count per day, for the small trend line. */
+  history: { accountId: string; day: string; followers: number }[];
+  /** Whether the current publisher can read statistics at all. */
+  available: boolean;
+};

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { seedAccounts, seedMedia, seedPosts } from "@/lib/seed";
 import { mimeOfFile } from "@/lib/formats";
-import type { Account, Media, Post, Project } from "@/lib/types";
+import type { Account, AccountStats, Media, Post, PostStat, Project } from "@/lib/types";
 
 export const DATA_DIR = path.resolve(process.env.DATA_DIR ?? "./data");
 
@@ -50,6 +50,22 @@ export function db() {
       error text,
       youtube text,
       updated_at text not null
+    );
+    create table if not exists account_stats (
+      account_id text primary key,
+      data text not null
+    );
+    create table if not exists post_stats (
+      account_id text not null,
+      external_id text not null,
+      data text not null,
+      primary key (account_id, external_id)
+    );
+    create table if not exists follower_history (
+      account_id text not null,
+      day text not null,
+      followers integer not null,
+      primary key (account_id, day)
     );
     create index if not exists posts_due on posts (status, scheduled_at);
     create table if not exists projects (
@@ -306,4 +322,46 @@ export function claimDuePosts(now = new Date()): Post[] {
 export function releaseStuckPosts(olderThanMinutes = 10) {
   const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString();
   db().prepare("update posts set status = 'scheduled' where status = 'publishing' and updated_at < ?").run(cutoff);
+}
+
+/* ---------- Statistics ---------- */
+
+export function listAccountStats(): AccountStats[] {
+  return (db().prepare("select data from account_stats").all() as { data: string }[]).map((r) => JSON.parse(r.data));
+}
+
+/** Keeps the last good numbers when a refresh only brings an error. */
+export function saveAccountStats(s: AccountStats) {
+  const old = db().prepare("select data from account_stats where account_id = ?").get(s.accountId) as { data: string } | undefined;
+  const merged: AccountStats = s.error && old ? { ...(JSON.parse(old.data) as AccountStats), error: s.error } : s;
+  db()
+    .prepare("insert into account_stats (account_id, data) values (?, ?) on conflict(account_id) do update set data = excluded.data")
+    .run(s.accountId, JSON.stringify(merged));
+  if (!s.error && s.followers !== undefined) {
+    db()
+      .prepare("insert into follower_history (account_id, day, followers) values (?, ?, ?) on conflict(account_id, day) do update set followers = excluded.followers")
+      .run(s.accountId, s.fetchedAt.slice(0, 10), s.followers);
+  }
+}
+
+export function listPostStats(): PostStat[] {
+  return (db().prepare("select data from post_stats").all() as { data: string }[]).map((r) => JSON.parse(r.data));
+}
+
+/** Adds or updates the posts just read for one account. Older posts keep their last numbers. */
+export function savePostStats(accountId: string, posts: PostStat[]) {
+  const conn = db();
+  const tx = conn.transaction(() => {
+    const put = conn.prepare("insert into post_stats (account_id, external_id, data) values (?, ?, ?) on conflict(account_id, external_id) do update set data = excluded.data");
+    for (const p of posts) put.run(accountId, p.externalId, JSON.stringify(p));
+  });
+  tx();
+}
+
+export function listFollowerHistory(): { accountId: string; day: string; followers: number }[] {
+  return db().prepare("select account_id as accountId, day, followers from follower_history where day >= date('now', '-90 days') order by day").all() as {
+    accountId: string;
+    day: string;
+    followers: number;
+  }[];
 }

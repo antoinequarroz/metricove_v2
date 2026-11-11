@@ -74,3 +74,16 @@ treg tool add facebook-rupload --base-url https://rupload.facebook.com --injecto
 ```
 
 Sans cet outil, les stories photo marchent, et une story vidéo Facebook échoue avec un message qui renvoie ici. Si tu reconnectes Facebook dans treg, le numéro change : supprime l'outil (`treg tool rm`) et recrée-le.
+
+## Statistiques
+
+La page **Statistiques** lit, pour chaque compte, les abonnés et les derniers posts (vues, j'aime, commentaires, partages). Metricove actualise seul deux fois par jour, et tout de suite avec « Actualiser ».
+
+| Réseau | Ce qui est lu | Remarque |
+| --- | --- | --- |
+| Instagram | Abonnés, personnes touchées (28 jours), 12 derniers posts | Gratuit. |
+| Facebook | Abonnés de la Page, 12 derniers posts | Gratuit. Pas de vues par post. |
+| YouTube | Abonnés, 12 dernières vidéos | Gratuit, 3 unités du quota Google par lecture. |
+| TikTok | 12 dernières vidéos | Gratuit. La connexion treg doit autoriser la lecture des vidéos. |
+| X | Abonnés, 5 derniers posts | Payant : environ 0,035 $ par lecture. Lu seulement avec « Actualiser », au plus une fois toutes les 6 heures. |
+| LinkedIn | Rien | treg ne donne pas les chiffres d'un profil personnel. |
