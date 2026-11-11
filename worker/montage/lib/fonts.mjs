@@ -14,8 +14,10 @@ const SUBSETS = ["latin", "latin-ext"];
  */
 export async function withFont(cfg, theme) {
   const spec = String(theme.googleFont || "");
-  if (!spec || (theme.fontFiles || []).length) return theme;
+  if (!spec) return theme;
   if (!SPEC.test(spec)) { log(`police du profil ignorée (${spec.slice(0, 60)})`); return theme; }
+  // Les fichiers de police de la config du Mac sont ceux d'une autre police : ils ne servent pas sous ce nom.
+  theme = { ...theme, fontFiles: [] };
   const dir = join(home(cfg.fontsDir || "~/Movies/Metricove/polices"), spec.replace(/[^A-Za-z0-9]+/g, "-"));
   const index = join(dir, "polices.json");
   try {
@@ -53,11 +55,11 @@ async function get(url) {
 
 /** Les règles @font-face du thème ; `src(file)` donne l'adresse de chaque fichier dans la page. */
 export function fontFaceCss(theme, src) {
-  if (theme.fontFaces?.length) return theme.fontFaces.map((f) => `@font-face{font-family:"${theme.font}";src:url("${src(f.file)}") format("woff2");${f.rules}}`).join("\n");
-  return (theme.fontFiles || []).map((p) => `@font-face{font-family:"${theme.font}";src:url("${src(p)}");}`).join("\n");
+  if (theme.fontFaces?.length) return theme.fontFaces.filter((f) => existsSync(f.file)).map((f) => `@font-face{font-family:"${theme.font}";src:url("${src(f.file)}") format("woff2");${f.rules}}`).join("\n");
+  return (theme.fontFiles || []).filter((p) => existsSync(p)).map((p) => `@font-face{font-family:"${theme.font}";src:url("${src(p)}");}`).join("\n");
 }
 
 /** Les fichiers de police du thème, à copier à côté de la page. */
-export const fontPaths = (theme) => (theme.fontFaces?.length ? theme.fontFaces.map((f) => f.file) : theme.fontFiles || []);
+export const fontPaths = (theme) => (theme.fontFaces?.length ? theme.fontFaces.map((f) => f.file) : theme.fontFiles || []).filter((p) => existsSync(p));
 
 export const fontDataUrl = (file) => `data:font/${file.endsWith(".woff2") ? "woff2" : "ttf"};base64,${readFileSync(file).toString("base64")}`;

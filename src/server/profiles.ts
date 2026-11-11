@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { cleanLook, cleanRefs, emptyRefs, MAX_REF_IMAGE_BYTES, MAX_REF_IMAGES, MAX_SKILL, MAX_TONE, PRESETS, presetFor, type ProfileRefs, starterProfile, type StyleProfile } from "@/lib/profiles";
+import { cleanLook, cleanRefs, emptyRefs, MAX_REF_IMAGE_BYTES, MAX_REF_IMAGES, MAX_SKILL, MAX_TONE, PRESETS, presetFor, type ProfileRefs, sameLook, starterProfile, type StyleProfile } from "@/lib/profiles";
 import type { Project } from "@/lib/types";
 import { DATA_DIR, getSetting, listAccounts, listProjects, setSetting } from "./db";
 
@@ -21,9 +21,12 @@ export function profileOf(project: Project): StyleProfile {
   if (!saved) return starter;
   // A look saved before fields, grid and pill existed must not pick them up from the starter style.
   const look = cleanLook(saved.look, { ...starter.look, fields: [], grid: false, pill: false });
+  const kept = typeof look === "string" ? starter.look : look;
   return {
     preset: PRESETS.some((p) => p.id === saved.preset) ? saved.preset : starter.preset,
-    look: typeof look === "string" ? starter.look : look,
+    look: kept,
+    // A profile stored before this mark existed: its look counts as chosen when it is not the starter one.
+    lookSet: typeof saved.lookSet === "boolean" ? saved.lookSet : !sameLook(kept, starter.look),
     tone: typeof saved.tone === "string" ? saved.tone : starter.tone,
     skill: typeof saved.skill === "string" ? saved.skill : "",
     refs: storedRefs(saved.refs),
@@ -63,6 +66,8 @@ export function saveProfile(project: Project, raw: unknown): StyleProfile | stri
     tone: typeof r.tone === "string" ? r.tone.trim().slice(0, MAX_TONE) : current.tone,
     skill,
     refs: r.refs === undefined ? current.refs : cleanRefs(r.refs, current.refs),
+    // Saving the tone or a skill alone does not make the starter look a choice.
+    lookSet: !!current.lookSet || !sameLook(look, current.look),
     saved: true,
   };
   return store(project.id, profile);
@@ -136,14 +141,14 @@ const luminance = (hex: string) => {
 };
 
 /**
- * The look of the project, as the Mac's video theme. Only for a profile Antoine saved: a starter style
- * he never touched must not replace the theme set on the Mac.
+ * The look of the project, as the Mac's video theme. Only for a look Antoine chose (`lookSet`): a starter
+ * style he never touched must not replace the theme set on the Mac, even once the tone or a skill is saved.
  */
 export function themeOf(projectId: string | undefined): VideoTheme | undefined {
   const project = projectId ? listProjects().find((p) => p.id === projectId) : undefined;
   if (!project) return undefined;
   const p = profileOf(project);
-  if (!p.saved) return undefined;
+  if (!p.saved || !p.lookSet) return undefined;
   const { look } = p;
   // The end card and the subtitles need a dark field with light text: the darkest field of the brand.
   const field = look.theme === "custom" ? [...look.fields].sort((a, b) => luminance(a.bg) - luminance(b.bg))[0] : undefined;

@@ -42,6 +42,8 @@ export type StyleProfile = {
   skill: string;
   /** What Claude imitates and draws from: model posts, inspiration images, ideas. */
   refs: ProfileRefs;
+  /** True once Antoine chose the look himself (it differs from the starter style): only then it dresses the videos. */
+  lookSet?: boolean;
   /** False while the project still uses its starter style untouched. */
   saved: boolean;
 };
