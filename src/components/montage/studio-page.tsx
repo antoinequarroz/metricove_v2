@@ -253,17 +253,17 @@ export function StudioPage() {
         <VideoTabs />
       </PageHeader>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
-        <div className="mx-auto mb-4 flex max-w-6xl">
+        <div className="mx-auto mb-4 flex max-w-[1680px]">
           <StudioTabs />
         </div>
-        <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          {/* ---------- Camera + teleprompter ---------- */}
-          <div className="flex flex-col gap-3">
+        <div className="mx-auto grid max-w-[1680px] gap-5 lg:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_480px]">
+          {/* ---------- Camera + teleprompter: stays in view while the script and the takes scroll ---------- */}
+          <div className="flex flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
             <div
               ref={stage}
               className={cn(
                 "relative mx-auto w-full overflow-hidden rounded-2xl border border-line bg-black shadow-card",
-                full ? "flex h-full items-center justify-center rounded-none border-0" : orientation === "portrait" ? "max-w-[400px]" : "",
+                full ? "flex h-full items-center justify-center rounded-none border-0" : orientation === "portrait" ? "max-lg:max-w-[400px] lg:max-w-[max(240px,calc((100dvh-300px)*9/16))]" : "lg:max-w-[max(420px,calc((100dvh-300px)*16/9))]",
               )}
               style={full ? undefined : { aspectRatio: orientation === "portrait" ? "9 / 16" : "16 / 9" }}
             >

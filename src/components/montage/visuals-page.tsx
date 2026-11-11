@@ -435,7 +435,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
         <VideoTabs />
       </PageHeader>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
-        <div className="mx-auto max-w-6xl">
+        <div className="mx-auto max-w-[1680px]">
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <StudioTabs />
             <div className="ml-auto flex items-center gap-2">
@@ -493,11 +493,15 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
             </div>
           )}
 
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
-            {/* ---------- Preview and slides ---------- */}
-            <div className="flex min-w-0 flex-col gap-3">
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_800px]">
+            {/* ---------- Preview and slides: stays in view while the settings scroll ---------- */}
+            <div className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
               <div className="flex items-center justify-center rounded-2xl border border-line bg-bg-2/60 p-5 max-sm:p-3">
-                <div className={cn("w-full", deck.format === "9:16" ? "max-w-[300px]" : deck.format === "1:1" ? "max-w-[460px]" : "max-w-[400px]")}>
+                {/* On a wide screen the visual is as tall as the window allows, so the whole column fits without scrolling. */}
+                <div
+                  className={cn("w-full lg:max-w-[var(--fit)]", deck.format === "9:16" ? "max-lg:max-w-[300px]" : deck.format === "1:1" ? "max-lg:max-w-[460px]" : "max-lg:max-w-[400px]")}
+                  style={{ "--fit": `max(200px, calc((100dvh - ${motion ? 440 : 400}px) * ${W / HEIGHTS[deck.format]}))` } as React.CSSProperties}
+                >
                   <SlideCanvas deck={deck} index={index} fonts={fonts} className="rounded-xl shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)]" />
                 </div>
               </div>
@@ -554,8 +558,8 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
               {motion && <p className="text-[12px] text-ink-3">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut. Pour un motion design sur mesure, décris-le dans « Animation » : Claude écrit la scène."}</p>}
             </div>
 
-            {/* ---------- Settings ---------- */}
-            <div className="flex min-w-0 flex-col gap-4">
+            {/* ---------- Settings: two columns of panels on a very wide screen ---------- */}
+            <div className="flex min-w-0 flex-col gap-4 2xl:block 2xl:columns-2 2xl:gap-4 2xl:[&>*]:mb-4 2xl:[&>*]:break-inside-avoid">
               <Panel title="Écrit par Claude" icon={<Sparkles className="size-3.5 text-accent" />}>
                 <textarea
                   value={idea}
