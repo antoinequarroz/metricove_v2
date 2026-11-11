@@ -17,12 +17,12 @@ import { CommandMenu } from "./command-menu";
 import { VideoPlayer } from "./video-player";
 import { ProjectMark, ProjectSwitcher } from "./projects";
 
-const NAV = [
+const NAV: { href: string; label: string; Icon: typeof Settings; soon?: boolean; countKey?: "videos" }[] = [
   { href: "/calendar", label: "Calendrier", Icon: CalendarDays },
-  { href: "/videos", label: "Médias", Icon: Clapperboard, countKey: "videos" as const },
+  { href: "/videos", label: "Médias", Icon: Clapperboard, countKey: "videos" },
   { href: "/accounts", label: "Comptes", Icon: Users },
   { href: "/stats", label: "Statistiques", Icon: BarChart3 },
-  { href: "#", label: "Réglages", Icon: Settings, soon: true },
+  { href: "/settings", label: "Réglages", Icon: Settings },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

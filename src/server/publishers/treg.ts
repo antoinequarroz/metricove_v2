@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import type { Account, Network, Post, TargetResult } from "@/lib/types";
+import { getSetting } from "../db";
 import { signedCoverUrl, signedMediaUrl } from "../media-url";
 import type { MediaFile, Publisher } from "./types";
 import { fetchTregStats } from "./treg-stats";
@@ -87,20 +88,27 @@ export async function call<T = unknown>(id: string, init: CallInit = {}): Promis
 class AmbiguousError extends Error {}
 
 /**
+ * Teams where treg sees two connections on graph.facebook.com (the Page, plus "Instagram via the Page").
+ * There, treg refuses catalog calls as ambiguous (409), so Facebook calls go straight by tool name.
+ */
+const byNameTeams = new Set<string>();
+
+/**
  * A call to the Facebook Graph API for the team's Page.
  *
- * With `catalog`, treg's catalog entry is tried first. A team that also connected "Instagram via the Page"
- * has two connections on graph.facebook.com, and treg then refuses catalog calls as ambiguous (409):
- * the call goes again by tool name, /call/facebook/<path>, which always means the Page connection.
+ * With `catalog`, treg's catalog entry is tried first, unless the team is known to be ambiguous.
+ * On a 409 "ambiguous", the call goes again by tool name, /call/facebook/<path>, which always means
+ * the Page connection, and the team is remembered so the next calls skip the failing attempt.
  * Without `catalog` (stories have no catalog entry), the call goes by tool name directly.
  */
 export async function graph<T = unknown>(path: string, init: CallInit & { catalog?: string; pageId?: string } = {}): Promise<{ data: T; headers: Headers }> {
   const { catalog, pageId, ...rest } = init;
-  if (catalog) {
+  if (catalog && !byNameTeams.has(team)) {
     try {
       return await call<T>(catalog, { ...rest, query: { page_id: pageId, ...rest.query } });
     } catch (e) {
       if (!(e instanceof AmbiguousError)) throw e;
+      byNameTeams.add(team);
     }
   }
   return call<T>(`facebook/${path}`, rest);
@@ -145,10 +153,10 @@ type Conn = {
   resource?: { ref?: string; id?: string };
 };
 
-/** The current team's connections, or undefined when treg does not say. */
-async function connections(): Promise<Conn[] | undefined> {
+/** A team's connections (the current team by default), or undefined when treg does not say. */
+async function connections(label = team): Promise<Conn[] | undefined> {
   try {
-    const res = await fetch(`${base()}/connections`, { headers: { "X-Treg-Token": token() }, signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(`${base()}/connections`, { headers: { "X-Treg-Token": tregTokens().get(label) ?? "" }, signal: AbortSignal.timeout(30_000) });
     if (!res.ok) return undefined;
     const body = (await res.json()) as Conn[] | { connections?: Conn[]; items?: Conn[] };
     return Array.isArray(body) ? body : (body.connections ?? body.items ?? []);
@@ -157,12 +165,96 @@ async function connections(): Promise<Conn[] | undefined> {
   }
 }
 
-/** The Facebook Page selected on the team's Facebook connection, if any. */
+const connRef = (c: Conn) => c.resource_ref ?? c.resource?.ref ?? c.resource?.id;
+const isPageConn = (c: Conn) => c.provider === "facebook" && (!c.authorization_method || c.authorization_method === "default");
+/** Every connection treg calls on graph.facebook.com: the Page ones, and "Instagram via the Page". */
+const onGraph = (c: Conn) => c.provider === "facebook" || c.authorization_method === "facebook-page";
+
+/** Réglages: "auto", or the id of the Facebook connection to use, per treg team. */
+export const facebookSettingKey = (label: string) => `treg.facebook.${label}`;
+
+/**
+ * Picks the team's Facebook Page connection.
+ * Auto: a Page connection that has a Page selected (empty connections are skipped), the newest first.
+ * A connection chosen in Réglages wins while it still exists and has a Page.
+ */
+function pickFacebook(conns: Conn[], choice: string | undefined): Conn | undefined {
+  const pages = conns.filter((c) => c.provider === "facebook" && connRef(c));
+  if (choice && choice !== "auto") {
+    const chosen = pages.find((c) => String(c.id) === choice);
+    if (chosen) return chosen;
+  }
+  const newest = (list: Conn[]) => [...list].sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0) || 0)[0];
+  return newest(pages.filter(isPageConn)) ?? newest(pages);
+}
+
+/** The Facebook Page of the team's chosen Facebook connection, if any. */
 async function facebookPageId(): Promise<string | undefined> {
-  const all = (await connections())?.filter((c) => c.provider === "facebook") ?? [];
-  // The Page connection itself, not an "Instagram via the Page" one if treg ever lists it under Facebook.
-  const fb = all.find((c) => !c.authorization_method || c.authorization_method === "default") ?? all[0];
-  return fb?.resource_ref ?? fb?.resource?.ref ?? fb?.resource?.id;
+  const all = await connections();
+  if (!all) return undefined;
+  if (all.filter(onGraph).length > 1) byNameTeams.add(team);
+  else byNameTeams.delete(team);
+  const fb = pickFacebook(all, getSetting<string>(facebookSettingKey(team)));
+  return fb && connRef(fb);
+}
+
+export type FacebookTeamOverview = {
+  team: string;
+  /** "auto", or the id of the imposed connection while it still exists. */
+  choice: string;
+  /** An imposed connection that no longer exists or lost its Page: Metricove is back on automatic. */
+  goneChoice?: string;
+  /** Id of the connection Metricove uses now. */
+  used?: string;
+  /** Id of the connection the automatic rule picks. */
+  auto?: string;
+  /** Calls go by tool name because treg sees two connections on Facebook. */
+  byName: boolean;
+  /** Two connections with a Page in one team: treg decides which one answers, Metricove can't aim. */
+  severalPages: boolean;
+  connections: { id: string; name?: string; kind: "page" | "instagram"; method?: string; page?: string; usable: boolean }[];
+  error?: string;
+};
+
+const connId = (c: Conn | undefined) => (c?.id !== undefined ? String(c.id) : undefined);
+
+/**
+ * For the Réglages page: each team's Facebook connections and the one Metricove picks.
+ * Reads each team with its own token, without the shared `team`, so it never waits behind a publication.
+ */
+export async function facebookOverview(): Promise<FacebookTeamOverview[]> {
+  const out: FacebookTeamOverview[] = [];
+  for (const label of tregTokens().keys()) {
+    const stored = getSetting<string>(facebookSettingKey(label)) ?? "auto";
+    const all = await connections(label);
+    if (!all) {
+      out.push({ team: label, choice: stored, byName: false, severalPages: false, connections: [], error: "treg ne répond pas pour cette équipe" });
+      continue;
+    }
+    const graphConns = all.filter(onGraph);
+    if (graphConns.length > 1) byNameTeams.add(label);
+    else byNameTeams.delete(label);
+    const used = connId(pickFacebook(all, stored));
+    const gone = stored !== "auto" && used !== stored;
+    out.push({
+      team: label,
+      choice: gone ? "auto" : stored,
+      goneChoice: gone ? stored : undefined,
+      used,
+      auto: connId(pickFacebook(all, undefined)),
+      byName: byNameTeams.has(label),
+      severalPages: all.filter((c) => c.provider === "facebook" && connRef(c)).length > 1,
+      connections: graphConns.map((c) => ({
+        id: String(c.id ?? ""),
+        name: c.name,
+        kind: c.provider === "facebook" ? "page" : "instagram",
+        method: c.authorization_method,
+        page: connRef(c),
+        usable: c.provider === "facebook" && !!connRef(c),
+      })),
+    });
+  }
+  return out;
 }
 
 /** treg provider name → Metricove network. */
