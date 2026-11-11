@@ -1,31 +1,58 @@
 // Voix d'un projet (profil de style réglé dans Metricove, Réglages → Styles) : le ton écrit par Antoine,
 // et le SKILL.md d'un skill du Mac que Claude lit avant d'écrire.
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { log } from "./util.mjs";
 
-const MAX_SKILL = 8000;
+const MAX_SKILL = 6000;
+const MAX_SKILLS = 6;
 
-/** Le texte du SKILL.md du dossier donné, ou "" (dossier absent, autre fichier, trop gros). Seul un SKILL.md est lu. */
-export function skillText(folder) {
-  if (typeof folder !== "string" || !folder.trim()) return "";
-  let p = folder.trim();
-  if (p === "~" || p.startsWith("~/")) p = join(homedir(), p.slice(1));
-  p = resolve(p);
-  const file = basename(p) === "SKILL.md" ? p : join(p, "SKILL.md");
+const expand = (p) => resolve(p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p);
+
+/** Les fichiers SKILL.md d'un chemin : le dossier d'un skill, ou un dossier qui contient plusieurs skills. */
+export function skillFiles(folder) {
+  const p = expand(folder.trim());
+  const own = basename(p) === "SKILL.md" ? p : join(p, "SKILL.md");
   try {
-    if (!existsSync(file) || !statSync(file).isFile()) {
-      log(`skill du projet introuvable : ${file}`);
-      return "";
-    }
-    return readFileSync(file, "utf8").replace(/^---\n[\s\S]*?\n---\n/, "").trim().slice(0, MAX_SKILL);
-  } catch (e) {
-    log(`skill du projet illisible (${file}) :`, e.message);
-    return "";
+    if (existsSync(own) && statSync(own).isFile()) return [own];
+    if (!existsSync(p) || !statSync(p).isDirectory()) return [];
+    return readdirSync(p).sort().map((d) => join(p, d, "SKILL.md")).filter((f) => existsSync(f) && statSync(f).isFile());
+  } catch {
+    return [];
   }
+}
+
+/** Nom et description d'un SKILL.md (son en-tête), pour la liste montrée à Antoine. */
+export function skillInfo(file) {
+  const head = /^---\n([\s\S]*?)\n---/.exec(readFileSync(file, "utf8"))?.[1] || "";
+  const get = (k) => (new RegExp(`^${k}:\\s*(.+)$`, "m").exec(head)?.[1] || "").trim().replace(/^["']|["']$/g, "");
+  return { name: get("name") || basename(join(file, "..")), description: get("description") };
+}
+
+/**
+ * Le texte des skills du projet : un ou plusieurs chemins séparés par des virgules, chacun le dossier d'un
+ * skill ou un dossier de skills. Seuls des fichiers SKILL.md sont lus. "" si rien n'est trouvé.
+ */
+export function skillText(folders) {
+  if (typeof folders !== "string" || !folders.trim()) return "";
+  const files = [...new Set(folders.split(",").map((f) => f.trim()).filter(Boolean).flatMap((f) => {
+    const found = skillFiles(f);
+    if (!found.length) log(`skill du projet introuvable : ${expand(f)}`);
+    return found;
+  }))].slice(0, MAX_SKILLS);
+  const texts = [];
+  for (const file of files) {
+    try {
+      const body = readFileSync(file, "utf8").replace(/^---\n[\s\S]*?\n---\n/, "").trim().slice(0, MAX_SKILL);
+      if (body) texts.push(files.length > 1 ? `[Skill « ${skillInfo(file).name} »]\n${body}` : body);
+    } catch (e) {
+      log(`skill du projet illisible (${file}) :`, e.message);
+    }
+  }
+  return texts.join("\n\n");
 }
 
 /**

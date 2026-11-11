@@ -2,12 +2,14 @@
 // Remplit le profil de style d'un projet dans Metricove (Réglages → Styles) à partir d'un fichier de profils/.
 //   node remplir-profil.mjs livrematch            remplit le profil
 //   node remplir-profil.mjs livrematch --dry-run  montre ce qui serait envoyé, sans rien changer
+//   node remplir-profil.mjs livrematch --skills   liste les skills trouvés sur ce Mac pour ce projet, sans rien changer
 // L'apparence et le ton du fichier remplacent ceux du profil. Ce qui est gardé : la signature, le logo déjà
 // déposé, les images, les posts modèles et les idées déjà saisis. Les posts modèles viennent du fichier, puis des posts déjà publiés du projet.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HERE, home, loadConfig } from "./lib/util.mjs";
 import { Api } from "./lib/api.mjs";
+import { skillFiles, skillInfo } from "./lib/voice.mjs";
 
 const args = process.argv.slice(2);
 const name = args.find((a) => !a.startsWith("--"));
@@ -18,6 +20,19 @@ if (!name || !/^[\w-]+$/.test(name) || !existsSync(file)) {
   process.exit(1);
 }
 const spec = JSON.parse(readFileSync(file, "utf8"));
+
+if (args.includes("--skills")) {
+  // Où chercher : les dossiers du fichier de profil, puis les skills personnels.
+  for (const dir of [...(spec.skillDirs || []), "~/.claude/skills"]) {
+    const found = skillFiles(dir);
+    console.log(`\n${dir} : ${found.length ? `${found.length} skill(s)` : "aucun skill"}`);
+    for (const f of found) {
+      const info = skillInfo(f);
+      console.log(`  · ${info.name} — ${info.description.slice(0, 140) || "sans description"}\n    ${f.replace(/\/SKILL\.md$/, "")}`);
+    }
+  }
+  process.exit(0);
+}
 const api = new Api(loadConfig());
 
 const state = await api.req("GET", "/api/state");

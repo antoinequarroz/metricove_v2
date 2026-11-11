@@ -37,5 +37,10 @@
     "Dark academia : par où commencer",
     "Le quiz LivreMatch : six réponses, zéro jugement"
   ],
-  "logoFile": "~/Lab/projets/livrematch/public/logo-mark.svg"
+  "logoFile": "~/Lab/projets/livrematch/public/logo-mark.svg",
+  "skillDirs": [
+    "~/Lab/projets/livrematch/.claude/skills",
+    "~/Lab/projets/livrematch/.agents/skills",
+    "~/Lab/projets/livrematch/video/.claude/skills"
+  ]
 }
