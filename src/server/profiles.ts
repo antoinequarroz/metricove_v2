@@ -19,7 +19,8 @@ export function profileOf(project: Project): StyleProfile {
   const saved = getSetting<Omit<StyleProfile, "saved">>(key(project.id));
   const starter = starterProfile(presetFor(project.name), signature(project));
   if (!saved) return starter;
-  const look = cleanLook(saved.look, starter.look);
+  // A look saved before fields, grid and pill existed must not pick them up from the starter style.
+  const look = cleanLook(saved.look, { ...starter.look, fields: [], grid: false, pill: false });
   return {
     preset: PRESETS.some((p) => p.id === saved.preset) ? saved.preset : starter.preset,
     look: typeof look === "string" ? starter.look : look,
