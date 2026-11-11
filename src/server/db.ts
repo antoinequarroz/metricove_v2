@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { seedAccounts, seedMedia, seedPosts } from "@/lib/seed";
+import { mimeOfFile } from "@/lib/formats";
 import type { Account, Media, Post, Project } from "@/lib/types";
 
 export const DATA_DIR = path.resolve(process.env.DATA_DIR ?? "./data");
@@ -64,6 +65,11 @@ export function db() {
   if (!cols.includes("youtube")) conn.exec("alter table posts add column youtube text");
   const mediaCols = (conn.prepare("pragma table_info(media)").all() as { name: string }[]).map((c) => c.name);
   if (!mediaCols.includes("cover")) conn.exec("alter table media add column cover text");
+  // Photos, for photo posts and stories.
+  if (!mediaCols.includes("kind")) conn.exec("alter table media add column kind text not null default 'video'");
+  if (!mediaCols.includes("width")) conn.exec("alter table media add column width integer");
+  if (!mediaCols.includes("height")) conn.exec("alter table media add column height integer");
+  if (!cols.includes("format")) conn.exec("alter table posts add column format text");
   globalForDb.__metricoveDb = conn;
   maybeSeed(conn);
   return conn;
@@ -168,11 +174,18 @@ type MediaRow = {
   file: string | null;
   /** Feed cover image (file name in data/media), when there is one. */
   cover?: string | null;
+  kind?: Media["kind"] | null;
+  width?: number | null;
+  height?: number | null;
 };
 
 const toMedia = (r: MediaRow): Media => ({
   id: r.id,
   title: r.title,
+  kind: r.kind === "image" ? "image" : "video",
+  width: r.width ?? undefined,
+  height: r.height ?? undefined,
+  mime: mimeOfFile(r.file),
   duration: r.duration,
   aspect: r.aspect,
   source: r.source,
@@ -191,6 +204,12 @@ export function listMedia(): Media[] {
   return (db().prepare("select * from media order by created_at desc").all() as MediaRow[]).map(toMedia);
 }
 
+/** One library item as the app sees it, or undefined. */
+export function getMedia(id: string): Media | undefined {
+  const r = getMediaRow(id);
+  return r && toMedia(r);
+}
+
 export function getMediaRow(id: string) {
   return db().prepare("select * from media where id = ?").get(id) as MediaRow | undefined;
 }
@@ -198,10 +217,10 @@ export function getMediaRow(id: string) {
 export function insertMedia(m: Media & { file?: string }) {
   db()
     .prepare(
-      `insert or ignore into media (id, title, duration, aspect, source, created_at, hues, file)
-       values (@id, @title, @duration, @aspect, @source, @createdAt, @hues, @file)`,
+      `insert or ignore into media (id, title, duration, aspect, source, created_at, hues, file, kind, width, height)
+       values (@id, @title, @duration, @aspect, @source, @createdAt, @hues, @file, @kind, @width, @height)`,
     )
-    .run({ ...m, hues: JSON.stringify(m.hues), file: m.file ?? null });
+    .run({ ...m, hues: JSON.stringify(m.hues), file: m.file ?? null, kind: m.kind ?? "video", width: m.width ?? null, height: m.height ?? null });
 }
 
 /* ---------- Posts ---------- */
@@ -217,6 +236,7 @@ type PostRow = {
   results: string | null;
   error: string | null;
   youtube: string | null;
+  format?: string | null;
 };
 
 const toPost = (r: PostRow): Post => ({
@@ -224,6 +244,7 @@ const toPost = (r: PostRow): Post => ({
   accountIds: JSON.parse(r.account_ids),
   caption: r.caption,
   mediaId: r.media_id ?? undefined,
+  format: r.format === "story" ? "story" : undefined,
   scheduledAt: r.scheduled_at,
   status: r.status,
   origin: r.origin,
@@ -244,11 +265,11 @@ export function getPost(id: string): Post | undefined {
 export function savePost(p: Post) {
   db()
     .prepare(
-      `insert into posts (id, account_ids, caption, media_id, scheduled_at, status, origin, results, error, youtube, updated_at)
-       values (@id, @accountIds, @caption, @mediaId, @scheduledAt, @status, @origin, @results, @error, @youtube, @now)
+      `insert into posts (id, account_ids, caption, media_id, scheduled_at, status, origin, results, error, youtube, format, updated_at)
+       values (@id, @accountIds, @caption, @mediaId, @scheduledAt, @status, @origin, @results, @error, @youtube, @format, @now)
        on conflict(id) do update set account_ids=excluded.account_ids, caption=excluded.caption, media_id=excluded.media_id,
          scheduled_at=excluded.scheduled_at, status=excluded.status, origin=excluded.origin, results=excluded.results,
-         error=excluded.error, youtube=excluded.youtube, updated_at=excluded.updated_at`,
+         error=excluded.error, youtube=excluded.youtube, format=excluded.format, updated_at=excluded.updated_at`,
     )
     .run({
       ...p,
@@ -257,6 +278,7 @@ export function savePost(p: Post) {
       results: p.results ? JSON.stringify(p.results) : null,
       error: p.error ?? null,
       youtube: p.youtube ? JSON.stringify(p.youtube) : null,
+      format: p.format === "story" ? "story" : null,
       now: new Date().toISOString(),
     });
 }

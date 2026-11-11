@@ -44,7 +44,8 @@ Toutes les requêtes portent `Authorization: Bearer $METRICOVE_TOKEN`.
      -d '{"accountIds":["<id>"],"caption":"…","scheduledAt":"2026-11-06T08:00:00+01:00","status":"draft","origin":"hermes"}'
    ```
    - Pour modifier un post, ajoute son `id`.
-   - `mediaId` attache une vidéo de la bibliothèque.
+   - `mediaId` attache une vidéo ou une photo de la bibliothèque (`media[].kind` vaut `video` ou `image`).
+   - `"format":"story"` en fait une story Instagram ou Facebook (photo, ou vidéo de 60 secondes au plus). Sans ce champ, c'est une publication dans le fil.
    - Pour YouTube, ajoute `"youtube":{"title":"…","format":"video|short","privacy":"public"}`.
 
 3. **Déplacer un post** : `PATCH $METRICOVE_URL/api/posts/<id>` avec `{"scheduledAt":"…"}`.
@@ -54,7 +55,8 @@ Toutes les requêtes portent `Authorization: Bearer $METRICOVE_TOKEN`.
 
 - **Crée des brouillons (`"status":"draft"`) par défaut.** Ne programme (`"scheduled"`) que si Antoine le demande explicitement : un post programmé part tout seul.
 - Respecte les limites : X 280 caractères, Instagram 2200, LinkedIn 3000.
-- Instagram et YouTube exigent une vidéo (`mediaId`).
+- Instagram exige une photo ou une vidéo (`mediaId`). YouTube et TikTok exigent une vidéo.
+- Les stories et les photos ne partent que sur Instagram et Facebook. Une photo du fil Instagram doit être entre 4:5 et 1,91:1. Programmer un post qui ne respecte pas ces règles renvoie une erreur 422.
 - Les heures sont en heure de Zurich : donne toujours le décalage (`+01:00` en hiver, `+02:00` en été).
 - Un post publié ne peut plus être modifié (erreur 409).
 

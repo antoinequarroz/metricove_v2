@@ -3,15 +3,17 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Popover } from "@base-ui-components/react/popover";
 import { addDays, setHours, startOfDay } from "date-fns";
-import { Bot, CalendarClock, Film, ImagePlus, Sparkles, Trash2, X, Hash, Smile } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Bot, CalendarClock, Crop, ImagePlus, Images, Sparkles, Trash2, Upload, X, Hash, Smile } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { MontageJob } from "@/lib/montage";
+import { fitsInstagramFeed, IG_PHOTO_RATIO, instagramRefusesFile, postProblems, ratioOf, STORY_NETWORKS } from "@/lib/formats";
+import { cropImageToRatio, isImageFile, MEDIA_ACCEPT, VIDEO_FILE } from "@/lib/image";
 import { outcomeOf, readableError, summary, waitsInTikTok } from "@/lib/publish-result";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore } from "@/lib/store";
 import { ProjectMark } from "./projects";
-import type { Network, Post, YouTubeOptions } from "@/lib/types";
+import type { Media, Network, Post, PostFormat, YouTubeOptions } from "@/lib/types";
 import { cn, duration, fmt, uid } from "@/lib/utils";
 import { CoverControl } from "./cover";
 import { PostPreview } from "./previews";
@@ -73,6 +75,9 @@ function ComposerForm() {
   });
   const [caption, setCaption] = useState(existing?.caption ?? "");
   const [mediaId, setMediaId] = useState<string | undefined>(existing?.mediaId ?? presetMedia);
+  const [format, setFormat] = useState<PostFormat>(existing?.format ?? "feed");
+  const uploadMedia = useStore((s) => s.uploadMedia);
+  const [cropping, setCropping] = useState(false);
   const [day, setDay] = useState(fmt(initialDate, "yyyy-MM-dd"));
   const [time, setTime] = useState(fmt(initialDate, "HH:mm"));
   const [previewId, setPreviewId] = useState<string | undefined>(undefined);
@@ -88,22 +93,31 @@ function ComposerForm() {
   const m = media.find((x) => x.id === mediaId);
   const when = new Date(`${day}T${time}`);
   const networks = [...new Set(selectedAccounts.map((a) => a.network))] as Network[];
-  const tooLong = networks.filter((n) => caption.length > NETWORKS[n].limit);
+  /** Instagram and Facebook are the only ones with stories and photos: the format choice shows with them. */
+  const hasSocial = networks.some((n) => STORY_NETWORKS.includes(n));
+  // Without one of them selected there is no story to speak of (and no switch to leave it).
+  const story = format === "story" && hasSocial;
+  // A story shows no text: its length doesn't matter.
+  const tooLong = story ? [] : networks.filter((n) => caption.length > NETWORKS[n].limit);
   const hasYoutube = networks.includes("youtube");
-  const videoOnly = networks.filter((n) => n === "instagram" || n === "tiktok" || n === "youtube").map((n) => NETWORKS[n].label);
-  const needsMedia = videoOnly.length > 0 && !m;
+  const problems = postProblems({ format: story ? "story" : "feed", media: m, networks });
+  // What Instagram would refuse about this photo, and that one click can fix.
+  const photoMisfit = !!m && m.kind === "image" && !story && networks.includes("instagram") && !fitsInstagramFeed(m);
+  const photoNotJpeg = !!m && networks.includes("instagram") && instagramRefusesFile(m);
+  // Those two already show next to the photo, with their fix.
+  const otherProblems = problems.filter((p) => !/^Instagram (refuse cette photo|n'accepte que les photos JPEG)/.test(p));
   const shortProblem =
-    hasYoutube && yt.format === "short" && m ? (m.aspect !== "9:16" ? "Un Short doit être une vidéo verticale (9:16)." : m.duration > 180 ? "Un Short dure 3 minutes maximum." : "") : "";
+    hasYoutube && !story && yt.format === "short" && m && m.kind === "video" ? (m.aspect !== "9:16" ? "Un Short doit être une vidéo verticale (9:16)." : m.duration > 180 ? "Un Short dure 3 minutes maximum." : "") : "";
 
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const submit = async (status: Post["status"], now = false) => {
     if (selected.length === 0) return toast.error("Choisissez au moins un compte");
     if (status === "scheduled") {
-      if (!caption.trim() && !m) return toast.error("Ajoutez un texte ou une vidéo");
+      if (!caption.trim() && !m) return toast.error(story ? "Ajoutez une photo ou une vidéo pour la story" : "Ajoutez un texte, une photo ou une vidéo");
+      if (problems.length) return toast.error(problems[0]);
       if (tooLong.length) return toast.error(`Texte trop long pour ${tooLong.map((n) => NETWORKS[n].label).join(", ")}`);
-      if (needsMedia) return toast.error(`${videoOnly.join(", ")} : ajoutez une vidéo`);
-      if (hasYoutube && yt.title.trim().length < 2) return toast.error("Ajoutez un titre pour YouTube");
+      if (hasYoutube && !story && yt.title.trim().length < 2) return toast.error("Ajoutez un titre pour YouTube");
       if (shortProblem) return toast.error(shortProblem);
       if (!now && when < new Date()) return toast.error("Choisissez une date dans le futur");
     }
@@ -120,16 +134,17 @@ function ComposerForm() {
         accountIds: selected,
         caption,
         mediaId: m?.id,
+        format: story ? "story" : "feed",
         scheduledAt: (now ? new Date() : when).toISOString(),
         status,
         origin: existing?.origin ?? (m?.source === "claude-code" ? "claude-code" : "manual"),
-        youtube: hasYoutube ? { ...yt, title: yt.title.trim() } : undefined,
+        youtube: hasYoutube && !story ? { ...yt, title: yt.title.trim() } : undefined,
       });
       close();
       const n = selectedAccounts.length;
       if (status === "scheduled" && now) followPublish(saved.id);
       else
-        toast.success(status === "draft" ? "Brouillon enregistré" : "Post programmé", {
+        toast.success(status === "draft" ? "Brouillon enregistré" : story ? "Story programmée" : "Post programmé", {
           description: status === "draft" ? undefined : `${fmt(when, "EEEE d MMMM 'à' HH:mm")} sur ${n} compte${n > 1 ? "s" : ""}.`,
         });
     } catch (e) {
@@ -150,8 +165,30 @@ function ComposerForm() {
         Object.values(p.results ?? {}).some((r) => r.externalId?.startsWith("inbox:") && Date.now() - new Date(r.at).getTime() < 24 * 3600_000),
     );
 
+  /** Cuts the middle of the photo so Instagram's feed accepts it, as a new photo in the library. */
+  const cropForInstagram = async () => {
+    if (!m?.url) return;
+    const from = m.id;
+    setCropping(true);
+    try {
+      // Only cut when the feed needs it. Otherwise the photo is just saved again as a JPEG.
+      const ratio = !photoMisfit ? ratioOf(m) : ratioOf(m) < IG_PHOTO_RATIO.min ? IG_PHOTO_RATIO.min : IG_PHOTO_RATIO.max;
+      const file = await cropImageToRatio(m.url, ratio, m.title);
+      const cropped = await uploadMedia(file, undefined, (photoMisfit ? `${m.title} (${ratio < 1 ? "4:5" : "1,91:1"})` : m.title).slice(0, 200));
+      // Only if the person hasn't picked something else meanwhile.
+      setMediaId((cur) => (cur === from ? cropped.id : cur));
+      toast.success(photoMisfit ? "Photo recadrée" : "Photo convertie en JPEG", { description: "L'originale reste dans la bibliothèque." });
+    } catch (e) {
+      toast.error(photoMisfit ? "Recadrage impossible" : "Conversion impossible", { description: (e as Error).message });
+    } finally {
+      setCropping(false);
+    }
+  };
+
   const hermesOn = useStore((s) => s.integrations.hermes);
   const [thinking, setThinking] = useState<string | null>(null);
+  // Claude listens to videos. For a photo, it writes from the draft text alone.
+  const videoId = m?.kind === "video" ? m.id : undefined;
 
   const applySuggestion = (text: string, youtubeTitle?: string) => {
     setCaption(text);
@@ -163,7 +200,7 @@ function ComposerForm() {
     const res = await fetch("/api/hermes/caption", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ networks, draft: caption, mediaId: m?.id }),
+      body: JSON.stringify({ networks, draft: caption, mediaId: videoId }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
@@ -190,7 +227,7 @@ function ComposerForm() {
       }
       const { job } = await call<{ job: MontageJob }>("/api/montage/jobs", {
         method: "POST",
-        body: JSON.stringify({ kind: "caption", accountIds: selected, draft: caption, mediaId: m?.id }),
+        body: JSON.stringify({ kind: "caption", accountIds: selected, draft: caption, mediaId: videoId }),
       });
       jobId = job.id;
       const until = Date.now() + 4 * 60_000;
@@ -218,7 +255,7 @@ function ComposerForm() {
   return (
     <>
       <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
-        <Dialog.Title className="text-[15px] font-semibold">{existing ? "Modifier le post" : "Nouveau post"}</Dialog.Title>
+        <Dialog.Title className="text-[15px] font-semibold">{existing ? (story ? "Modifier la story" : "Modifier le post") : story ? "Nouvelle story" : "Nouveau post"}</Dialog.Title>
         {existing && <StatusPill status={existing.status} inbox={waitsInTikTok(existing)} />}
         <Dialog.Close className="press ml-auto flex size-8 items-center justify-center rounded-lg text-ink-3 hover:bg-ink/5 hover:text-ink" aria-label="Fermer">
           <X className="size-4" />
@@ -346,8 +383,31 @@ function ComposerForm() {
               </div>
             </section>
 
+            {hasSocial && (
+              <section>
+                <Label>Format</Label>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <Segmented<PostFormat>
+                    value={story ? "story" : "feed"}
+                    onChange={setFormat}
+                    options={[
+                      { value: "feed", label: "Publication" },
+                      { value: "story", label: "Story" },
+                    ]}
+                  />
+                  <p className="text-[12px] text-ink-3">
+                    {story
+                      ? "Visible 24 heures, en plein écran. Photo ou vidéo de 60 secondes au plus."
+                      : m?.kind === "image"
+                        ? "Photo dans le fil, avec le texte en légende."
+                        : "Reel sur Instagram, vidéo ou texte sur Facebook. Une photo donne un post photo."}
+                  </p>
+                </div>
+              </section>
+            )}
+
             <section>
-              <Label>Vidéo</Label>
+              <Label>{story ? "Photo ou vidéo" : "Média"}</Label>
               {m ? (
                 <div className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/60 p-2.5">
                   <MediaThumb media={m} showMeta={false} playable className="h-16 w-12 rounded-md" />
@@ -355,28 +415,47 @@ function ComposerForm() {
                     <div className="truncate text-[13.5px] font-medium">{m.title}</div>
                     <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-3">
                       <SourceTag source={m.source} />
-                      <span className="tabular font-mono">{duration(m.duration)}</span>
-                      <span>{m.aspect}</span>
+                      {m.kind === "image" ? (
+                        <span className="tabular font-mono">Photo{m.width && m.height ? ` · ${m.width} × ${m.height}` : ""}</span>
+                      ) : (
+                        <>
+                          <span className="tabular font-mono">{duration(m.duration)}</span>
+                          <span>{m.aspect}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <MediaPicker onPick={setMediaId}>
                     <span className="text-[12.5px]">Changer</span>
                   </MediaPicker>
-                  <Button size="sm" variant="ghost" onClick={() => setMediaId(undefined)} aria-label="Retirer la vidéo">
+                  <Button size="sm" variant="ghost" onClick={() => setMediaId(undefined)} aria-label={m.kind === "image" ? "Retirer la photo" : "Retirer la vidéo"}>
                     <X className="size-3.5" />
                   </Button>
                 </div>
               ) : null}
-              {m && networks.includes("instagram") && (
+              {m && m.kind === "video" && !story && networks.includes("instagram") && (
                 <div className="mt-2 rounded-xl border border-line bg-surface-2/60 p-2.5">
                   <CoverControl media={m} accountIds={selected} />
+                </div>
+              )}
+              {(photoMisfit || photoNotJpeg) && !locked && (
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warn/30 bg-warn/10 px-3.5 py-2.5 text-[12.5px]">
+                  <p className="min-w-[200px] flex-1">
+                    {photoMisfit
+                      ? `Cette photo est trop ${ratioOf(m!) < IG_PHOTO_RATIO.min ? "haute" : "large"} pour le fil Instagram (entre 4:5 et 1,91:1).`
+                      : "Instagram n'accepte que les photos JPEG."}
+                  </p>
+                  <Button size="sm" type="button" disabled={cropping} onClick={cropForInstagram}>
+                    <Crop className="size-3.5" />
+                    {photoMisfit ? (cropping ? "Recadrage…" : `Recadrer en ${ratioOf(m!) < IG_PHOTO_RATIO.min ? "4:5" : "1,91:1"}`) : cropping ? "Conversion…" : "Convertir en JPEG"}
+                  </Button>
                 </div>
               )}
               {!m && (
                 <MediaPicker onPick={setMediaId} block>
                   <ImagePlus className="size-5 text-ink-3" />
-                  <span className="text-[13px] text-ink-2">Choisir une vidéo de la bibliothèque</span>
-                  <span className="text-[12px] text-ink-3">Les vidéos générées par Claude Code arrivent ici automatiquement</span>
+                  <span className="text-[13px] text-ink-2">Choisir une photo ou une vidéo</span>
+                  <span className="text-[12px] text-ink-3">Depuis la bibliothèque, ou importez un fichier</span>
                 </MediaPicker>
               )}
             </section>
@@ -388,7 +467,7 @@ function ComposerForm() {
                   type="button"
                   onClick={suggest}
                   disabled={!!thinking || locked}
-                  title={caption.trim() ? "Claude se sert de ton texte comme consigne" : "Claude écoute la vidéo et écrit la description"}
+                  title={caption.trim() ? "Claude se sert de ton texte comme consigne" : videoId ? "Claude écoute la vidéo et écrit la description" : "Claude écrit la description"}
                   className="press ml-auto inline-flex max-w-[60%] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent-soft disabled:opacity-70"
                 >
                   <Sparkles className={cn("size-3.5 shrink-0", thinking && "animate-pulse")} />
@@ -399,7 +478,7 @@ function ComposerForm() {
                 <textarea
                   value={caption}
                   onChange={(e) => setCaption(e.target.value)}
-                  placeholder="Qu'avez-vous à partager ?"
+                  placeholder={story ? "Note pour vous (une story n'affiche pas de texte)" : "Qu'avez-vous à partager ?"}
                   rows={7}
                   className="block w-full resize-none bg-transparent px-3.5 py-3 text-[14px] leading-relaxed outline-none placeholder:text-ink-3"
                 />
@@ -411,7 +490,7 @@ function ComposerForm() {
                     <Hash className="size-4" />
                   </IconBtn>
                   <div className="ml-auto flex items-center gap-3 pr-1">
-                    {networks.map((n) => {
+                    {(story ? [] : networks).map((n) => {
                       const left = NETWORKS[n].limit - caption.length;
                       return (
                         <span key={n} className={cn("tabular flex items-center gap-1 font-mono text-[11px]", left < 0 ? "text-danger" : left < 30 ? "text-warn" : "text-ink-3")}>
@@ -425,7 +504,11 @@ function ComposerForm() {
               </div>
             </section>
 
-            {hasYoutube && (
+            {story && caption.trim() && (
+              <p className="-mt-3 text-[12px] text-ink-3">Une story n&apos;affiche pas de texte : celui-ci reste une note dans votre calendrier.</p>
+            )}
+
+            {hasYoutube && !story && (
               <section className="rise rounded-xl border border-line bg-surface-2/50 p-3.5">
                 <div className="mb-3 flex items-center gap-2">
                   <NetworkBadge network="youtube" />
@@ -508,9 +591,11 @@ function ComposerForm() {
               </p>
             </section>
 
-            {(needsMedia || tooLong.length > 0) && !locked && (
-              <div className="rounded-xl border border-warn/30 bg-warn/10 px-3.5 py-2.5 text-[12.5px] text-ink">
-                {needsMedia && <p>{videoOnly.join(", ")} ne publie{videoOnly.length > 1 ? "nt" : ""} pas de texte seul : ajoutez une vidéo.</p>}
+            {(otherProblems.length > 0 || tooLong.length > 0) && !locked && (
+              <div className="flex flex-col gap-1 rounded-xl border border-warn/30 bg-warn/10 px-3.5 py-2.5 text-[12.5px] text-ink">
+                {otherProblems.map((p) => (
+                  <p key={p}>{p}</p>
+                ))}
                 {tooLong.length > 0 && <p>Le texte dépasse la limite de {tooLong.map((n) => NETWORKS[n].label).join(", ")}.</p>}
               </div>
             )}
@@ -537,9 +622,10 @@ function ComposerForm() {
           <div className="p-5">
             {previewAccount ? (
               <div key={previewAccount.id} className="rise mx-auto max-w-[360px]">
-                <PostPreview account={previewAccount} caption={caption} media={m} date={isNaN(when.getTime()) ? new Date() : when} youtube={yt} />
+                <PostPreview account={previewAccount} caption={caption} media={m} date={isNaN(when.getTime()) ? new Date() : when} youtube={yt} format={story ? "story" : "feed"} />
                 <p className="mt-3 text-center text-[11.5px] text-ink-3">
-                  Aperçu {NETWORKS[previewAccount.network].label} · @{previewAccount.handle}
+                  Aperçu {story && STORY_NETWORKS.includes(previewAccount.network) ? "story " : ""}
+                  {NETWORKS[previewAccount.network].label} · @{previewAccount.handle}
                 </p>
               </div>
             ) : (
@@ -601,9 +687,32 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
   );
 }
 
+type PickerKind = "all" | Media["kind"];
+
+/** The library in a popover: pick a photo or a video, or import one without leaving the editor. */
 function MediaPicker({ children, onPick, block }: { children: React.ReactNode; onPick: (id: string) => void; block?: boolean }) {
   const media = useStore((s) => s.media);
+  const uploadMedia = useStore((s) => s.uploadMedia);
   const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<PickerKind>("all");
+  const [sending, setSending] = useState<number | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const list = media.filter((v) => kind === "all" || v.kind === kind);
+
+  const importFile = async (file: File) => {
+    if (!isImageFile(file) && !VIDEO_FILE.test(file.name)) return toast.error("Formats acceptés : mp4, mov, m4v, jpg, png, webp, heic");
+    setSending(0);
+    try {
+      const added = await uploadMedia(file, setSending);
+      onPick(added.id);
+      setOpen(false);
+    } catch (e) {
+      toast.error("Envoi impossible", { description: (e as Error).message });
+    } finally {
+      setSending(null);
+    }
+  };
+
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
@@ -618,26 +727,61 @@ function MediaPicker({ children, onPick, block }: { children: React.ReactNode; o
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner sideOffset={8} align="start" className="z-[60]">
-          <Popover.Popup className="popover-popup w-[420px] rounded-xl border border-line-strong bg-surface p-2 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.35)] outline-none">
-            <div className="flex items-center gap-2 px-1.5 pt-1 pb-2 text-[12px] font-medium text-ink-2">
-              <Film className="size-3.5" />
-              Bibliothèque vidéo
-            </div>
-            <div className="scroll-thin grid max-h-[320px] grid-cols-4 gap-2 overflow-y-auto p-1">
-              {media.map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => {
-                    onPick(v.id);
-                    setOpen(false);
+          <Popover.Popup className="popover-popup w-[min(440px,calc(100vw-32px))] rounded-xl border border-line-strong bg-surface p-2 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.35)] outline-none">
+            <div className="flex items-center gap-2 px-1.5 pt-1 pb-2">
+              <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink-2">
+                <Images className="size-3.5" />
+                Bibliothèque
+              </span>
+              <div className="ml-auto flex items-center gap-1.5">
+                <Segmented<PickerKind>
+                  value={kind}
+                  onChange={setKind}
+                  options={[
+                    { value: "all", label: "Tout" },
+                    { value: "video", label: "Vidéos" },
+                    { value: "image", label: "Photos" },
+                  ]}
+                />
+                <input
+                  ref={input}
+                  type="file"
+                  accept={MEDIA_ACCEPT}
+                  hidden
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) importFile(file);
                   }}
-                  className="press group text-left"
-                >
-                  <MediaThumb media={v} className="aspect-[9/14] w-full ring-accent group-hover:ring-2" />
-                  <span className="mt-1 line-clamp-2 block text-[11px] leading-tight text-ink-2">{v.title}</span>
-                </button>
-              ))}
+                />
+                <Button size="sm" type="button" disabled={sending !== null} onClick={() => input.current?.click()}>
+                  <Upload className="size-3.5" />
+                  {sending !== null ? <span className="tabular font-mono">{sending}%</span> : "Importer"}
+                </Button>
+              </div>
             </div>
+            {list.length === 0 ? (
+              <p className="px-3 py-8 text-center text-[12.5px] text-ink-3">
+                {kind === "image" ? "Pas encore de photo : importez-en une." : kind === "video" ? "Pas encore de vidéo." : "La bibliothèque est vide : importez une photo ou une vidéo."}
+              </p>
+            ) : (
+              <div className="scroll-thin grid max-h-[320px] grid-cols-4 gap-2 overflow-y-auto p-1">
+                {list.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => {
+                      onPick(v.id);
+                      setOpen(false);
+                    }}
+                    className="press group text-left"
+                  >
+                    <MediaThumb media={v} className="aspect-[9/14] w-full ring-accent group-hover:ring-2 group-focus-visible:ring-2" />
+                    <span className="mt-1 line-clamp-2 block text-[11px] leading-tight text-ink-2">{v.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -651,7 +795,7 @@ function MediaPicker({ children, onPick, block }: { children: React.ReactNode; o
  */
 export function followPublish(id: string, retry = false) {
   const store = useStore.getState;
-  const toastId = toast.loading(retry ? "Nouvelle tentative…" : "Publication en cours…", { description: "Envoi de la vidéo aux réseaux, ça peut prendre une minute.", duration: Infinity });
+  const toastId = toast.loading(retry ? "Nouvelle tentative…" : "Publication en cours…", { description: "Envoi aux réseaux, ça peut prendre une minute.", duration: Infinity });
   const until = Date.now() + 6 * 60_000;
   const step = async () => {
     await store().load().catch(() => {});

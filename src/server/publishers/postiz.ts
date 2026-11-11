@@ -95,6 +95,7 @@ export const postizPublisher: Publisher = {
     const fail = (error: string) => Object.fromEntries(accounts.map((a) => [a.id, { status: "failed" as const, error, at: at() }]));
 
     if (!this.status().ready) return fail("Postiz n'est pas configuré");
+    if (post.format === "story") return fail("Les stories ne passent pas par Postiz : utilisez treg");
 
     let image: { id: string; path: string }[] = [];
     if (media?.path) {

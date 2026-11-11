@@ -4,6 +4,7 @@ import { claimDuePosts, DATA_DIR, getMediaRow, listAccounts, releaseStuckPosts, 
 import { scanInbox } from "./media";
 import { getPublisher } from "./publishers";
 import type { MediaFile } from "./publishers/types";
+import { mimeOfFile } from "@/lib/formats";
 import type { Post } from "@/lib/types";
 
 const g = globalThis as unknown as { __metricoveTimer?: NodeJS.Timeout; __metricoveBusy?: boolean; __metricoveAgain?: boolean };
@@ -38,8 +39,10 @@ async function publishOne(post: Post) {
     ? {
         id: row.id,
         title: row.file ?? row.title,
+        kind: row.kind === "image" ? "image" : "video",
+        duration: row.duration,
         path: row.file ? path.join(DATA_DIR, "media", row.file) : undefined,
-        mime: mimeOf(row.file),
+        mime: mimeOfFile(row.file) ?? "video/mp4",
         cover: row.cover ? path.join(DATA_DIR, "media", row.cover) : undefined,
       }
     : undefined;
@@ -56,11 +59,6 @@ async function publishOne(post: Post) {
     error: failed.length ? failed.map(([id, r]) => `${accounts.find((a) => a.id === id)?.handle ?? id} : ${r.error}`).join("\n") : undefined,
   });
   console.log(`[scheduler] post ${post.id} → ${failed.length ? "échec" : "publié"} via ${publisher.name}`);
-}
-
-function mimeOf(file?: string | null) {
-  const ext = file?.split(".").pop()?.toLowerCase();
-  return ext === "mov" ? "video/quicktime" : ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "video/mp4";
 }
 
 export function startScheduler(intervalMs = 15_000) {

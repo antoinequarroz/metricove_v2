@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Account, AppState, Media, Network, Post, Project } from "./types";
+import { isImageFile, prepareImage } from "./image";
 import { uploadInChunks } from "./upload";
 
 export type CalendarView = "month" | "week" | "list";
@@ -48,7 +49,8 @@ type State = {
   createProject: (p: { name: string; accountIds: string[] }) => Promise<Project>;
   updateProject: (id: string, p: Partial<Omit<Project, "id">>) => Promise<Project>;
   deleteProject: (id: string) => Promise<void>;
-  uploadMedia: (file: File, onProgress?: (pct: number) => void) => Promise<Media>;
+  /** Sends a video or a photo to the library. `title` overrides the file name. */
+  uploadMedia: (file: File, onProgress?: (pct: number) => void, title?: string) => Promise<Media>;
   deleteMedia: (id: string) => Promise<void>;
 };
 
@@ -137,10 +139,12 @@ export const useStore = create<State>()(
         set((s) => ({ posts: s.posts.map((p) => (p.id === id ? { ...p, status: "publishing" } : p)) }));
         setTimeout(() => get().load(), 2500);
       },
-      uploadMedia: async (file, onProgress) => {
+      uploadMedia: async (original, onProgress, title) => {
+        // Photos become upright JPEGs first: Instagram takes nothing else.
+        const file = isImageFile(original) ? await prepareImage(original) : original;
         // In chunks: the server cuts request bodies over 10 MB.
         const upload = await uploadInChunks(file, file.name, onProgress);
-        const { media } = await api<{ media: Media }>("/api/media", { method: "POST", body: JSON.stringify({ upload, source: "upload" }) });
+        const { media } = await api<{ media: Media }>("/api/media", { method: "POST", body: JSON.stringify({ upload, source: "upload", title }) });
         set((s) => ({ media: [media, ...s.media] }));
         return media;
       },

@@ -1,6 +1,8 @@
-# Envoyer les vidéos de Claude Code vers Metricove
+# Envoyer les vidéos et les photos de Claude Code vers Metricove
 
-Il y a deux façons d'envoyer une vidéo. Les deux la mettent dans la bibliothèque **Vidéos**, et peuvent aussi créer le post (en brouillon ou programmé).
+Il y a deux façons d'envoyer une vidéo ou une photo. Les deux la mettent dans la bibliothèque **Médias**, et peuvent aussi créer le post (en brouillon ou programmé).
+
+Les photos marchent comme les vidéos : envoie un `.jpg` (ou un `.png`) à la place du `.mp4`. Instagram n'accepte que le JPEG, 8 Mo au plus.
 
 ## Option 1 : l'API, de n'importe où
 
@@ -62,7 +64,10 @@ rsync -av out/teaser.json out/teaser.mp4 antoine-vps:/home/antoine/metricove-inb
 | `accounts` | Un id de compte, un `@handle`, ou un réseau (`instagram`, `facebook`, `x`, `linkedin`, `youtube`) pour tous ses comptes |
 | `scheduledAt` | Date ISO. Avec des comptes, le post est **programmé**. Sans date, il est créé en **brouillon** pour demain à 18h |
 | `status` | `draft` pour forcer un brouillon, même avec une date |
+| `format` | `"story"` pour une story Instagram ou Facebook (photo, ou vidéo de 60 secondes au plus). Absent : publication dans le fil (Reel pour une vidéo, post photo pour une photo) |
 | `youtube` | `{ "title": "...", "format": "video" \| "short", "privacy": "public" \| "unlisted" \| "private" }` |
+
+Un post que les réseaux refuseraient reste en **brouillon**, même avec une date : une story avec un compte TikTok, une photo pour YouTube, ou une photo trop haute pour le fil Instagram (elle doit être entre 4:5 et 1,91:1).
 
 Si `youtube` est absent mais qu'une chaîne YouTube est choisie, Metricove choisit seul : une vidéo verticale de 3 minutes ou moins devient un Short.
 

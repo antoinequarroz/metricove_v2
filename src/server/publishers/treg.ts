@@ -33,6 +33,15 @@ type CallInit = {
 let team = "main";
 const token = () => tregTokens().get(team) ?? "";
 
+// `team` says which token every call uses. A sync and a publication must not switch it under
+// each other's feet (a publication waits minutes on Instagram): they take turns.
+let turn: Promise<unknown> = Promise.resolve();
+function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  const run = turn.then(work, work);
+  turn = run.catch(() => {});
+  return run;
+}
+
 async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ data: T; headers: Headers }> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(init.query ?? {})) if (v !== undefined) qs.set(k, String(v));
@@ -56,7 +65,7 @@ async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ dat
   const text = await res.text();
   if (!res.ok) {
     if (/quotaExceeded/i.test(text)) throw new Error("Quota YouTube du jour épuisé (app Google partagée de treg). Relancez après 9h, ou branchez votre propre app Google dans treg.");
-    if (res.status === 409 && /ambiguous/i.test(text)) throw new Error(`Plusieurs comptes du même réseau dans la même équipe treg : gardez-en un seul par équipe (${id})`);
+    if (res.status === 409 && /ambiguous/i.test(text)) throw new AmbiguousError(`Plusieurs comptes du même réseau dans la même équipe treg : gardez-en un seul par équipe (${id})`);
     if (res.status === 428) throw new Error(`Compte à reconnecter dans treg (${id.split(".")[0]})`);
     throw new Error(`treg ${res.status} sur ${id} : ${text.slice(0, 300)}`);
   }
@@ -67,6 +76,36 @@ async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ dat
     data = text;
   }
   return { data: data as T, headers: res.headers };
+}
+
+/** treg found two connections that could answer the call and won't pick one. */
+class AmbiguousError extends Error {}
+
+/**
+ * A call to the Facebook Graph API for the team's Page.
+ *
+ * With `catalog`, treg's catalog entry is tried first. A team that also connected "Instagram via the Page"
+ * has two connections on graph.facebook.com, and treg then refuses catalog calls as ambiguous (409):
+ * the call goes again by tool name, /call/facebook/<path>, which always means the Page connection.
+ * Without `catalog` (stories have no catalog entry), the call goes by tool name directly.
+ */
+async function graph<T = unknown>(path: string, init: CallInit & { catalog?: string; pageId?: string } = {}): Promise<{ data: T; headers: Headers }> {
+  const { catalog, pageId, ...rest } = init;
+  if (catalog) {
+    try {
+      return await call<T>(catalog, { ...rest, query: { page_id: pageId, ...rest.query } });
+    } catch (e) {
+      if (!(e instanceof AmbiguousError)) throw e;
+    }
+  }
+  return call<T>(`facebook/${path}`, rest);
+}
+
+/** Facebook answers errors as { error: { message, error_user_msg } } inside treg's own message. */
+function facebookReason(e: unknown) {
+  const text = (e as Error).message;
+  const m = text.match(/"error_user_msg":"((?:[^"\\]|\\.)*)"/) ?? text.match(/"message":"((?:[^"\\]|\\.)*)"/);
+  return m ? m[1].replace(/\\"/g, '"').replace(/\\n/g, " ") : text;
 }
 
 const NETWORK_LABEL: Record<Network, string> = {
@@ -91,7 +130,15 @@ async function put(url: string, body: Uint8Array, headers: Record<string, string
   return res;
 }
 
-type Conn = { id?: string | number; name?: string; provider?: string; resource_ref?: string; resource?: { ref?: string; id?: string } };
+type Conn = {
+  id?: string | number;
+  name?: string;
+  provider?: string;
+  /** "default", "instagram-login" or "facebook-page". */
+  authorization_method?: string;
+  resource_ref?: string;
+  resource?: { ref?: string; id?: string };
+};
 
 /** The current team's connections, or undefined when treg does not say. */
 async function connections(): Promise<Conn[] | undefined> {
@@ -107,7 +154,9 @@ async function connections(): Promise<Conn[] | undefined> {
 
 /** The Facebook Page selected on the team's Facebook connection, if any. */
 async function facebookPageId(): Promise<string | undefined> {
-  const fb = (await connections())?.find((c) => c.provider === "facebook");
+  const all = (await connections())?.filter((c) => c.provider === "facebook") ?? [];
+  // The Page connection itself, not an "Instagram via the Page" one if treg ever lists it under Facebook.
+  const fb = all.find((c) => !c.authorization_method || c.authorization_method === "default") ?? all[0];
   return fb?.resource_ref ?? fb?.resource?.ref ?? fb?.resource?.id;
 }
 
@@ -156,7 +205,7 @@ const readers: Record<Network, () => Promise<Account | undefined>> = {
     type P = { id?: string; name?: string; fan_count?: number; username?: string };
     const pageId = await facebookPageId();
     if (!pageId) return undefined;
-    const { data: page } = await call<P>("facebook.x.page", { query: { page_id: pageId, fields: "id,name,fan_count,username" } });
+    const { data: page } = await graph<P>(pageId, { catalog: "facebook.x.page", pageId, query: { fields: "id,name,fan_count,username" } });
     if (!page.id) return undefined;
     return account("facebook", page.id, page.name ?? "", page.username ?? page.name ?? page.id, { followers: page.fan_count ?? 0 });
   },
@@ -202,65 +251,176 @@ type Out = { externalId?: string };
 const linkedinText = (s: string) => s.replace(/[\\()[\]{}<>@|~_*]/g, (c) => `\\${c}`);
 const LINKEDIN_HEADERS = { "LinkedIn-Version": "202601", "X-Restli-Protocol-Version": "2.0.0" };
 
-const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
-  async instagram({ post, account: a, media }) {
-    if (!media?.path) throw new Error("Instagram exige une vidéo");
-    const query = {
-      ig_user_id: a.externalId,
-      media_type: "REELS",
-      video_url: signedMediaUrl(media.id),
-      caption: post.caption,
-      // The image shown on the profile grid. Without it, Instagram takes the first frame.
-      cover_url: media.cover ? signedCoverUrl(media.id) : undefined,
-    };
-    // treg's "Instagram login" app is not reviewed by Meta yet: it reads but cannot publish (code 10).
-    // The "Facebook Page" method uses approved permissions, so we fall back to it.
-    let headers: Record<string, string> = {};
-    let c: { id: string };
+/* ---------- Facebook stories ---------- */
+
+/** Name of the treg tool that reaches Facebook's video upload host with the Page's key. */
+const RUPLOAD_TOOL = "facebook-rupload";
+
+/** A photo story: the photo is first sent to the Page without being shown, then turned into a story. */
+async function facebookPhotoStory(page: string, media: MediaFile): Promise<Out> {
+  const { data: photo } = await graph<{ id: string }>(`${page}/photos`, {
+    catalog: "facebook.facebook.page.photo.create",
+    pageId: page,
+    method: "POST",
+    body: { url: signedMediaUrl(media.id), published: false },
+  });
+  if (!photo.id) throw new Error("Facebook n'a pas accepté la photo");
+  const { data } = await graph<{ success?: boolean; post_id?: string }>(`${page}/photo_stories`, { method: "POST", body: { photo_id: photo.id } });
+  if (data.success === false) throw new Error("Facebook n'a pas publié la story");
+  return { externalId: data.post_id ?? photo.id };
+}
+
+/** A video story, in Facebook's three steps: open an upload, hand over the video, publish. */
+async function facebookVideoStory(page: string, media: MediaFile): Promise<Out> {
+  const { data: start } = await graph<{ video_id?: string; upload_url?: string }>(`${page}/video_stories`, { method: "POST", body: { upload_phase: "start" } });
+  if (!start.video_id || !start.upload_url) throw new Error("Facebook n'a pas ouvert l'envoi de la story");
+  // Facebook downloads the video itself from our signed link. The upload host (rupload.facebook.com) wants
+  // the Page's key, which only treg holds: the call goes through the team's "facebook-rupload" treg tool
+  // (see docs/TREG.md for the one command that creates it).
+  const res = await fetch(`${base()}/call/${RUPLOAD_TOOL}${new URL(start.upload_url).pathname}`, {
+    method: "POST",
+    headers: { "X-Treg-Token": token(), file_url: signedMediaUrl(media.id) },
+    signal: AbortSignal.timeout(300_000),
+  });
+  const text = await res.text();
+  if (!res.ok || !/"success"\s*:\s*true/.test(text)) {
+    console.error(`[treg] facebook story upload ${res.status}: ${text.slice(0, 300)}`);
+    if (res.status === 404 || /not found|unknown tool|no such tool|no tool/i.test(text))
+      throw new Error(`Les stories vidéo Facebook demandent un réglage de plus dans treg (outil « ${RUPLOAD_TOOL} », voir docs/TREG.md). Les stories photo marchent sans.`);
+    throw new Error(`Facebook n'a pas pu recevoir la vidéo de la story (${res.status})`);
+  }
+  const { data } = await graph<{ success?: boolean; post_id?: string }>(`${page}/video_stories`, {
+    method: "POST",
+    body: { upload_phase: "finish", video_id: start.video_id },
+  });
+  if (data.success === false) throw new Error("Facebook n'a pas publié la story");
+  return { externalId: data.post_id ?? start.video_id };
+}
+
+/**
+ * Creates an Instagram container (a photo, a Reel or a story being prepared), waits until Instagram
+ * has processed it, then publishes it.
+ */
+async function instagramPublish(a: Account, query: Record<string, string | undefined>, opts: { video: boolean }): Promise<Out> {
+  // treg's "Instagram login" app is not reviewed by Meta yet: it reads but cannot publish (code 10).
+  // The "Facebook Page" method uses approved permissions, so we fall back to it.
+  let headers: Record<string, string> = {};
+  let c: { id: string };
+  const create = { method: "POST", query: { ig_user_id: a.externalId, ...query } };
+  try {
+    ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", create));
+  } catch (e) {
+    if (!/does not have permission|"code":10\b/i.test((e as Error).message)) throw instagramError(e);
+    headers = { "X-Treg-Authorization-Method": "facebook-page" };
     try {
-      ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { method: "POST", query }));
-    } catch (e) {
-      if (!/does not have permission|"code":10\b/i.test((e as Error).message)) throw e;
-      headers = { "X-Treg-Authorization-Method": "facebook-page" };
-      try {
-        ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { method: "POST", query, headers }));
-      } catch (e2) {
-        console.error("[treg] instagram via facebook-page", (e2 as Error).message);
-        throw new Error(
-          `Meta refuse la publication par la connexion « Instagram » de treg. Reliez @${a.handle} à une Page Facebook, puis connectez la méthode Page dans treg (instagram, page-tools).`,
-        );
-      }
+      ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { ...create, headers }));
+    } catch (e2) {
+      const reason = (e2 as Error).message;
+      console.error("[treg] instagram via facebook-page", reason);
+      // Only a missing Page connection (or the same refusal again) is fixed by connecting the Page method.
+      // Anything else is the real reason: a file Meta can't read, an expired connection, a limit, a timeout.
+      if (!/does not have permission|"code":10\b|not connected|no connection|authorization[- ]method|page-tools|No usable Instagram/i.test(reason)) throw instagramError(e2);
+      throw new Error(
+        `Meta refuse la publication par la connexion « Instagram » de treg. Reliez @${a.handle} à une Page Facebook, puis connectez la méthode Page dans treg (instagram, page-tools).`,
+      );
     }
-    // Instagram downloads and processes the video before it can be published.
-    for (let i = 0; ; i++) {
-      await sleep(i === 0 ? 10_000 : 20_000);
-      const { data: s } = await call<{ status_code?: string; status?: string }>("instagram.instagram.media.container.status", {
+  }
+  // Instagram downloads and processes the media before it can be published. A photo takes seconds, a video minutes.
+  const [first, next, tries] = opts.video ? [10_000, 20_000, 27] : [3_000, 5_000, 24];
+  let hiccups = 0;
+  for (let i = 0; ; i++) {
+    await sleep(i === 0 ? first : next);
+    let s: { status_code?: string; status?: string };
+    try {
+      ({ data: s } = await call<{ status_code?: string; status?: string }>("instagram.instagram.media.container.status", {
         query: { ig_container_id: c.id, fields: "status_code,status" },
         headers,
-      });
-      if (s.status_code === "FINISHED") break;
-      if (s.status_code === "ERROR" || s.status_code === "EXPIRED") throw new Error(`Instagram a refusé la vidéo : ${s.status ?? s.status_code}`);
-      if (i >= 27) throw new Error("Instagram traite encore la vidéo après 9 minutes");
+      }));
+      hiccups = 0;
+    } catch (e) {
+      // One lost answer must not throw away a media Instagram is still processing.
+      if (++hiccups >= 3 || i >= tries) throw e;
+      continue;
     }
-    const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: c.id }, headers });
-    return { externalId: data.id };
+    if (s.status_code === "FINISHED") break;
+    if (s.status_code === "ERROR" || s.status_code === "EXPIRED") throw new Error(`Instagram a refusé ${opts.video ? "la vidéo" : "la photo"} : ${s.status ?? s.status_code}`);
+    if (i >= tries) throw new Error(`Instagram traite encore ${opts.video ? "la vidéo après 9 minutes" : "la photo après 2 minutes"}`);
+  }
+  const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: c.id }, headers });
+  return { externalId: data.id };
+}
+
+/** Meta's own reason when it refuses a photo or a video, in plain words. */
+function instagramError(e: unknown) {
+  const text = (e as Error).message;
+  if (/aspect ratio|"code":36003\b/i.test(text)) return new Error("Instagram refuse le format de l'image : dans le fil, une photo doit être entre 4:5 et 1,91:1.");
+  if (/"code":9004\b|Only photo or video can be accepted|media type/i.test(text)) return new Error("Instagram n'a pas pu lire le fichier : il accepte les photos JPEG et les vidéos MP4.");
+  return e as Error;
+}
+
+const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
+  async instagram({ post, account: a, media }) {
+    if (!media?.path) throw new Error("Instagram exige une photo ou une vidéo");
+    const story = post.format === "story";
+    const url = signedMediaUrl(media.id);
+    if (media.kind === "image") {
+      if (media.mime !== "image/jpeg") throw new Error("Instagram n'accepte que les photos JPEG : réimportez la photo dans Metricove, elle sera convertie.");
+      // A story has no caption. A feed photo has no media_type.
+      return instagramPublish(a, story ? { media_type: "STORIES", image_url: url } : { image_url: url, caption: post.caption }, { video: false });
+    }
+    if (story) return instagramPublish(a, { media_type: "STORIES", video_url: url }, { video: true });
+    return instagramPublish(
+      a,
+      {
+        media_type: "REELS",
+        video_url: url,
+        caption: post.caption,
+        // The image shown on the profile grid. Without it, Instagram takes the first frame.
+        cover_url: media.cover ? signedCoverUrl(media.id) : undefined,
+      },
+      { video: true },
+    );
   },
 
   async facebook({ post, account: a, media }) {
-    if (media?.path) {
-      const { data } = await call<{ id: string }>("facebook.facebook.page.video.create", {
+    const page = a.externalId!;
+    try {
+      if (post.format === "story") {
+        if (!media?.path) throw new Error("Une story a besoin d'une photo ou d'une vidéo");
+        return media.kind === "image" ? await facebookPhotoStory(page, media) : await facebookVideoStory(page, media);
+      }
+      if (media?.path && media.kind === "image") {
+        const { data } = await graph<{ id: string; post_id?: string }>(`${page}/photos`, {
+          catalog: "facebook.facebook.page.photo.create",
+          pageId: page,
+          method: "POST",
+          body: { url: signedMediaUrl(media.id), caption: post.caption, published: true },
+        });
+        return { externalId: data.post_id ?? data.id };
+      }
+      if (media?.path) {
+        const { data } = await graph<{ id: string }>(`${page}/videos`, {
+          catalog: "facebook.facebook.page.video.create",
+          pageId: page,
+          method: "POST",
+          query: { fields: "id,permalink_url" },
+          body: { file_url: signedMediaUrl(media.id), description: post.caption, title: post.youtube?.title, published: true },
+        });
+        return { externalId: data.id };
+      }
+      const { data } = await graph<{ id: string }>(`${page}/feed`, {
+        catalog: "facebook.facebook.page.post.create",
+        pageId: page,
         method: "POST",
-          query: { page_id: a.externalId, fields: "id,permalink_url" },
-        body: { file_url: signedMediaUrl(media.id), description: post.caption, title: post.youtube?.title, published: true },
+        form: { message: post.caption, published: true },
       });
       return { externalId: data.id };
+    } catch (e) {
+      if (e instanceof AmbiguousError) throw e;
+      // Keep treg's own messages (reconnect, quota), and shorten Facebook's JSON to its sentence.
+      const reason = facebookReason(e);
+      throw reason === (e as Error).message ? e : new Error(`Facebook a refusé : ${reason}`);
     }
-    const { data } = await call<{ id: string }>("facebook.facebook.page.post.create", {
-      method: "POST",
-      query: { page_id: a.externalId },
-      form: { message: post.caption, published: true },
-    });
-    return { externalId: data.id };
   },
 
   async linkedin({ post, account: a, media }) {
@@ -396,7 +556,17 @@ export const tregPublisher: Publisher = {
     return { ready: true, detail: n > 1 ? `treg.to · ${n} équipes` : "treg.to" };
   },
 
-  async syncAccounts() {
+  syncAccounts() {
+    return inTurn(() => syncAll());
+  },
+
+  publish(post, accounts, media) {
+    return inTurn(() => publishAll(this, post, accounts, media));
+  },
+};
+
+async function syncAll() {
+  {
     const all: Account[] = [];
     const warnings: string[] = [];
     for (const label of tregTokens().keys()) {
@@ -418,14 +588,16 @@ export const tregPublisher: Publisher = {
     if (!all.length && warnings.length) throw new Error(warnings[0]);
     if (!all.length) throw new Error("Aucun compte trouvé dans treg : vérifiez les connexions et les jetons (TREG_TOKENS)");
     return { accounts: all, warnings };
-  },
+  }
+}
 
-  async publish(post, accounts, media) {
+async function publishAll(self: Publisher, post: Post, accounts: Account[], media?: MediaFile) {
+  {
     const at = () => new Date().toISOString();
     const results: Record<string, TargetResult> = {};
     for (const a of accounts) {
-      if (!this.status().ready) {
-        results[a.id] = { status: "failed", error: `treg n'est pas configuré : ${this.status().detail}`, at: at() };
+      if (!self.status().ready) {
+        results[a.id] = { status: "failed", error: `treg n'est pas configuré : ${self.status().detail}`, at: at() };
       } else if (!a.externalId || !a.providerKind?.startsWith("treg:") || !tregTokens().has(a.providerKind.slice(5))) {
         results[a.id] = { status: "failed", error: "Compte non relié à treg (synchronisez les comptes)", at: at() };
       } else {
@@ -439,5 +611,5 @@ export const tregPublisher: Publisher = {
       }
     }
     return results;
-  },
-};
+  }
+}

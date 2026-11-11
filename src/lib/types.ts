@@ -27,10 +27,25 @@ export type Account = {
 
 export type MediaSource = "claude-code" | "upload" | "hermes";
 
+export type MediaKind = "video" | "image";
+
+/**
+ * Where a post goes on Instagram and Facebook: the feed (a Reel for a video, a photo post
+ * for a photo) or a story (gone after 24 hours). The other networks only have the feed.
+ */
+export type PostFormat = "feed" | "story";
+
 export type Media = {
   id: string;
   title: string;
-  /** Seconds. */
+  /** A video, or a photo. */
+  kind: MediaKind;
+  /** Pixels, when known. */
+  width?: number;
+  height?: number;
+  /** File type, e.g. "image/jpeg" or "video/mp4", when there is a file. */
+  mime?: string;
+  /** Seconds. 0 for a photo. */
   duration: number;
   aspect: "9:16" | "1:1" | "16:9";
   source: MediaSource;
@@ -56,6 +71,8 @@ export type Post = {
   accountIds: string[];
   caption: string;
   mediaId?: string;
+  /** Feed by default. */
+  format?: PostFormat;
   scheduledAt: string;
   status: PostStatus;
   /** Who created the post. */
