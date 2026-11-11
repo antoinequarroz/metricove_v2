@@ -22,6 +22,7 @@ import {
   newSlide,
   photoFailed,
   renderSlide,
+  retryPhoto,
   saveDraft,
   type Slide,
   THEMES,
@@ -49,6 +50,7 @@ export function VisualsPage() {
   const [restored, setRestored] = useState(false);
   const media = useStore((s) => s.media);
   const uploadMedia = useStore((s) => s.uploadMedia);
+  const deleteMedia = useStore((s) => s.deleteMedia);
   const openComposer = useStore((s) => s.openComposer);
   const activeProject = useStore((s) => s.activeProject);
   const projects = useStore((s) => s.projects);
@@ -105,14 +107,24 @@ export function VisualsPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [picking, setPicking] = useState(false);
   const photos = useMemo(() => media.filter((m) => m.kind === "image" && m.url), [media]);
-  const importPhoto = (file: File | undefined) => {
+  const importPhoto = async (file: File | undefined) => {
     if (!file) return;
-    if (!isImageFile(file)) return toast.error("Choisissez une photo", { description: "JPEG, PNG, WebP ou HEIC." });
-    patchSlide({ photo: URL.createObjectURL(file), photoY: 0.5 });
+    if (!isImageFile(file)) return toast.error("Choisis une photo", { description: "JPEG, PNG, WebP ou HEIC." });
+    // Checked now: a photo this browser cannot read (HEIC outside Safari) would only fail when the post is made.
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.src = url;
+    try {
+      await img.decode();
+    } catch {
+      URL.revokeObjectURL(url);
+      return toast.error("Photo illisible par ce navigateur", { description: "Exporte-la en JPEG ou en PNG (les photos HEIC d'iPhone s'ouvrent dans Safari)." });
+    }
+    patchSlide({ photo: url, photoY: 0.5 });
   };
 
   // ---- Post written by Claude ----
-  const { data } = useMontage();
+  const { data, refresh } = useMontage();
   const [idea, setIdea] = useState("");
   const [count, setCount] = useState(5);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -123,6 +135,11 @@ export function VisualsPage() {
   const workerOld = !!data?.worker.version && !knowsPosts(data.worker.version);
   // Posts Claude finished while the page was closed.
   const ready = (data?.jobs ?? []).filter((j) => j.kind === "post" && j.status === "done" && j.post?.result && j.id !== jobId && !taken.includes(j.id)).slice(0, 4);
+
+  // The deck as it was when Claude was asked: a result must not erase what was written meanwhile.
+  const deckRef = useRef(deck);
+  deckRef.current = deck;
+  const askedDeck = useRef<Deck | null>(null);
 
   const applyResult = (job: MontageJob) => {
     const r = job.post?.result;
@@ -137,15 +154,47 @@ export function VisualsPage() {
   useEffect(() => {
     if (!pending) return;
     if (pending.status === "done" && pending.post?.result) {
-      applyResult(pending);
       setJobId(null);
-      toast.success("Post écrit par Claude", { description: "Relis les visuels et la description, puis crée le post." });
+      if (deckRef.current === askedDeck.current) {
+        applyResult(pending);
+        toast.success("Post écrit par Claude", { description: "Relis les visuels et la description, puis crée le post." });
+      } else {
+        // Edited while Claude wrote: the result waits in the list, a click takes it.
+        toast("Le post de Claude est prêt", { description: "Tu as modifié les visuels entre-temps : clique sur son idée, sous « Écrire le post », pour le reprendre.", duration: 12_000 });
+      }
     } else if (pending.status === "failed" || pending.status === "cancelled") {
       toast.error("Claude n'a pas pu écrire le post", { description: pending.error });
       montageApi(`/api/montage/jobs/${pending.id}`, { method: "DELETE" }).catch(() => {});
       setJobId(null);
     }
   }, [pending?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A request that vanished (deleted from another tab) must not spin forever.
+  const seenJob = useRef<string | null>(null);
+  useEffect(() => {
+    if (!jobId || !data) return;
+    if (pending) seenJob.current = jobId;
+    else if (seenJob.current === jobId) {
+      setJobId(null);
+      toast.error("La demande à Claude a été supprimée");
+    }
+  }, [jobId, data, pending]);
+
+  // Requests left by an earlier visit: one still running gets its spinner back, dead ones are removed.
+  useEffect(() => {
+    if (!data || jobId || asking) return;
+    const posts = data.jobs.filter((j) => j.kind === "post" && !taken.includes(j.id));
+    const dead = posts.filter((j) => j.status === "failed" || j.status === "cancelled");
+    if (dead.length) {
+      setTaken((t) => [...t, ...dead.map((j) => j.id)]);
+      for (const j of dead) montageApi(`/api/montage/jobs/${j.id}`, { method: "DELETE" }).catch(() => {});
+    }
+    const running = posts.find((j) => j.status === "queued" || j.status === "working");
+    if (running) {
+      askedDeck.current = null;
+      setJobId(running.id);
+    }
+  }, [data, jobId, asking, taken]);
 
   const askClaude = async () => {
     if (!idea.trim() || jobId || asking) return;
@@ -155,7 +204,9 @@ export function VisualsPage() {
         method: "POST",
         body: JSON.stringify({ kind: "post", idea, slides: count, projectId: activeProject !== "all" ? activeProject : undefined }),
       });
+      askedDeck.current = deckRef.current;
       setJobId(job.id);
+      refresh();
     } catch (e) {
       toast.error("Demande impossible", { description: (e as Error).message });
     } finally {
@@ -163,6 +214,7 @@ export function VisualsPage() {
     }
   };
   const cancelClaude = () => {
+    if (jobId) setTaken((t) => [...t, jobId]);
     if (jobId) montageApi(`/api/montage/jobs/${jobId}`, { method: "DELETE" }).catch(() => {});
     setJobId(null);
   };
@@ -171,14 +223,17 @@ export function VisualsPage() {
   const [making, setMaking] = useState<{ done: number; total: number } | null>(null);
   const story = deck.format === "9:16";
   const empty = deck.slides.every((s) => !s.title.trim() && !s.body.trim() && !s.photo);
+  // The visuals of the last "Créer le post": the same visuals are not sent to Médias twice.
+  const lastRender = useRef<{ key: string; ids: string[] } | null>(null);
   const createPost = async () => {
     if (!fonts || making) return;
-    const missing = deck.slides.findIndex((s) => s.photo && photoFailed(s.photo));
-    if (missing >= 0) {
-      setCurrent(missing);
-      return toast.error(`La photo du visuel ${missing + 1} ne se charge plus`, { description: "Remettez-la, ou retirez-la." });
-    }
+    for (const s of deck.slides) if (s.photo) retryPhoto(s.photo);
     const total = deck.slides.length;
+    const open = (ids: string[]) => openComposer(story ? { mediaId: ids[0], caption: deck.caption, format: "story" } : { mediaIds: ids, caption: deck.caption, format: "feed" });
+    // Everything that changes the pixels. The description does not.
+    const key = JSON.stringify({ ...deck, caption: "" });
+    const last = lastRender.current;
+    if (last?.key === key && last.ids.every((id) => useStore.getState().media.some((m) => m.id === id))) return open(last.ids);
     setMaking({ done: 0, total });
     const name = (deck.slides[0].title.trim() || "Visuel").replace(/\s+/g, " ").slice(0, 60);
     const ids: string[] = [];
@@ -190,12 +245,17 @@ export function VisualsPage() {
         ids.push((await uploadMedia(file, undefined, title)).id);
         setMaking({ done: i + 1, total });
       }
+      lastRender.current = { key, ids };
       // A story holds one image: the others wait in the library, one story each.
-      openComposer(story ? { mediaId: ids[0], caption: deck.caption, format: "story" } : { mediaIds: ids, caption: deck.caption, format: "feed" });
-      if (story && total > 1) toast("Une story par visuel", { description: `Le premier est dans le post. Les ${total - 1} autres sont dans Médias : faites une story pour chacun.`, duration: 10_000 });
-      else toast.success(total > 1 ? `${total} visuels ajoutés à Médias` : "Visuel ajouté à Médias", { description: "Choisissez les comptes et la date, puis programmez." });
+      open(ids);
+      if (story && total > 1) toast("Une story par visuel", { description: `Le premier est dans le post. Les ${total - 1} autres sont dans Médias : fais une story pour chacun.`, duration: 10_000 });
+      else toast.success(total > 1 ? `${total} visuels ajoutés à Médias` : "Visuel ajouté à Médias", { description: "Choisis les comptes et la date, puis programme." });
     } catch (e) {
-      toast.error("Création impossible", { description: `${(e as Error).message}${ids.length ? ` (${ids.length} visuel${ids.length > 1 ? "s" : ""} déjà dans Médias)` : ""}` });
+      // Nothing was posted: the visuals already sent are removed, so a new try does not double them.
+      const left = (await Promise.allSettled(ids.map((id) => deleteMedia(id)))).filter((r) => r.status === "rejected").length;
+      const failed = deck.slides.findIndex((s) => s.photo && photoFailed(s.photo));
+      if (failed >= 0) setCurrent(failed);
+      toast.error("Création impossible", { description: `${(e as Error).message}${left ? ` (${left} visuel${left > 1 ? "s" : ""} resté${left > 1 ? "s" : ""} dans Médias)` : ""}` });
     } finally {
       setMaking(null);
     }
@@ -353,10 +413,10 @@ export function VisualsPage() {
 
               <Panel title={`Texte du visuel ${index + 1}`}>
                 <Field label="Gros texte">
-                  <textarea value={slide.title} onChange={(e) => patchSlide({ title: e.target.value })} rows={2} maxLength={200} className={cn(inputClass, "resize-y py-2 leading-snug")} />
+                  <textarea aria-label="Gros texte" value={slide.title} onChange={(e) => patchSlide({ title: e.target.value })} rows={2} maxLength={200} className={cn(inputClass, "resize-y py-2 leading-snug")} />
                 </Field>
                 <Field label="Petit texte">
-                  <textarea value={slide.body} onChange={(e) => patchSlide({ body: e.target.value })} rows={3} maxLength={600} className={cn(inputClass, "resize-y py-2 leading-snug")} />
+                  <textarea aria-label="Petit texte" value={slide.body} onChange={(e) => patchSlide({ body: e.target.value })} rows={3} maxLength={600} className={cn(inputClass, "resize-y py-2 leading-snug")} />
                 </Field>
               </Panel>
 
@@ -384,6 +444,7 @@ export function VisualsPage() {
                       <button
                         key={m.id}
                         onClick={() => {
+                          if (m.url) retryPhoto(m.url);
                           patchSlide({ photo: m.url, photoY: 0.5 });
                           setPicking(false);
                         }}
@@ -476,7 +537,7 @@ export function VisualsPage() {
                 </Field>
                 <Field label="Signature">
                   <div className="flex gap-2">
-                    <input value={deck.handle} onChange={(e) => patch({ handle: e.target.value })} maxLength={40} placeholder={suggestedHandle || "@toncompte"} className={cn(inputClass, "h-9")} />
+                    <input aria-label="Signature" value={deck.handle} onChange={(e) => patch({ handle: e.target.value })} maxLength={40} placeholder={suggestedHandle || "@toncompte"} className={cn(inputClass, "h-9")} />
                     {suggestedHandle && deck.handle !== suggestedHandle && (
                       <Button size="sm" className="h-9" onClick={() => patch({ handle: suggestedHandle })}>
                         {suggestedHandle}
@@ -514,6 +575,10 @@ function SlideCanvas({ deck, index, fonts, small, className }: { deck: Deck; ind
   const ref = useRef<HTMLCanvasElement>(null);
   const [tick, setTick] = useState(0);
   const H = HEIGHTS[deck.format];
+  // Only what this slide draws: typing in another slide or in the description redraws nothing here.
+  const drawn = JSON.stringify([{ ...deck, slides: undefined, caption: undefined }, deck.slides[index], deck.slides.length]);
+  const latest = useRef(deck);
+  latest.current = deck;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -528,8 +593,8 @@ function SlideCanvas({ deck, index, fonts, small, className }: { deck: Deck; ind
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(width / W, 0, 0, width / W, 0, 0);
-    drawSlide(ctx, deck, index, fonts, () => setTick((t) => t + 1));
-  }, [deck, index, fonts, small, H, tick]);
+    drawSlide(ctx, latest.current, index, fonts, () => setTick((t) => t + 1));
+  }, [drawn, index, fonts, small, H, tick]);
 
   return <canvas ref={ref} className={cn("block w-full bg-surface-2", className)} style={{ aspectRatio: `${W} / ${H}` }} aria-label={`Aperçu du visuel ${index + 1}`} role="img" />;
 }

@@ -138,7 +138,7 @@ Un segment peut être coupé en deux dans la timeline : les deux moitiés garden
 
 ### Côté worker
 
-- `POST /api/montage/worker/claim` `{ "worker": "mac", "version": "0.1.0" }`
+- `POST /api/montage/worker/claim` `{ "worker": "mac", "version": "0.2.0" }` (`version` sert à l'interface : « Écrire le post » demande 0.2.0 au moins)
   → `204` s'il n'y a rien, sinon `{ job, action, rushes }`. La tâche passe en `working`.
   Chaque rush : `{ id, name, origin, size, duration?, path?, createdAt, url? }`. `url` (chemin relatif) n'existe que pour un rush `upload` à télécharger.
   Une tâche prise sans nouvelles pendant 15 minutes est redonnée (Mac en veille, plantage) : envoyer `step`/`progress` régulièrement.
@@ -162,7 +162,8 @@ Un segment peut être coupé en deux dans la timeline : les deux moitiés garden
   supprime la tâche une fois la description lue.
 - `action: "post"` (`kind: "post"`, worker 0.2.0) : écrire un post entier à partir d'une idée (Studio → Carrousel et photo).
   `job.post` donne `{ idea, slides, networks, accounts: [{ network, handle }], project? }` : `slides` est le nombre de
-  visuels voulus (1 à 10). Répondre vite (l'interface attend au plus 4 min), puis
+  visuels voulus (1 à 10). Pas de délai côté interface : le résultat reste proposé dans « Carrousel et photo »
+  jusqu'à ce qu'il soit repris, puis la tâche est supprimée. Envoyer
   `PATCH /api/montage/jobs/:id` `{ "status": "done", "post": { "caption", "slides": [{ "title", "body" }] } }`.
   Les visuels sont dessinés par Metricove, le worker n'écrit que les textes.
 - `action: "cover"` (`kind: "cover"`) : faire la couverture du feed (image JPEG 1080×1920) de la vidéo

@@ -126,23 +126,30 @@ export async function loadFonts(f: Fonts) {
 /* ---------- Photos ---------- */
 
 const images = new Map<string, HTMLImageElement | "loading" | "failed">();
+const waiters = new Map<string, Set<() => void>>();
 
-/** The decoded photo, or undefined while it loads (then `onReady` is called once). */
+/** The decoded photo, or undefined while it loads (then every `onReady` given meanwhile is called once). */
 export function photoOf(url: string, onReady?: () => void): HTMLImageElement | undefined {
   const hit = images.get(url);
   if (hit && typeof hit !== "string") return hit;
+  if (hit === "failed") return undefined;
+  if (onReady) {
+    let set = waiters.get(url);
+    if (!set) waiters.set(url, (set = new Set()));
+    set.add(onReady);
+  }
   if (hit === undefined) {
     images.set(url, "loading");
     const img = new Image();
     img.decoding = "async";
-    img.onload = () => {
-      images.set(url, img);
-      onReady?.();
+    const settle = (value: HTMLImageElement | "failed") => {
+      images.set(url, value);
+      const set = waiters.get(url);
+      waiters.delete(url);
+      set?.forEach((fn) => fn());
     };
-    img.onerror = () => {
-      images.set(url, "failed");
-      onReady?.();
-    };
+    img.onload = () => settle(img);
+    img.onerror = () => settle("failed");
     img.src = url;
   }
   return undefined;
@@ -150,19 +157,15 @@ export function photoOf(url: string, onReady?: () => void): HTMLImageElement | u
 
 export const photoFailed = (url: string) => images.get(url) === "failed";
 
+/** Forgets a failed load, so the next drawing tries again (a library photo after a network hiccup). */
+export const retryPhoto = (url: string) => {
+  if (images.get(url) === "failed") images.delete(url);
+};
+
 function loadPhoto(url: string) {
   return new Promise<void>((resolve) => {
     const hit = images.get(url);
     if (hit && hit !== "loading") return resolve();
-    if (hit === "loading") {
-      const id = setInterval(() => {
-        if (images.get(url) !== "loading") {
-          clearInterval(id);
-          resolve();
-        }
-      }, 50);
-      return;
-    }
     photoOf(url, resolve);
   });
 }
@@ -192,17 +195,28 @@ function grain() {
 
 /* ---------- Text ---------- */
 
-/** Breaks a text into lines no wider than `max`. Line breaks typed by the user are kept. */
+/**
+ * Breaks a text into lines no wider than `max`. Line breaks typed by the user are kept.
+ * A word wider than the line on its own (a link, a chain of hashtags) is cut into pieces that fit.
+ */
 function wrap(ctx: CanvasRenderingContext2D, text: string, max: number): string[] {
   const lines: string[] = [];
   for (const para of text.split("\n")) {
     let line = "";
-    for (const word of para.split(/\s+/).filter(Boolean)) {
+    for (let word of para.split(/\s+/).filter(Boolean)) {
       const next = line ? `${line} ${word}` : word;
-      if (line && ctx.measureText(next).width > max) {
-        lines.push(line);
-        line = word;
-      } else line = next;
+      if (ctx.measureText(next).width <= max) {
+        line = next;
+        continue;
+      }
+      if (line) lines.push(line);
+      while (word.length > 1 && ctx.measureText(word).width > max) {
+        let n = word.length - 1;
+        while (n > 1 && ctx.measureText(word.slice(0, n)).width > max) n--;
+        lines.push(word.slice(0, n));
+        word = word.slice(n);
+      }
+      line = word;
     }
     lines.push(line);
   }
@@ -226,6 +240,18 @@ function fit(ctx: CanvasRenderingContext2D, text: string, font: (size: number) =
     if (size <= to || (lines.length * lineHeight <= box.height && widest(ctx, lines) <= box.width)) return { lines, size, lineHeight, font: font(size) };
     size -= 4;
   }
+}
+
+/** Keeps only the lines that fit in `height`, and ends the last one with "…" when some were dropped. */
+function clamp(ctx: CanvasRenderingContext2D, block: Block, height: number, width: number): Block {
+  const n = Math.max(1, Math.floor(height / block.lineHeight));
+  if (block.lines.length <= n) return block;
+  ctx.font = block.font;
+  const lines = block.lines.slice(0, n);
+  let last = lines[n - 1].replace(/[\s.,;:!?]+$/, "");
+  while (last && ctx.measureText(`${last}…`).width > width) last = last.slice(0, -1);
+  lines[n - 1] = `${last}…`;
+  return { ...block, lines };
 }
 
 /* ---------- Drawing ---------- */
@@ -342,13 +368,19 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
     const titleFont = (size: number) => (deck.font === "serif" ? `400 ${size}px ${fonts.serif}` : `700 ${size}px ${fonts.sans}`);
     const bodyFont = (size: number) => `400 ${size}px ${fonts.sans}`;
     // The text keeps at least a third of the height when there is a title, and the title takes the rest.
-    const b0 = body ? fit(ctx, body, bodyFont, { width: box.width, height: title ? box.height * 0.42 : box.height }, title ? 44 : 64, 30, 1.42) : undefined;
-    const bodyH = b0 ? b0.lines.length * b0.lineHeight : 0;
+    let b0 = body ? fit(ctx, body, bodyFont, { width: box.width, height: title ? box.height * 0.42 : box.height }, title ? 44 : 64, 30, 1.42) : undefined;
+    let bodyH = b0 ? b0.lines.length * b0.lineHeight : 0;
     const longTitle = title.length > 60;
-    const t0 = title
+    let t0 = title
       ? fit(ctx, title, titleFont, { width: box.width, height: box.height - bodyH - gap - mark }, deck.font === "serif" ? (longTitle ? 112 : 148) : longTitle ? 92 : 124, 48, deck.font === "serif" ? 1.04 : 1.1)
       : undefined;
+    // Texts too long even at the smallest size are cut with "…" instead of running over the edge.
+    if (t0) t0 = clamp(ctx, t0, body ? box.height * 0.5 - mark : box.height - mark, box.width);
     const titleH = t0 ? t0.lines.length * t0.lineHeight : 0;
+    if (b0) {
+      b0 = clamp(ctx, b0, box.height - mark - titleH - gap, box.width);
+      bodyH = b0.lines.length * b0.lineHeight;
+    }
     const blockH = mark + titleH + gap + bodyH;
     let y = deck.valign === "top" ? box.y : deck.valign === "bottom" ? box.y + box.height - blockH : box.y + (box.height - blockH) / 2;
     y = Math.max(box.y, y);
@@ -384,7 +416,7 @@ export async function renderSlide(deck: Deck, index: number, fonts: Fonts): Prom
   const photo = deck.slides[index]?.photo;
   if (photo) {
     await loadPhoto(photo);
-    if (photoFailed(photo)) throw new Error(`La photo du visuel ${index + 1} ne se charge plus : remettez-la.`);
+    if (photoFailed(photo)) throw new Error(`La photo du visuel ${index + 1} ne se charge plus : remets-la.`);
   }
   await loadFonts(fonts);
   const canvas = document.createElement("canvas");
@@ -399,8 +431,11 @@ export async function renderSlide(deck: Deck, index: number, fonts: Fonts): Prom
 /* ---------- Draft kept in the browser ---------- */
 
 const KEY = "metricove-visuals-v1";
+/** The deck being edited. It outlives a visit to another page of the app, imported photos included. */
+let live: Deck | undefined;
 
 export function loadDraft(): Deck | undefined {
+  if (live) return live;
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return undefined;
@@ -422,6 +457,7 @@ export function loadDraft(): Deck | undefined {
 }
 
 export function saveDraft(deck: Deck) {
+  live = deck;
   try {
     // A photo imported from the disk only lives in this tab: it is not kept. Library photos are.
     const slides = deck.slides.map((s) => ({ ...s, photo: s.photo?.startsWith("/api/") ? s.photo : undefined }));
