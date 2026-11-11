@@ -3,9 +3,11 @@
 // La page est rendue par HyperFrames, puis ffmpeg ajoute la musique (ou une piste muette).
 import { copyFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { ensureDir, home, run, log } from "./util.mjs";
 import { googleFaces } from "./fonts.mjs";
 import { pickTrack } from "./audio.mjs";
+import { writeArts } from "./motion-art.mjs";
 
 const W = 1080, H = 1920, FPS = 30;
 export const MAX_SCENES = 8;
@@ -27,7 +29,12 @@ export function cleanMotion(m = {}) {
   const theme = pick(l.theme, ["paper", "night", "accent", "gradient", "custom"], "night");
   const logo = typeof l.logo === "string" && l.logo.length <= 400_000 && /^data:image\/(png|jpeg|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(l.logo) ? l.logo : "";
   const scenes = (Array.isArray(m.scenes) ? m.scenes : [])
-    .map((s) => ({ title: String(s?.title || "").replace(/\r/g, "").trim().slice(0, 120), body: String(s?.body || "").replace(/\r/g, "").trim().slice(0, 240) }))
+    .map((s) => ({
+      title: String(s?.title || "").replace(/\r/g, "").trim().slice(0, 120),
+      body: String(s?.body || "").replace(/\r/g, "").trim().slice(0, 240),
+      // Consigne de motion design libre : Claude écrit lui-même cette scène (lib/motion-art.mjs).
+      anim: String(s?.anim || "").replace(/\s+/g, " ").trim().slice(0, 300),
+    }))
     .filter((s) => s.title || s.body)
     .slice(0, MAX_SCENES);
   return {
@@ -97,7 +104,8 @@ function titleSize(title, condensed) {
 }
 
 /** Durée d'une scène : le temps de la lire, plus celui de l'animation. */
-export const sceneSeconds = (s, last) => Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.length + s.body.length))) + (last ? 1.2 : 0);
+export const sceneSeconds = (s, last) =>
+  Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.length + s.body.length))) + (s.anim ? 1.5 : 0) + (last ? 1.2 : 0);
 
 const GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
 
@@ -109,9 +117,10 @@ const WIPES = [
 
 /**
  * La page du reel. `fonts` : { display: [{ url, rules }], body: [...] } (fichiers déjà copiés à côté de la page).
+ * `arts` : { [index]: { html, css, js } } — scènes libres écrites par Claude (déjà vérifiées par checkArt).
  * Renvoie { html, duration }.
  */
-export function motionPage(motion, fonts = { display: [], body: [] }, gsap = GSAP) {
+export function motionPage(motion, fonts = { display: [], body: [] }, gsap = GSAP, arts = {}) {
   const { look, scenes } = motion;
   const F = FONTS[look.font];
   const face = (fam, list) => list.map((x) => `@font-face{font-family:"${fam}";src:url("${x.url}") format("woff2");${x.rules}}`).join("\n");
@@ -123,8 +132,10 @@ export function motionPage(motion, fonts = { display: [], body: [] }, gsap = GSA
   const center = look.align === "center";
   const els = [], js = [];
 
+  const artCss = [];
   scenes.forEach((s, i) => {
     const c = colors(look, i);
+    const art = arts[i];
     const t0 = starts[i], d = durs[i];
     // La scène existe dès le début de sa transition (0,3 s avant son tour) : elle recouvre la précédente.
     const on = Math.max(0, t0 - 0.3);
@@ -135,19 +146,29 @@ export function motionPage(motion, fonts = { display: [], body: [] }, gsap = GSA
     const bars = n > 1 ? `<div class="bars">${scenes.map((_, k) => `<i style="background:${alpha(HEX.test(c.line) ? c.line : "#ffffff", 0.22)}"><b style="background:${c.ink};transform:scaleX(${k < i ? 1 : 0})"></b></i>`).join("")}</div>` : "";
     els.push(`<div id="s${i}" class="clip scene" data-start="${f(on)}" data-duration="${f(total - on)}" data-track-index="${i}" style="z-index:${i + 1};background:${c.bg};color:${c.ink}">
 ${c.glow ? `<div class="glow" style="background:radial-gradient(circle at 90% 0%, ${alpha(look.accent, look.theme === "night" ? 0.26 : 0.16)}, ${alpha(look.accent, 0)} 60%)"></div>` : ""}${look.grid ? `<div class="grid" style="background-image:linear-gradient(${alpha(HEX.test(c.line) ? c.line : "#ffffff", 0.09)} 2px, transparent 2px),linear-gradient(90deg, ${alpha(HEX.test(c.line) ? c.line : "#ffffff", 0.09)} 2px, transparent 2px)"></div>` : ""}
-<div class="orb" style="border-color:${c.mark}"></div>
+${art ? "" : `<div class="orb" style="border-color:${c.mark}"></div>`}
 ${look.grain ? `<div class="grain"></div>` : ""}${bars}
-<div class="box ${look.valign}${center ? " center" : ""}">${pill}
+${art ? `<div class="art">${art.html}</div>` : `<div class="box ${look.valign}${center ? " center" : ""}">${pill}
 ${s.title ? `<h1 style="font-size:${size}px">${words}</h1>` : ""}
 <div class="rule" style="background:${c.mark}"></div>
-${s.body ? `<p style="color:${c.sub}">${E(s.body).replace(/\n/g, "<br>")}</p>` : ""}</div>
+${s.body ? `<p style="color:${c.sub}">${E(s.body).replace(/\n/g, "<br>")}</p>` : ""}</div>`}
 ${sig}</div>`);
+    if (art) artCss.push(art.css);
 
     // Entrée de la scène : la première est là dès le début, les suivantes recouvrent la précédente.
     const wipe = WIPES[i % WIPES.length];
     if (i > 0) {
       js.unshift(`gsap.set("#s${i}",{clipPath:"${wipe[0]}"});`);
       js.push(`tl.to("#s${i}",{clipPath:"${wipe[1]}",duration:0.6,ease:"expo.inOut"},${f(t0 - 0.3)});`);
+    }
+    if (art) {
+      // Scène libre : son code ajoute ses propres tweens à la timeline. Une erreur reste dans la scène.
+      js.push(`try{(function(tl,root,T,D,gsap){\n${art.js}\n})(tl,document.querySelector("#s${i} .art"),${f(t0)},${f(d)},gsap);}catch(e){console.error("scène libre s${i} : "+e.message);}`);
+      if (i === 0) js.push(`gsap.set("#s0 .sig",{opacity:0});tl.to("#s0 .sig",{opacity:1,duration:0.5},${f(t0 + 0.8)});`);
+      if (n > 1) js.push(`tl.fromTo("#s${i} .bars i:nth-child(${i + 1}) b",{scaleX:0},{scaleX:1,duration:${f(d)},ease:"none",immediateRender:false},${f(t0)});`);
+      if (look.grid) js.push(`tl.fromTo("#s${i} .grid",{backgroundPosition:"0px 0px"},{backgroundPosition:"0px -${Math.round(18 * d)}px",duration:${f(d + 0.6)},ease:"none",immediateRender:false},${f(Math.max(0, t0 - 0.3))});`);
+      if (i < n - 1) js.push(`tl.to("#s${i} .art",{y:-36,opacity:0,duration:0.35,ease:"power2.in"},${f(t0 + d - 0.42)});`);
+      return;
     }
     const a = t0 + (i ? 0.12 : 0.25);
     const nw = s.title.split(/\s+/).filter(Boolean).length;
@@ -192,7 +213,9 @@ h1{font-family:"${F.display.family}",${FALLBACK[look.font]};${F.display.css};max
 .rule{width:200px;height:12px;border-radius:6px;transform-origin:${center ? "center" : "left"} center}
 p{font-size:58px;line-height:1.26;max-width:880px;text-wrap:pretty;overflow-wrap:anywhere}
 .sig{position:absolute;left:90px;right:90px;bottom:380px;display:flex;align-items:center;gap:18px;font-size:34px;font-weight:600${center ? ";justify-content:center" : ""}}
-.sig img{height:64px;width:auto}`;
+.sig img{height:64px;width:auto}
+.art{position:absolute;inset:0}
+${artCss.join("\n")}`;
 
   const html = `<!doctype html><html lang="fr" data-resolution="portrait"><head><meta charset="UTF-8" />
 <meta name="viewport" content="width=${W}, height=${H}" />
@@ -212,6 +235,34 @@ tl.to({},{duration:0.01},${f(total - 0.01)});
 window.__timelines["main"]=tl; tl.seek(0);
 </script></body></html>`;
   return { html, duration: total };
+}
+
+/**
+ * Les scènes libres qui plantent dans Chrome : `hyperframes validate` charge la page et relève les erreurs de la console.
+ * Une erreur d'une scène libre porte son nom (« scène libre sN ») ; une erreur qu'on ne sait pas attribuer les écarte toutes.
+ */
+async function brokenArts(cfg, hf, arts) {
+  // `validate` sort en code 1 quand il trouve une erreur : sa réponse JSON (stdout) est lue dans tous les cas.
+  const out = await new Promise((res) => {
+    const p = spawn("npx", ["--yes", cfg.hyperframes, "validate", "--json", "--no-contrast", "--timeout", "5000", "."], { cwd: hf });
+    let o = "";
+    p.stdout.on("data", (d) => (o += d));
+    p.stderr.on("data", () => {});
+    p.on("error", () => res(""));
+    p.on("close", () => res(o));
+  });
+  let errors = [];
+  try {
+    const j = JSON.parse(out.slice(out.indexOf("{")));
+    errors = (Array.isArray(j.errors) ? j.errors : []).map((x) => (typeof x === "string" ? x : x?.text || JSON.stringify(x)));
+  } catch {
+    // Pas de réponse lisible : on ne sait rien, on garde les scènes (le rendu a son propre filet).
+    return [];
+  }
+  if (!errors.length) return [];
+  const named = Object.keys(arts).filter((i) => errors.some((e) => e.includes(`scène libre s${i} `)));
+  log("validation HyperFrames :", errors.slice(0, 3).join(" | ").slice(0, 400));
+  return named.length ? named : Object.keys(arts);
 }
 
 /** Fabrique le reel d'une tâche "motion". Renvoie { video, duration, notes }. */
@@ -239,14 +290,58 @@ export async function makeMotion(cfg, job, dir, step = async () => {}) {
   // `gsapFile` (config) : une copie de gsap.min.js sur le Mac, pour rendre sans réseau.
   const local = cfg.gsapFile && existsSync(home(cfg.gsapFile));
   if (local) copyFileSync(home(cfg.gsapFile), join(hf, "assets", "gsap.min.js"));
-  const { html, duration } = motionPage(motion, fonts, local ? "assets/gsap.min.js" : undefined);
+  const gsapSrc = local ? "assets/gsap.min.js" : undefined;
   writeFileSync(join(hf, "hyperframes.json"), JSON.stringify({ paths: { assets: "assets" }, media: { autoProxy: true } }));
   writeFileSync(join(hf, "package.json"), JSON.stringify({ name: "metricove-reel", private: true, type: "module" }));
+
+  // Scènes libres : Claude écrit leur code, le worker le vérifie, puis HyperFrames le teste dans Chrome.
+  let arts = {};
+  if (motion.scenes.some((s) => s.anim)) {
+    await step("Claude écrit les animations demandées…", 0.08);
+    const n = motion.scenes.length;
+    const ctx = {
+      look: motion.look,
+      fonts: { display: F.display.family, body: F.body.family },
+      durs: motion.scenes.map((s, i) => sceneSeconds(s, i === n - 1)),
+      n,
+      colors: (i) => {
+        const c = colors(motion.look, i);
+        return { ...c, bgLabel: HEX.test(c.bg) ? c.bg : `dégradé autour de ${motion.look.accent}` };
+      },
+    };
+    const r = await writeArts(cfg, motion, ctx, dir);
+    arts = r.arts;
+    notes.push(...r.notes);
+    if (Object.keys(arts).length) {
+      writeFileSync(join(hf, "index.html"), motionPage(motion, fonts, gsapSrc, arts).html);
+      const broken = await brokenArts(cfg, hf, arts);
+      for (const i of broken) {
+        delete arts[i];
+        notes.push(`Scène ${Number(i) + 1} : l'animation de Claude plante dans Chrome, animation standard.`);
+      }
+    }
+  }
+
+  const page = () => motionPage(motion, fonts, gsapSrc, arts);
+  let { html, duration } = page();
   writeFileSync(join(hf, "index.html"), html);
 
   await step(`Animation des ${motion.scenes.length} scènes (${Math.round(duration)} s)…`, 0.15);
   const silent = join(dir, "reel-muet.mp4");
-  await run("npx", ["--yes", cfg.hyperframes, "render", "--format", "mp4", "--fps", String(FPS), "--workers", "1", "-o", silent, "--quiet", "."], { cwd: hf });
+  const render = () => run("npx", ["--yes", cfg.hyperframes, "render", "--format", "mp4", "--fps", String(FPS), "--workers", "1", "-o", silent, "--quiet", "."], { cwd: hf });
+  try {
+    await render();
+  } catch (e) {
+    if (!Object.keys(arts).length) throw e;
+    // Dernier filet : le rendu échoue avec les scènes libres, on refait le reel avec l'animation standard partout.
+    log("rendu avec les scènes libres impossible :", e.message);
+    notes.push("Le rendu avec les animations de Claude a échoué : reel refait avec l'animation standard.");
+    arts = {};
+    ({ html, duration } = page());
+    writeFileSync(join(hf, "index.html"), html);
+    rmSync(silent, { force: true });
+    await render();
+  }
   if (!existsSync(silent)) throw new Error("Le rendu du reel n'a produit aucune vidéo.");
 
   await step("Son et finition…", 0.85);

@@ -18,6 +18,8 @@ export type Slide = {
   photoY?: number;
   /** How much the photo is darkened so the text stays readable, 0 to 0.85. */
   dim?: number;
+  /** Animated reel only: a motion design instruction; the Mac has Claude write this scene in HyperFrames. */
+  anim?: string;
 };
 
 /** The look (shared with the style profile of a project), plus what belongs to this post only. */
@@ -543,7 +545,7 @@ export function loadDraft(kind: DraftKind = "visuals"): Deck | undefined {
       logo: typeof d.logo === "string" && d.logo.startsWith("data:image/") ? d.logo : undefined,
       profileId: typeof d.profileId === "string" ? d.profileId : undefined,
       autoProject: typeof d.autoProject === "string" ? d.autoProject : undefined,
-      slides: d.slides.slice(0, MAX_SLIDES).map((s) => ({ ...newSlide(String(s.title ?? ""), String(s.body ?? "")), photo: typeof s.photo === "string" ? s.photo : undefined, photoY: s.photoY, dim: s.dim })),
+      slides: d.slides.slice(0, MAX_SLIDES).map((s) => ({ ...newSlide(String(s.title ?? ""), String(s.body ?? "")), photo: typeof s.photo === "string" ? s.photo : undefined, photoY: s.photoY, dim: s.dim, anim: typeof s.anim === "string" ? s.anim.slice(0, 300) : undefined })),
       caption: String(d.caption ?? ""),
     };
   } catch {

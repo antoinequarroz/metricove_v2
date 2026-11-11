@@ -155,7 +155,8 @@ export const MAX_SCENES = 8;
 
 /** kind "motion": an animated reel (9:16, no rush) made of text scenes in the look of the project. */
 export type MotionRequest = {
-  scenes: { title: string; body: string }[];
+  /** `anim`: a free motion design instruction for the scene; Claude writes that scene's animation (worker 0.7.0). */
+  scenes: { title: string; body: string; anim?: string }[];
   /** The look of the scenes. The logo is not stored here: the Mac gets the project's logo when it takes the job. */
   look: Look;
   /** Show the logo saved in the project's profile (false when the editor shows none). */

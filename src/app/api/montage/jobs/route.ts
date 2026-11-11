@@ -176,7 +176,10 @@ function postJob(b: Body) {
 /** Asks the Mac for an animated reel: text scenes in the look of the project, no rush. */
 function motionJob(b: Body) {
   const scenes = (Array.isArray(b.scenes) ? (b.scenes as Record<string, unknown>[]) : [])
-    .map((s) => ({ title: typeof s?.title === "string" ? s.title.trim().slice(0, 120) : "", body: typeof s?.body === "string" ? s.body.trim().slice(0, 240) : "" }))
+    .map((s) => {
+      const anim = typeof s?.anim === "string" ? s.anim.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+      return { title: typeof s?.title === "string" ? s.title.trim().slice(0, 120) : "", body: typeof s?.body === "string" ? s.body.trim().slice(0, 240) : "", ...(anim ? { anim } : {}) };
+    })
     .filter((s) => s.title || s.body)
     .slice(0, MAX_SCENES);
   if (!scenes.length) return NextResponse.json({ error: "Écris au moins une scène" }, { status: 400 });

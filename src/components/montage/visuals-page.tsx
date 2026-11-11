@@ -37,6 +37,8 @@ import { montageApi, useMontage } from "./use-montage";
 /** Oldest Mac program that knows how to write a whole post, and the one that animates a reel. */
 const POST_WORKER = [0, 2, 0];
 const MOTION_WORKER = [0, 6, 0];
+/** Oldest Mac program that lets Claude write a scene's animation (free motion design). */
+const ANIM_WORKER = [0, 7, 0];
 const atLeast = (version: string | undefined, min: number[]) => {
   const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
   for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
@@ -44,7 +46,8 @@ const atLeast = (version: string | undefined, min: number[]) => {
 };
 
 /** Seconds a scene stays on screen. Same rule as the Mac (worker/montage/lib/motion.mjs). */
-const sceneSeconds = (s: Slide, last: boolean) => Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.trim().length + s.body.trim().length))) + (last ? 1.2 : 0);
+const sceneSeconds = (s: Slide, last: boolean) =>
+  Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.trim().length + s.body.trim().length))) + (s.anim?.trim() ? 1.5 : 0) + (last ? 1.2 : 0);
 
 /**
  * The visuals editor of the Studio. "visuals": a carousel or a photo post, drawn here.
@@ -274,6 +277,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   const [reelMedia, setReelMedia] = useState<string | null>(null);
   const reel = data?.jobs.find((j) => j.id === reelId);
   const motionOld = motion && !!data?.worker.version && !atLeast(data.worker.version, MOTION_WORKER);
+  const animOld = motion && !motionOld && !!data?.worker.version && !atLeast(data.worker.version, ANIM_WORKER) && deck.slides.some((s) => s.anim?.trim());
   const seconds = Math.round(deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0));
   const playMedia = useStore((s) => s.playMedia);
 
@@ -319,7 +323,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
         method: "POST",
         body: JSON.stringify({
           kind: "motion",
-          scenes: deck.slides.map((s) => ({ title: s.title, body: s.body })),
+          scenes: deck.slides.map((s) => ({ title: s.title, body: s.body, ...(s.anim?.trim() ? { anim: s.anim.trim() } : {}) })),
           // Whether a logo shows; the image itself is the one saved in the project's profile, which the Mac gets.
           look: { ...lookOf(deck), logo: undefined },
           logo: !!deck.logo,
@@ -438,6 +442,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
               <p className="mt-2 text-[12px] text-ink-3">Compte une à deux minutes. Tu peux quitter la page : le reel arrivera dans la bibliothèque.</p>
             </div>
           )}
+          {animOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">{"Le programme de ton Mac ne sait pas encore écrire les animations demandées (version 0.7.0) : ces scènes auront l'animation standard."}</p>}
           {motion && motionOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">Le programme de ton Mac est trop ancien pour animer un reel : mets-le à jour (version 0.6.0).</p>}
           {motion && reelFile && !reelId && (
             <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface p-4">
@@ -514,7 +519,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                 </IconButton>
                 {story && deck.slides.length > 1 && <span className="ml-auto text-warn">En story, chaque visuel devient une story à part.</span>}
               </div>
-              {motion && <p className="text-[12px] text-ink-3">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut."}</p>}
+              {motion && <p className="text-[12px] text-ink-3">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut. Pour un motion design sur mesure, décris-le dans « Animation » : Claude écrit la scène."}</p>}
             </div>
 
             {/* ---------- Settings ---------- */}
@@ -599,6 +604,20 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                 <Field label="Petit texte">
                   <textarea aria-label="Petit texte" value={slide.body} onChange={(e) => patchSlide({ body: e.target.value })} rows={3} maxLength={motion ? 240 : 600} className={cn(inputClass, "resize-y py-2 leading-snug")} />
                 </Field>
+                {motion && (
+                  <Field label="Animation (facultatif)">
+                    <textarea
+                      aria-label="Animation de la scène"
+                      value={slide.anim ?? ""}
+                      onChange={(e) => patchSlide({ anim: e.target.value })}
+                      rows={2}
+                      maxLength={300}
+                      placeholder="Décris le motion design, par ex. « des couvertures qui tombent en cascade » ou « un compteur qui monte jusqu'à 6 »"
+                      className={cn(inputClass, "resize-y py-2 leading-snug")}
+                    />
+                    <span className="text-[11.5px] text-ink-3">{slide.anim?.trim() ? "Claude écrit cette scène en HyperFrames, dans le style du projet. Si son animation plante, la scène garde l'animation standard." : "Vide : l'animation standard (texte qui monte mot à mot)."}</span>
+                  </Field>
+                )}
               </Panel>
 
               {motion && (

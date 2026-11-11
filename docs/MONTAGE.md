@@ -248,3 +248,14 @@ l'apparence du projet.
 - Durée d'une scène : `min(7, max(2,8, 1,9 + 0,058 × caractères))` secondes, plus 1,2 s pour la dernière. La page du Studio
   affiche la même estimation.
 - `gsapFile` (config du Mac, facultatif) : copie locale de `gsap.min.js` pour rendre sans réseau.
+
+#### Scènes libres (worker 0.7.0)
+
+- Une scène peut porter `anim` (300 caractères) : une consigne de motion design (« des couvertures qui tombent en cascade »).
+  Elle reste 1,5 s de plus à l'écran.
+- Le Mac demande à Claude le code de ces scènes en une fois (`lib/motion-art.mjs`) : `{ index, html, css, js }` par scène.
+  Le code vit dans `#sN .art` ; le worker garde le fond, la transition, la barre de progression, la signature et l'effacement.
+- Vérifications avant le rendu (`checkArt`) : CSS limité à `#sN`, sans @règle ni animation CSS ; aucun lien externe, aucun
+  script dans le HTML ; JS sans réseau, minuterie, `Date`, `Math.random` ni `window`, compilé à blanc. Puis
+  `hyperframes validate` charge la page dans Chrome : une scène qui lève une erreur reprend l'animation standard.
+- Si le rendu échoue quand même, le reel est refait avec l'animation standard partout. Les notes partent dans le log du Mac.
