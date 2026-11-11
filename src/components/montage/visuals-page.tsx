@@ -109,11 +109,14 @@ export function VisualsPage() {
     const p = profiles?.[id];
     setDeck((d) => (p ? { ...d, ...lookOf(p.look), logo: p.look.logo, profileId: id } : { ...d, profileId: undefined }));
   };
-  // The active project gives its style: on arrival, and each time another project is chosen.
+  // The active project gives its style once, when it becomes the active one. After that, a profile chosen
+  // by hand (or none) stays, across saves, page changes and reloads.
   useEffect(() => {
     if (!restored || !profiles || activeProject === "all" || !profiles[activeProject]) return;
-    if (deckRef.current.profileId !== activeProject) applyProfile(activeProject);
-  }, [restored, profiles, activeProject]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (deckRef.current.autoProject === activeProject) return;
+    const p = profiles[activeProject];
+    setDeck((d) => ({ ...d, ...lookOf(p.look), logo: p.look.logo, profileId: activeProject, autoProject: activeProject }));
+  }, [restored, profiles, activeProject]);
   const [savingLook, setSavingLook] = useState(false);
   const keepLook = async () => {
     if (!styled || savingLook) return;
@@ -130,7 +133,7 @@ export function VisualsPage() {
 
   const reset = () => {
     const base = emptyDeck();
-    setDeck(profile && styled ? { ...base, ...lookOf(profile.look), logo: profile.look.logo, profileId: styled } : base);
+    setDeck({ ...(profile && styled ? { ...base, ...lookOf(profile.look), logo: profile.look.logo, profileId: styled } : base), autoProject: deck.autoProject });
     setCurrent(0);
   };
 
@@ -260,7 +263,7 @@ export function VisualsPage() {
     const total = deck.slides.length;
     const open = (ids: string[]) => openComposer(story ? { mediaId: ids[0], caption: deck.caption, format: "story" } : { mediaIds: ids, caption: deck.caption, format: "feed" });
     // Everything that changes the pixels. The description does not.
-    const key = JSON.stringify({ ...deck, caption: "" });
+    const key = JSON.stringify({ ...deck, caption: "", profileId: undefined, autoProject: undefined });
     const last = lastRender.current;
     if (last?.key === key && last.ids.every((id) => useStore.getState().media.some((m) => m.id === id))) return open(last.ids);
     setMaking({ done: 0, total });

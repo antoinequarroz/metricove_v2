@@ -25,6 +25,8 @@ export type Deck = Look & {
   format: VisualFormat;
   /** The project whose style profile was applied last. */
   profileId?: string;
+  /** The active project whose style was applied by itself: it is not applied again over a choice made by hand. */
+  autoProject?: string;
   slides: Slide[];
   /** Description of the post, handed to the post editor. */
   caption: string;
@@ -229,12 +231,15 @@ type Block = { lines: string[]; size: number; lineHeight: number; font: string }
 /** The biggest size, from `from` down to `to`, at which the text fits in the box. */
 function fit(ctx: CanvasRenderingContext2D, text: string, font: (size: number) => string, box: { width: number; height: number }, from: number, to: number, leading: number): Block {
   let size = from;
+  // A word cut in two is the last resort: the text shrinks first. A word too wide even at the smallest size
+  // (a link) is cut anyway, so it must not drag the whole text down.
+  ctx.font = font(to);
+  const words = text.split(/\s+/).filter((w) => w && ctx.measureText(w).width <= box.width);
   for (;;) {
     ctx.font = font(size);
     const lines = wrap(ctx, text, box.width);
     const lineHeight = Math.round(size * leading);
-    // A word cut in two is the last resort: the text shrinks first.
-    const cut = text.split(/\s+/).some((w) => ctx.measureText(w).width > box.width);
+    const cut = words.some((w) => ctx.measureText(w).width > box.width);
     if (size <= to || (!cut && lines.length * lineHeight <= box.height && widest(ctx, lines) <= box.width)) return { lines, size, lineHeight, font: font(size) };
     size -= 4;
   }
@@ -462,6 +467,7 @@ export function loadDraft(): Deck | undefined {
       accent: /^#[0-9a-f]{6}$/i.test(d.accent ?? "") ? d.accent! : base.accent,
       logo: typeof d.logo === "string" && d.logo.startsWith("data:image/") ? d.logo : undefined,
       profileId: typeof d.profileId === "string" ? d.profileId : undefined,
+      autoProject: typeof d.autoProject === "string" ? d.autoProject : undefined,
       slides: d.slides.slice(0, MAX_SLIDES).map((s) => ({ ...newSlide(String(s.title ?? ""), String(s.body ?? "")), photo: typeof s.photo === "string" ? s.photo : undefined, photoY: s.photoY, dim: s.dim })),
       caption: String(d.caption ?? ""),
     };

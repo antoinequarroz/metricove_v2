@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { MontageJob, Rush } from "@/lib/montage";
+import { useStore } from "@/lib/store";
 import { uploadInChunks } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { Segmented } from "../calendar";
@@ -194,11 +195,12 @@ export function StudioPage() {
     }
   }, [pending?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const activeProject = useStore((s) => s.activeProject);
   const askClaude = async () => {
     try {
       const { job } = await montageApi<{ job: MontageJob }>("/api/montage/jobs", {
         method: "POST",
-        body: JSON.stringify({ kind: "script", title: idea.slice(0, 80), brief: { format: orientation === "portrait" ? "9:16" : "16:9", instructions: idea } }),
+        body: JSON.stringify({ kind: "script", title: idea.slice(0, 80), projectId: activeProject !== "all" ? activeProject : undefined, brief: { format: orientation === "portrait" ? "9:16" : "16:9", instructions: idea } }),
       });
       setScriptJob(job.id);
     } catch (e) {
