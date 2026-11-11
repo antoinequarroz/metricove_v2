@@ -244,7 +244,7 @@ const readers: Record<Network, () => Promise<Account | undefined>> = {
 
 /* ---------- Publishing, one function per network ---------- */
 
-type Ctx = { post: Post; account: Account; media?: MediaFile };
+type Ctx = { post: Post; account: Account; media?: MediaFile; /** Every media of a carousel, in order. */ items?: MediaFile[] };
 type Out = { externalId?: string };
 
 /** LinkedIn's "little text" format needs these characters escaped. */
@@ -298,22 +298,20 @@ async function facebookVideoStory(page: string, media: MediaFile): Promise<Out> 
 }
 
 /**
- * Creates an Instagram container (a photo, a Reel or a story being prepared), waits until Instagram
- * has processed it, then publishes it.
+ * Creates an Instagram container (a photo, a Reel, a story or a carousel item being prepared).
+ * `headers` carries the authorization method that worked, so the next calls of the same post reuse it.
  */
-async function instagramPublish(a: Account, query: Record<string, string | undefined>, opts: { video: boolean }): Promise<Out> {
-  // treg's "Instagram login" app is not reviewed by Meta yet: it reads but cannot publish (code 10).
-  // The "Facebook Page" method uses approved permissions, so we fall back to it.
-  let headers: Record<string, string> = {};
-  let c: { id: string };
-  const create = { method: "POST", query: { ig_user_id: a.externalId, ...query } };
+async function instagramContainer(a: Account, query: Record<string, string | undefined>, auth: { headers: Record<string, string> }): Promise<string> {
+  const create = (headers: Record<string, string>) => call<{ id: string }>("instagram.instagram.media.container.create", { method: "POST", query: { ig_user_id: a.externalId, ...query }, headers });
   try {
-    ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", create));
+    return (await create(auth.headers)).data.id;
   } catch (e) {
-    if (!/does not have permission|"code":10\b/i.test((e as Error).message)) throw instagramError(e);
-    headers = { "X-Treg-Authorization-Method": "facebook-page" };
+    // treg's "Instagram login" app is not reviewed by Meta yet: it reads but cannot publish (code 10).
+    // The "Facebook Page" method uses approved permissions, so we fall back to it.
+    if (auth.headers["X-Treg-Authorization-Method"] || !/does not have permission|"code":10\b/i.test((e as Error).message)) throw instagramError(e);
+    auth.headers = { "X-Treg-Authorization-Method": "facebook-page" };
     try {
-      ({ data: c } = await call<{ id: string }>("instagram.instagram.media.container.create", { ...create, headers }));
+      return (await create(auth.headers)).data.id;
     } catch (e2) {
       const reason = (e2 as Error).message;
       console.error("[treg] instagram via facebook-page", reason);
@@ -325,15 +323,19 @@ async function instagramPublish(a: Account, query: Record<string, string | undef
       );
     }
   }
-  // Instagram downloads and processes the media before it can be published. A photo takes seconds, a video minutes.
-  const [first, next, tries] = opts.video ? [10_000, 20_000, 27] : [3_000, 5_000, 24];
+}
+
+/** Waits until Instagram has downloaded and processed a container. A photo takes seconds, a video minutes. */
+async function instagramReady(id: string, headers: Record<string, string>, what: { video: boolean; label?: string }) {
+  const label = what.label ?? (what.video ? "la vidéo" : "la photo");
+  const [first, next, tries] = what.video ? [10_000, 20_000, 27] : [3_000, 5_000, 24];
   let hiccups = 0;
   for (let i = 0; ; i++) {
     await sleep(i === 0 ? first : next);
     let s: { status_code?: string; status?: string };
     try {
       ({ data: s } = await call<{ status_code?: string; status?: string }>("instagram.instagram.media.container.status", {
-        query: { ig_container_id: c.id, fields: "status_code,status" },
+        query: { ig_container_id: id, fields: "status_code,status" },
         headers,
       }));
       hiccups = 0;
@@ -342,11 +344,66 @@ async function instagramPublish(a: Account, query: Record<string, string | undef
       if (++hiccups >= 3 || i >= tries) throw e;
       continue;
     }
-    if (s.status_code === "FINISHED") break;
-    if (s.status_code === "ERROR" || s.status_code === "EXPIRED") throw new Error(`Instagram a refusé ${opts.video ? "la vidéo" : "la photo"} : ${s.status ?? s.status_code}`);
-    if (i >= tries) throw new Error(`Instagram traite encore ${opts.video ? "la vidéo après 9 minutes" : "la photo après 2 minutes"}`);
+    if (s.status_code === "FINISHED") return;
+    if (s.status_code === "ERROR" || s.status_code === "EXPIRED") throw new Error(`Instagram a refusé ${label} : ${s.status ?? s.status_code}`);
+    if (i >= tries) throw new Error(`Instagram traite encore ${label} après ${what.video ? "9 minutes" : "2 minutes"}`);
   }
-  const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: c.id }, headers });
+}
+
+/** Creates a container, waits until it is ready, then publishes it. */
+async function instagramPublish(a: Account, query: Record<string, string | undefined>, opts: { video: boolean }): Promise<Out> {
+  const auth = { headers: {} as Record<string, string> };
+  const id = await instagramContainer(a, query, auth);
+  await instagramReady(id, auth.headers, opts);
+  const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: id }, headers: auth.headers });
+  return { externalId: data.id };
+}
+
+/**
+ * A carousel, in Instagram's steps: one container per photo or video (marked as a carousel item),
+ * then a carousel container that lists them in order and carries the caption, then the publication.
+ */
+async function instagramCarousel(a: Account, post: Post, items: MediaFile[]): Promise<Out> {
+  const auth = { headers: {} as Record<string, string> };
+  const children: string[] = [];
+  for (const [i, m] of items.entries()) {
+    const n = `n° ${i + 1}`;
+    if (m.kind === "image" && m.mime !== "image/jpeg") throw new Error(`Instagram n'accepte que les photos JPEG (photo ${n} du carrousel) : réimportez-la dans Metricove, elle sera convertie.`);
+    const url = signedMediaUrl(m.id);
+    const id = await instagramContainer(a, m.kind === "image" ? { is_carousel_item: "true", image_url: url } : { is_carousel_item: "true", media_type: "VIDEO", video_url: url }, auth);
+    children.push(id);
+  }
+  // Instagram processes the items side by side: wait for each, the videos last.
+  for (const [i, id] of children.entries()) {
+    const video = items[i].kind === "video";
+    await instagramReady(id, auth.headers, { video, label: `${video ? "la vidéo" : "la photo"} n° ${i + 1} du carrousel` });
+  }
+  const id = await instagramContainer(a, { media_type: "CAROUSEL", children: children.join(","), caption: post.caption }, auth);
+  await instagramReady(id, auth.headers, { video: false, label: "le carrousel" });
+  const { data } = await call<{ id: string }>("instagram.instagram.post.publish", { method: "POST", query: { ig_user_id: a.externalId, creation_id: id }, headers: auth.headers });
+  return { externalId: data.id };
+}
+
+/**
+ * A Facebook post with several photos: each photo goes to the Page unpublished,
+ * then one post on the Page's feed shows them together, in order.
+ */
+async function facebookCarousel(page: string, post: Post, items: MediaFile[]): Promise<Out> {
+  if (items.some((m) => m.kind !== "image")) throw new Error("Facebook ne publie que des carrousels de photos : retirez les vidéos de ce post.");
+  const ids: string[] = [];
+  for (const m of items) {
+    const { data: photo } = await graph<{ id: string }>(`${page}/photos`, {
+      catalog: "facebook.facebook.page.photo.create",
+      pageId: page,
+      method: "POST",
+      body: { url: signedMediaUrl(m.id), published: false },
+    });
+    if (!photo.id) throw new Error("Facebook n'a pas accepté une photo du carrousel");
+    ids.push(photo.id);
+  }
+  const form: Record<string, string | boolean> = { message: post.caption, published: true };
+  ids.forEach((id, i) => (form[`attached_media[${i}]`] = JSON.stringify({ media_fbid: id })));
+  const { data } = await graph<{ id: string }>(`${page}/feed`, { catalog: "facebook.facebook.page.post.create", pageId: page, method: "POST", form });
   return { externalId: data.id };
 }
 
@@ -359,7 +416,8 @@ function instagramError(e: unknown) {
 }
 
 const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
-  async instagram({ post, account: a, media }) {
+  async instagram({ post, account: a, media, items }) {
+    if (items && items.length > 1 && post.format !== "story") return instagramCarousel(a, post, items);
     if (!media?.path) throw new Error("Instagram exige une photo ou une vidéo");
     const story = post.format === "story";
     const url = signedMediaUrl(media.id);
@@ -382,9 +440,10 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
     );
   },
 
-  async facebook({ post, account: a, media }) {
+  async facebook({ post, account: a, media, items }) {
     const page = a.externalId!;
     try {
+      if (items && items.length > 1 && post.format !== "story") return await facebookCarousel(page, post, items);
       if (post.format === "story") {
         if (!media?.path) throw new Error("Une story a besoin d'une photo ou d'une vidéo");
         return media.kind === "image" ? await facebookPhotoStory(page, media) : await facebookVideoStory(page, media);
@@ -560,8 +619,8 @@ export const tregPublisher: Publisher = {
     return inTurn(() => syncAll());
   },
 
-  publish(post, accounts, media) {
-    return inTurn(() => publishAll(this, post, accounts, media));
+  publish(post, accounts, media, items) {
+    return inTurn(() => publishAll(this, post, accounts, media, items));
   },
 };
 
@@ -591,7 +650,7 @@ async function syncAll() {
   }
 }
 
-async function publishAll(self: Publisher, post: Post, accounts: Account[], media?: MediaFile) {
+async function publishAll(self: Publisher, post: Post, accounts: Account[], media?: MediaFile, items?: MediaFile[]) {
   {
     const at = () => new Date().toISOString();
     const results: Record<string, TargetResult> = {};
@@ -603,7 +662,7 @@ async function publishAll(self: Publisher, post: Post, accounts: Account[], medi
       } else {
         team = a.providerKind.slice(5);
         try {
-          const out = await publishers[a.network]({ post, account: a, media });
+          const out = await publishers[a.network]({ post, account: a, media, items });
           results[a.id] = { status: "published", externalId: out.externalId, at: at() };
         } catch (e) {
           results[a.id] = { status: "failed", error: (e as Error).message, at: at() };

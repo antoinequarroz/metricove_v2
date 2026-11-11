@@ -1,5 +1,6 @@
 "use client";
 
+import { postMediaIds } from "@/lib/formats";
 import { CalendarPlus, FolderSync, ImageIcon, Sparkles, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -46,7 +47,7 @@ export function VideosPage() {
     }
   };
 
-  const usedBy = (id: string) => posts.filter((p) => p.mediaId === id);
+  const usedBy = (id: string) => posts.filter((p) => postMediaIds(p).includes(id));
   const list = media
     .filter((m) => kind === "all" || m.kind === kind)
     .filter((m) => (filter === "all" ? true : filter === "new" ? usedBy(m.id).length === 0 : usedBy(m.id).length > 0));

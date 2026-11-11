@@ -8,6 +8,9 @@ export interface Publisher {
   status(): { ready: boolean; detail?: string };
   /** Pulls the connected accounts from the service. Warnings name the accounts that could not be read. */
   syncAccounts?(): Promise<{ accounts: Account[]; warnings?: string[] }>;
-  /** Publishes one post on each of its accounts. Never throws: errors go in the results. */
-  publish(post: Post, accounts: Account[], media?: MediaFile): Promise<Record<string, TargetResult>>;
+  /**
+   * Publishes one post on each of its accounts. Never throws: errors go in the results.
+   * `items` holds every media of a carousel, in order (the first is also `media`).
+   */
+  publish(post: Post, accounts: Account[], media?: MediaFile, items?: MediaFile[]): Promise<Record<string, TargetResult>>;
 }

@@ -1,13 +1,14 @@
 "use client";
 
-import { Bookmark, Heart, MessageCircle, MoreHorizontal, Repeat2, Send, Share, ThumbsUp, BarChart2, Globe2 } from "lucide-react";
+import { Bookmark, ChevronLeft, ChevronRight, Heart, MessageCircle, MoreHorizontal, Repeat2, Send, Share, ThumbsUp, BarChart2, Globe2 } from "lucide-react";
 import { ThumbsDown } from "lucide-react";
+import { useState } from "react";
 import { IG_PHOTO_RATIO, ratioOf } from "@/lib/formats";
 import type { Account, Media, PostFormat, YouTubeOptions } from "@/lib/types";
 import { cn, fmt } from "@/lib/utils";
 import { Avatar, MediaThumb } from "./ui";
 
-type Props = { account: Account; caption: string; media?: Media; date: Date; youtube?: YouTubeOptions; format?: PostFormat };
+type Props = { account: Account; caption: string; media?: Media; /** Every media of a carousel, in order. */ items?: Media[]; date: Date; youtube?: YouTubeOptions; format?: PostFormat };
 
 /** The shape a photo takes in a feed: its own ratio, within what the feeds show. */
 const photoRatio = (m: Media) => Math.min(IG_PHOTO_RATIO.max, Math.max(IG_PHOTO_RATIO.min, ratioOf(m)));
@@ -29,7 +30,64 @@ function Caption({ text, className }: { text: string; className?: string }) {
   );
 }
 
-export function InstagramPreview({ account, caption, media }: Props) {
+/** The shape Instagram gives a media in the feed. A carousel takes the shape of its first media. */
+const instagramRatio = (m: Media) => (m.kind === "image" ? photoRatio(m) : m.aspect === "16:9" ? 16 / 9 : m.aspect === "1:1" ? 1 : 4 / 5);
+
+/** An Instagram carousel: one media at a time, arrows and dots to move through it. */
+function InstagramCarousel({ items }: { items: Media[] }) {
+  const [at, setAt] = useState(0);
+  // The list can shrink while the editor is open.
+  const i = Math.min(at, items.length - 1);
+  return (
+    <div>
+      <div className="relative overflow-hidden" style={{ aspectRatio: instagramRatio(items[0]) }}>
+        <div className="flex h-full transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]" style={{ transform: `translateX(-${i * 100}%)` }}>
+          {items.map((m) => (
+            <MediaThumb key={m.id} media={m} playable className="h-full w-full shrink-0 rounded-none" />
+          ))}
+        </div>
+        <span className="tabular absolute top-2.5 right-2.5 rounded-full bg-black/60 px-2 py-0.5 font-mono text-[11px] text-white">
+          {i + 1}/{items.length}
+        </span>
+        {i > 0 && (
+          <button type="button" onClick={() => setAt(i - 1)} aria-label="Média précédent" className="press absolute top-1/2 left-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-black shadow">
+            <ChevronLeft className="size-4" />
+          </button>
+        )}
+        {i < items.length - 1 && (
+          <button type="button" onClick={() => setAt(i + 1)} aria-label="Média suivant" className="press absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-white/85 text-black shadow">
+            <ChevronRight className="size-4" />
+          </button>
+        )}
+      </div>
+      <div className="flex justify-center gap-1 pt-2.5">
+        {items.map((m, k) => (
+          <span key={m.id} className={cn("size-[5px] rounded-full transition-colors duration-200", k === i ? "bg-[#0095f6]" : "bg-ink/20")} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Several photos in one Facebook post: a mosaic of up to four, the rest counted on the last tile. */
+function FacebookMosaic({ items }: { items: Media[] }) {
+  const shown = items.slice(0, 4);
+  const more = items.length - shown.length;
+  return (
+    <div className={cn("grid aspect-square gap-0.5", shown.length === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2")}>
+      {shown.map((m, k) => (
+        <div key={m.id} className={cn("relative min-h-0", shown.length === 3 && k === 0 && "row-span-2")}>
+          <MediaThumb media={m} playable showMeta={false} className="h-full w-full rounded-none" />
+          {more > 0 && k === shown.length - 1 && (
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 text-[22px] font-semibold text-white">+{more}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function InstagramPreview({ account, caption, media, items }: Props) {
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-surface text-[13px] shadow-card">
       <div className="flex items-center gap-2.5 px-3 py-2.5">
@@ -39,12 +97,10 @@ export function InstagramPreview({ account, caption, media }: Props) {
         <span className="font-semibold">{account.handle}</span>
         <MoreHorizontal className="ml-auto size-4" />
       </div>
-      {media ? (
-        media.kind === "image" ? (
-          <MediaThumb media={media} playable className="w-full rounded-none" style={{ aspectRatio: photoRatio(media) }} />
-        ) : (
-          <MediaThumb media={media} playable className={cn("w-full rounded-none", media.aspect === "16:9" ? "aspect-video" : media.aspect === "1:1" ? "aspect-square" : "aspect-[4/5]")} />
-        )
+      {items && items.length > 1 ? (
+        <InstagramCarousel items={items} />
+      ) : media ? (
+        <MediaThumb media={media} playable className="w-full rounded-none" style={{ aspectRatio: instagramRatio(media) }} />
       ) : (
         <div className="flex aspect-[4/5] items-center justify-center bg-surface-2 text-[12px] text-ink-3">Instagram exige une photo ou une vidéo</div>
       )}
@@ -124,7 +180,7 @@ export function LinkedInPreview({ account, caption, media }: Props) {
   );
 }
 
-export function FacebookPreview({ account, caption, media, date }: Props) {
+export function FacebookPreview({ account, caption, media, items, date }: Props) {
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-surface text-[14px] shadow-card">
       <div className="flex items-center gap-2.5 p-3">
@@ -140,12 +196,16 @@ export function FacebookPreview({ account, caption, media, date }: Props) {
       <p className="px-3 pb-3 leading-snug">
         <Caption text={caption} />
       </p>
-      {media &&
+      {items && items.length > 1 ? (
+        <FacebookMosaic items={items} />
+      ) : (
+        media &&
         (media.kind === "image" ? (
           <MediaThumb media={media} playable className="w-full rounded-none" style={{ aspectRatio: photoRatio(media) }} />
         ) : (
           <MediaThumb media={media} playable className="aspect-video w-full rounded-none" />
-        ))}
+        ))
+      )}
       <div className="flex justify-around border-t border-line py-2 text-[13px] font-medium text-ink-2">
         <span className="flex items-center gap-1.5"><ThumbsUp className="size-4" />J&apos;aime</span>
         <span className="flex items-center gap-1.5"><MessageCircle className="size-4" />Commenter</span>

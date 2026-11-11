@@ -1,5 +1,6 @@
 "use client";
 
+import { postMediaIds } from "@/lib/formats";
 import { CalendarDays, Clapperboard, Users, BarChart3, Settings, Search, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -114,7 +115,7 @@ function Sidebar() {
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const publisher = useStore((s) => s.publisher);
   const integrations = useStore((s) => s.integrations);
-  const unused = media.filter((m) => !posts.some((p) => p.mediaId === m.id)).length;
+  const unused = media.filter((m) => !posts.some((p) => postMediaIds(p).includes(m.id))).length;
 
   return (
     <aside className="flex w-[248px] shrink-0 flex-col gap-1 px-3 py-3 max-md:hidden">

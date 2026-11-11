@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { postProblems } from "@/lib/formats";
+import { CAROUSEL_MAX, postProblems } from "@/lib/formats";
 import { getMedia, getPost, listAccounts, savePost } from "@/server/db";
 import { tick } from "@/server/scheduler";
 import type { Network, Post, PostFormat } from "@/lib/types";
@@ -27,22 +27,27 @@ export async function POST(req: Request) {
 
   // Accounts that already got this video keep their result, so publishing again (after a
   // failure on another network) never sends a duplicate. A new video starts from scratch.
-  const mediaId = body.mediaId || undefined;
+  // A carousel sends every media in order (mediaIds). One media alone is a plain post.
+  const ids = Array.isArray(body.mediaIds) ? [...new Set(body.mediaIds.filter((x): x is string => typeof x === "string" && !!x))] : [];
+  if (ids.length > CAROUSEL_MAX) return NextResponse.json({ error: `Un carrousel prend ${CAROUSEL_MAX} photos ou vidéos au plus` }, { status: 400 });
+  const mediaId = ids[0] ?? (body.mediaId || undefined);
+  // A script that updates a carousel naming only its first media (mediaId) keeps the carousel.
+  const mediaIds = ids.length > 1 ? ids : body.mediaIds === undefined && existing?.mediaIds && existing.mediaId === mediaId ? existing.mediaIds : undefined;
   // A script that updates a post without naming the format keeps the one it had.
   const format: PostFormat | undefined = body.format === "story" ? "story" : body.format === "feed" ? undefined : existing?.format;
 
   // The same rules as the editor, so a script can't schedule a post the networks would refuse.
   if (status === "scheduled") {
-    const media = mediaId ? getMedia(mediaId) : undefined;
-    if (mediaId && !media) return NextResponse.json({ error: "Média introuvable" }, { status: 400 });
+    const items = (mediaIds ?? (mediaId ? [mediaId] : [])).map((id) => getMedia(id));
+    if (items.some((m) => !m)) return NextResponse.json({ error: "Média introuvable" }, { status: 400 });
     const networks = [...new Set(all.filter((a) => accountIds.includes(a.id)).map((a) => a.network))] as Network[];
-    const problems = postProblems({ format, media, networks });
+    const problems = postProblems({ format, items: items as NonNullable<(typeof items)[number]>[], networks });
     if (problems.length) return NextResponse.json({ error: problems[0] }, { status: 422 });
   }
 
   // A story and a feed post are two different publications: results don't carry over.
   const kept =
-    existing?.results && existing.mediaId === mediaId && existing.format === format
+    existing?.results && existing.mediaId === mediaId && (existing.mediaIds ?? []).join() === (mediaIds ?? []).join() && existing.format === format
       ? Object.fromEntries(Object.entries(existing.results).filter(([id, r]) => r.status === "published" && accountIds.includes(id)))
       : {};
 
@@ -52,6 +57,7 @@ export async function POST(req: Request) {
     accountIds,
     caption: String(body.caption ?? "").slice(0, 70_000),
     mediaId,
+    mediaIds,
     format,
     scheduledAt: when.toISOString(),
     status,

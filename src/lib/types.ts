@@ -70,7 +70,13 @@ export type Post = {
   id: string;
   accountIds: string[];
   caption: string;
+  /** The first (or only) photo or video. */
   mediaId?: string;
+  /**
+   * A carousel: every photo and video, in order (2 to 10). The first is also `mediaId`.
+   * Absent when the post has a single media.
+   */
+  mediaIds?: string[];
   /** Feed by default. */
   format?: PostFormat;
   scheduledAt: string;

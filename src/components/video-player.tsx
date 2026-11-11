@@ -1,5 +1,6 @@
 "use client";
 
+import { postMediaIds } from "@/lib/formats";
 import { Dialog } from "@base-ui-components/react/dialog";
 import { CalendarPlus, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -16,7 +17,7 @@ export function VideoPlayer() {
   const openComposer = useStore((s) => s.openComposer);
   const composerOpen = useStore((s) => s.composer.open);
   const m = media.find((x) => x.id === id);
-  const uses = m ? posts.filter((p) => p.mediaId === m.id).length : 0;
+  const uses = m ? posts.filter((p) => postMediaIds(p).includes(m.id)).length : 0;
   const wide = m?.aspect === "16:9";
 
   return (
