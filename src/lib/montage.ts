@@ -1,3 +1,4 @@
+import type { Look } from "./profiles";
 /** Shared types for AI video editing. The contract is in docs/MONTAGE.md. */
 
 export type MontageFormat = "9:16" | "4:5" | "1:1" | "16:9";
@@ -123,7 +124,7 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion";
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -145,12 +146,26 @@ export type PostRequest = {
   networks: string[];
   accounts: { network: string; handle: string }[];
   project?: string;
+  /** The slides are the scenes of an animated reel: shorter texts, written to be watched. */
+  reel?: boolean;
   result?: { caption: string; slides: { title: string; body: string }[] };
+};
+
+export const MAX_SCENES = 8;
+
+/** kind "motion": an animated reel (9:16, no rush) made of text scenes in the look of the project. */
+export type MotionRequest = {
+  scenes: { title: string; body: string }[];
+  /** The look of the scenes. The logo is not stored here: the Mac gets the project's logo when it takes the job. */
+  look: Look;
+  /** A track of the Mac's music folder under the scenes (none when the folder is empty). */
+  music: boolean;
+  project?: string;
 };
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -163,6 +178,7 @@ export type MontageJob = {
   caption?: CaptionRequest;
   /** kind "post": a whole post written by Claude from an idea (slide texts and the description). */
   post?: PostRequest;
+  motion?: MotionRequest;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
   cover?: { mediaId: string; project?: string; instructions?: string };
   rushIds: string[];

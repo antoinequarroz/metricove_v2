@@ -521,14 +521,15 @@ export async function renderSlide(deck: Deck, index: number, fonts: Fonts): Prom
 
 /* ---------- Draft kept in the browser ---------- */
 
-const KEY = "metricove-visuals-v1";
-/** The deck being edited. It outlives a visit to another page of the app, imported photos included. */
-let live: Deck | undefined;
+const KEYS = { visuals: "metricove-visuals-v1", motion: "metricove-reel-v1" };
+export type DraftKind = keyof typeof KEYS;
+/** The deck being edited, per editor. It outlives a visit to another page of the app, imported photos included. */
+const live: Partial<Record<DraftKind, Deck>> = {};
 
-export function loadDraft(): Deck | undefined {
-  if (live) return live;
+export function loadDraft(kind: DraftKind = "visuals"): Deck | undefined {
+  if (live[kind]) return live[kind];
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEYS[kind]);
     if (!raw) return undefined;
     const d = JSON.parse(raw) as Partial<Deck>;
     if (!Array.isArray(d.slides) || !d.slides.length) return undefined;
@@ -550,12 +551,12 @@ export function loadDraft(): Deck | undefined {
   }
 }
 
-export function saveDraft(deck: Deck) {
-  live = deck;
+export function saveDraft(deck: Deck, kind: DraftKind = "visuals") {
+  live[kind] = deck;
   try {
     // A photo imported from the disk only lives in this tab: it is not kept. Library photos are.
     const slides = deck.slides.map((s) => ({ ...s, photo: s.photo?.startsWith("/api/") ? s.photo : undefined }));
-    localStorage.setItem(KEY, JSON.stringify({ ...deck, slides }));
+    localStorage.setItem(KEYS[kind], JSON.stringify({ ...deck, slides }));
   } catch {
     // Private window or full storage: the draft simply is not kept.
   }

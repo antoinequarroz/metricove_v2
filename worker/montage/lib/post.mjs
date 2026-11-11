@@ -20,7 +20,8 @@ export async function writePost(api, cfg, job, step) {
 
   const refs = await referenceImages(api, job, join(cfg.workDir, "references", String(job.id).replace(/[^\w-]/g, "")));
   try {
-  const prompt = `Écris un post complet en français pour Antoine Quarroz, à partir de son idée : ${n > 1 ? `un carrousel de ${n} visuels` : "une seule image avec du texte"}, et la description qui l'accompagne.
+  const reel = p.reel === true;
+  const prompt = `Écris un post complet en français pour Antoine Quarroz, à partir de son idée : ${reel ? `un reel animé (vidéo verticale de texte animé, sans voix) de ${n} scènes` : n > 1 ? `un carrousel de ${n} visuels` : "une seule image avec du texte"}, et la description qui l'accompagne.
 
 IDÉE D'ANTOINE (sujet et consignes) :
 ${p.idea || job.title}
@@ -30,7 +31,12 @@ PROJET : ${p.project || (lm ? "LivreMatch" : "Perso")}
 
 LES VISUELS (slides) : exactement ${n}, dans l'ordre.
 - Chaque visuel a un "title" (le gros texte : 2 à 8 mots, 60 caractères au plus) et un "body" (le petit texte : 0 à 2 phrases courtes, 160 caractères au plus ; chaîne vide si le titre suffit).
-${n > 1
+${reel
+  ? `- Ce sont les scènes d'une vidéo : chacune reste 3 à 5 secondes à l'écran. "title" : 2 à 6 mots (40 caractères au plus). "body" : une seule phrase de 14 mots au plus, ou une chaîne vide.
+- Scène 1 : l'accroche qui arrête le défilement (question, tension ou promesse de l'idée).
+- Scènes du milieu : une idée par scène, qui fait avancer ; chaque scène donne envie de voir la suivante.
+- Dernière scène : l'appel à l'action (suivre, commenter, lien en bio, site).`
+  : n > 1
   ? `- Visuel 1 : une accroche qui donne envie de faire défiler (promesse, question ou chiffre de l'idée). Pas de « Dans ce carrousel ».
 - Visuels du milieu : une seule idée concrète par visuel, dans un ordre logique.
 - Dernier visuel : la conclusion ou l'appel à l'action (commenter, enregistrer, suivre, lien en bio).`

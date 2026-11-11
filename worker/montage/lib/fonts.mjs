@@ -9,15 +9,12 @@ const SPEC = /^[A-Za-z0-9 ]{1,60}(:[a-z,]{1,40}@[0-9.,;]{1,80})?$/;
 const SUBSETS = ["latin", "latin-ext"];
 
 /**
- * Complète le thème avec `fontFaces` : [{ file, rules }] (fichier woff2 sur le Mac et ses descripteurs CSS).
- * Sans `googleFont`, ou si le téléchargement échoue, le thème revient tel quel (polices de secours).
+ * Les fichiers d'une police Google ("Famille" ou "Famille:axes@valeurs") : [{ file, rules }] (woff2 sur le Mac et
+ * ses descripteurs CSS). Téléchargés une fois. [] si la police est refusée ou indisponible.
  */
-export async function withFont(cfg, theme) {
-  const spec = String(theme.googleFont || "");
-  if (!spec) return theme;
-  if (!SPEC.test(spec)) { log(`police du profil ignorée (${spec.slice(0, 60)})`); return theme; }
-  // Les fichiers de police de la config du Mac sont ceux d'une autre police : ils ne servent pas sous ce nom.
-  theme = { ...theme, fontFiles: [] };
+export async function googleFaces(cfg, spec) {
+  spec = String(spec || "");
+  if (!SPEC.test(spec)) { if (spec) log(`police ignorée (${spec.slice(0, 60)})`); return []; }
   const dir = join(home(cfg.fontsDir || "~/Movies/Metricove/polices"), spec.replace(/[^A-Za-z0-9]+/g, "-"));
   const index = join(dir, "polices.json");
   try {
@@ -29,22 +26,34 @@ export async function withFont(cfg, theme) {
         if (!SUBSETS.includes(m[1])) continue;
         const url = /src:\s*url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.woff2)\)/.exec(m[2])?.[1];
         if (!url) continue;
-        const file = `${m[1]}.woff2`;
-        writeFileSync(join(dir, file), Buffer.from(await get(url).then((r) => r.arrayBuffer())));
         const rules = ["font-style", "font-weight", "font-stretch", "unicode-range"]
           .map((k) => new RegExp(`${k}:\\s*([^;]+);`).exec(m[2])).filter(Boolean).map((r) => r[0].replace(/[<>"'\\]/g, "")).join("");
+        // Une police à plusieurs styles ou graisses fixes donne plusieurs fichiers par sous-ensemble.
+        const file = `${m[1]}-${faces.length}.woff2`;
+        writeFileSync(join(dir, file), Buffer.from(await get(url).then((r) => r.arrayBuffer())));
         faces.push({ file, rules });
       }
       if (!faces.length) throw new Error("aucun fichier de police dans la réponse");
       writeFileSync(index, JSON.stringify(faces));
-      log(`police « ${theme.font} » téléchargée (${faces.length} fichier(s))`);
+      log(`police « ${spec.split(":")[0]} » téléchargée (${faces.length} fichier(s))`);
     }
-    const faces = JSON.parse(readFileSync(index, "utf8")).map((f) => ({ file: join(dir, basename(f.file)), rules: String(f.rules) })).filter((f) => existsSync(f.file));
-    return faces.length ? { ...theme, fontFaces: faces } : theme;
+    return JSON.parse(readFileSync(index, "utf8")).map((f) => ({ file: join(dir, basename(f.file)), rules: String(f.rules) })).filter((f) => existsSync(f.file));
   } catch (e) {
-    log(`police « ${theme.font} » indisponible, police de secours utilisée :`, e.message);
-    return theme;
+    log(`police « ${spec.split(":")[0]} » indisponible, police de secours utilisée :`, e.message);
+    return [];
   }
+}
+
+/**
+ * Complète le thème avec `fontFaces` (police `theme.googleFont` du profil de style).
+ * Sans `googleFont`, ou si le téléchargement échoue, le thème revient sans (polices de secours).
+ */
+export async function withFont(cfg, theme) {
+  if (!theme.googleFont) return theme;
+  // Les fichiers de police de la config du Mac sont ceux d'une autre police : ils ne servent pas sous ce nom.
+  theme = { ...theme, fontFiles: [] };
+  const faces = await googleFaces(cfg, theme.googleFont);
+  return faces.length ? { ...theme, fontFaces: faces } : theme;
 }
 
 async function get(url) {

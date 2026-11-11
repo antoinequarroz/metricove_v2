@@ -14,7 +14,7 @@ import { Api } from "./lib/api.mjs";
 import { scan } from "./lib/rushes.mjs";
 import { handle } from "./lib/jobs.mjs";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 

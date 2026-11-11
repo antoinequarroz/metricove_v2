@@ -230,3 +230,21 @@ signature, logo), le ton de Claude et, au choix, le dossier d'un skill sur le Ma
   - `{ "cancel": true }`
 - `DELETE /api/montage/jobs/:id` (efface aussi les aperçus).
 - `GET /api/montage/jobs/:id/versions/:n/preview` : l'aperçu MP4.
+
+
+### Reel animé (`kind: "motion"`, action `motion`)
+
+Le Studio (onglet « Reel animé ») demande une vidéo 9:16 sans rush, faite de scènes de texte animées dans
+l'apparence du projet.
+
+- `POST /api/montage/jobs` avec `{ kind: "motion", scenes: [{ title, body }], look, music, projectId? }` : 1 à 8 scènes
+  (titre 120 caractères, texte 240). `look` est vérifié comme celui d'un profil ; le logo n'est pas gardé dans la tâche,
+  le Mac reçoit celui du profil du projet quand il prend la tâche (`job.motion.look.logo`).
+- Les textes peuvent être écrits par Claude avec une tâche `post` qui porte `reel: true` (scènes courtes, faites pour être
+  regardées).
+- Worker 0.6.0 (`lib/motion.mjs`) : page HTML animée (GSAP) rendue par HyperFrames en MP4, polices Google téléchargées une
+  fois, puis ffmpeg ajoute un morceau du dossier musique (`music`), sinon une piste muette. La vidéo est envoyée comme un
+  rendu final (`POST /api/montage/jobs/:id/final`) : elle entre dans la bibliothèque et la tâche passe à `done` avec `mediaId`.
+- Durée d'une scène : `min(7, max(2,8, 1,9 + 0,058 × caractères))` secondes, plus 1,2 s pour la dernière. La page du Studio
+  affiche la même estimation.
+- `gsapFile` (config du Mac, facultatif) : copie locale de `gsap.min.js` pour rendre sans réseau.

@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Copy, ImagePlus, Images, Lightbulb, Loader2, Palette, Plus, RotateCcw, Save, Send, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarPlus, Clapperboard, Copy, ImagePlus, Images, Lightbulb, Loader2, Palette, Plus, RotateCcw, Save, Send, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { isImageFile } from "@/lib/image";
-import type { MontageJob } from "@/lib/montage";
+import { MAX_SCENES, type MontageJob } from "@/lib/montage";
 import { lookOf, sameLook } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
@@ -30,20 +30,32 @@ import {
 } from "@/lib/visuals";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
-import { Field, inputClass, LookControls, SlideCanvas } from "./look-parts";
-import { PageHeader, StudioTabs, VideoTabs } from "./parts";
+import { Field, inputClass, LookControls, SlideCanvas, Toggle } from "./look-parts";
+import { PageHeader, Progress, StudioTabs, VideoTabs } from "./parts";
 import { montageApi, useMontage } from "./use-montage";
 
-/** Oldest Mac program that knows how to write a whole post. */
+/** Oldest Mac program that knows how to write a whole post, and the one that animates a reel. */
 const POST_WORKER = [0, 2, 0];
-const knowsPosts = (version?: string) => {
+const MOTION_WORKER = [0, 6, 0];
+const atLeast = (version: string | undefined, min: number[]) => {
   const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
-  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== POST_WORKER[i]) return (v[i] ?? 0) > POST_WORKER[i];
+  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
   return true;
 };
 
-export function VisualsPage() {
-  const [deck, setDeck] = useState<Deck>(emptyDeck);
+/** Seconds a scene stays on screen. Same rule as the Mac (worker/montage/lib/motion.mjs). */
+const sceneSeconds = (s: Slide, last: boolean) => Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.trim().length + s.body.trim().length))) + (last ? 1.2 : 0);
+
+/**
+ * The visuals editor of the Studio. "visuals": a carousel or a photo post, drawn here.
+ * "motion": the same slides are the scenes of an animated reel (9:16), which the Mac animates.
+ */
+export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" }) {
+  const motion = mode === "motion";
+  const blank = (): Deck => (motion ? { ...emptyDeck(), format: "9:16" } : emptyDeck());
+  const max = motion ? MAX_SCENES : MAX_SLIDES;
+  const unit = motion ? "Scène" : "Visuel";
+  const [deck, setDeck] = useState<Deck>(blank);
   const [current, setCurrent] = useState(0);
   const [fonts, setFonts] = useState<Fonts | null>(null);
   const [restored, setRestored] = useState(false);
@@ -57,15 +69,15 @@ export function VisualsPage() {
 
   // The draft of the last visit, then the fonts (the canvas needs them loaded before it draws).
   useEffect(() => {
-    const draft = loadDraft();
-    if (draft) setDeck(draft);
+    const draft = loadDraft(mode);
+    if (draft) setDeck(motion ? { ...draft, format: "9:16", slides: draft.slides.slice(0, MAX_SCENES).map((s) => ({ ...s, photo: undefined })) } : draft);
     setRestored(true);
     const f = appFonts();
     loadFonts(f).then(() => setFonts(f));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (restored) saveDraft(deck);
-  }, [deck, restored]);
+    if (restored) saveDraft(deck, mode);
+  }, [deck, restored, mode]);
 
   const deckRef = useRef(deck);
   deckRef.current = deck;
@@ -75,12 +87,12 @@ export function VisualsPage() {
   const patchSlide = (p: Partial<Slide>) => setDeck((d) => ({ ...d, slides: d.slides.map((s, i) => (i === index ? { ...s, ...p } : s)) }));
 
   const addSlide = () => {
-    if (deck.slides.length >= MAX_SLIDES) return;
+    if (deck.slides.length >= max) return;
     setDeck((d) => ({ ...d, slides: [...d.slides.slice(0, index + 1), newSlide(), ...d.slides.slice(index + 1)] }));
     setCurrent(index + 1);
   };
   const duplicate = () => {
-    if (deck.slides.length >= MAX_SLIDES) return;
+    if (deck.slides.length >= max) return;
     setDeck((d) => ({ ...d, slides: [...d.slides.slice(0, index + 1), { ...slide, id: crypto.randomUUID() }, ...d.slides.slice(index + 1)] }));
     setCurrent(index + 1);
   };
@@ -133,7 +145,7 @@ export function VisualsPage() {
   };
 
   const reset = () => {
-    const base = emptyDeck();
+    const base = blank();
     setDeck({ ...(profile && styled ? { ...base, ...lookOf(profile.look), logo: profile.look.logo, profileId: styled } : base), autoProject: deck.autoProject });
     setCurrent(0);
   };
@@ -167,9 +179,11 @@ export function VisualsPage() {
   // Posts already taken into the editor: their request is being deleted, the list may still show it for a moment.
   const [taken, setTaken] = useState<string[]>([]);
   const pending = data?.jobs.find((j) => j.id === jobId);
-  const workerOld = !!data?.worker.version && !knowsPosts(data.worker.version);
+  const workerOld = !!data?.worker.version && !atLeast(data.worker.version, POST_WORKER);
+  // The two editors share the Mac's list: each one only sees the posts asked from it.
+  const mine = (j: MontageJob) => j.kind === "post" && !!j.post?.reel === motion;
   // Posts Claude finished while the page was closed.
-  const ready = (data?.jobs ?? []).filter((j) => j.kind === "post" && j.status === "done" && j.post?.result && j.id !== jobId && !taken.includes(j.id)).slice(0, 4);
+  const ready = (data?.jobs ?? []).filter((j) => mine(j) && j.status === "done" && j.post?.result && j.id !== jobId && !taken.includes(j.id)).slice(0, 4);
 
   // The deck as it was when Claude was asked: a result must not erase what was written meanwhile.
   const askedDeck = useRef<Deck | null>(null);
@@ -177,7 +191,7 @@ export function VisualsPage() {
   const applyResult = (job: MontageJob) => {
     const r = job.post?.result;
     if (!r) return;
-    setDeck((d) => ({ ...d, caption: r.caption, slides: r.slides.slice(0, MAX_SLIDES).map((s) => newSlide(s.title, s.body)) }));
+    setDeck((d) => ({ ...d, caption: r.caption, slides: r.slides.slice(0, max).map((s) => newSlide(s.title, s.body)) }));
     setCurrent(0);
     setTaken((t) => [...t, job.id]);
     // The request was only a means: remove it from the Mac's list.
@@ -190,7 +204,7 @@ export function VisualsPage() {
       setJobId(null);
       if (deckRef.current === askedDeck.current) {
         applyResult(pending);
-        toast.success("Post écrit par Claude", { description: "Relis les visuels et la description, puis crée le post." });
+        toast.success(motion ? "Scènes écrites par Claude" : "Post écrit par Claude", { description: motion ? "Relis les scènes et la description, puis génère le reel." : "Relis les visuels et la description, puis crée le post." });
       } else {
         // Edited while Claude wrote: the result waits in the list, a click takes it.
         toast("Le post de Claude est prêt", { description: "Tu as modifié les visuels entre-temps : clique sur son idée, sous « Écrire le post », pour le reprendre.", duration: 12_000 });
@@ -216,7 +230,7 @@ export function VisualsPage() {
   // Requests left by an earlier visit: one still running gets its spinner back, dead ones are removed.
   useEffect(() => {
     if (!data || jobId || asking) return;
-    const posts = data.jobs.filter((j) => j.kind === "post" && !taken.includes(j.id));
+    const posts = data.jobs.filter((j) => mine(j) && !taken.includes(j.id));
     const dead = posts.filter((j) => j.status === "failed" || j.status === "cancelled");
     if (dead.length) {
       setTaken((t) => [...t, ...dead.map((j) => j.id)]);
@@ -227,7 +241,7 @@ export function VisualsPage() {
       askedDeck.current = null;
       setJobId(running.id);
     }
-  }, [data, jobId, asking, taken]);
+  }, [data, jobId, asking, taken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const askClaude = async () => {
     if (!idea.trim() || jobId || asking) return;
@@ -235,7 +249,7 @@ export function VisualsPage() {
     try {
       const { job } = await montageApi<{ job: MontageJob }>("/api/montage/jobs", {
         method: "POST",
-        body: JSON.stringify({ kind: "post", idea, slides: count, projectId: styled ?? (activeProject !== "all" ? activeProject : undefined) }),
+        body: JSON.stringify({ kind: "post", idea, slides: Math.min(count, max), reel: motion, projectId: styled ?? (activeProject !== "all" ? activeProject : undefined) }),
       });
       askedDeck.current = deckRef.current;
       setJobId(job.id);
@@ -252,9 +266,75 @@ export function VisualsPage() {
     setJobId(null);
   };
 
+  // ---- Animated reel made by the Mac ----
+  const [reelId, setReelId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [music, setMusic] = useState(true);
+  /** The reel that just came back: shown above the scenes until the next one. */
+  const [reelMedia, setReelMedia] = useState<string | null>(null);
+  const reel = data?.jobs.find((j) => j.id === reelId);
+  const motionOld = motion && !!data?.worker.version && !atLeast(data.worker.version, MOTION_WORKER);
+  const seconds = Math.round(deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0));
+  const playMedia = useStore((s) => s.playMedia);
+
+  // A reel asked earlier (this visit or another): follow it, show it when it is there, clean up after it.
+  useEffect(() => {
+    if (!motion || !data) return;
+    const reels = data.jobs.filter((j) => j.kind === "motion" && !taken.includes(j.id));
+    const over = reels.filter((j) => j.status === "done" || j.status === "failed" || j.status === "cancelled");
+    if (over.length) {
+      setTaken((t) => [...t, ...over.map((j) => j.id)]);
+      for (const j of over) {
+        if (j.status === "done" && j.mediaId) {
+          setReelMedia(j.mediaId);
+          useStore.getState().load().catch(() => {});
+          toast.success("Ton reel animé est prêt", { description: "Il est dans la bibliothèque. Regarde-le, puis programme-le." });
+        } else if (j.status === "failed") toast.error("Le reel n'a pas pu être généré", { description: j.error, duration: 12_000 });
+        if (j.id === reelId) setReelId(null);
+        montageApi(`/api/montage/jobs/${j.id}`, { method: "DELETE" }).catch(() => {});
+      }
+    }
+    if (!reelId && !starting) {
+      const running = reels.find((j) => j.status === "queued" || j.status === "working");
+      if (running) setReelId(running.id);
+    }
+  }, [data, motion, reelId, starting, taken]);
+
+  const generate = async () => {
+    if (reelId || starting) return;
+    setStarting(true);
+    try {
+      const { job } = await montageApi<{ job: MontageJob }>("/api/montage/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "motion",
+          scenes: deck.slides.map((s) => ({ title: s.title, body: s.body })),
+          // The logo is the project's: the Mac gets it from the profile.
+          look: { ...lookOf(deck), logo: undefined },
+          music,
+          projectId: styled ?? (activeProject !== "all" ? activeProject : undefined),
+        }),
+      });
+      setReelMedia(null);
+      setReelId(job.id);
+      refresh();
+    } catch (e) {
+      toast.error("Demande impossible", { description: (e as Error).message });
+    } finally {
+      setStarting(false);
+    }
+  };
+  const cancelReel = () => {
+    if (!reelId) return;
+    setTaken((t) => [...t, reelId]);
+    montageApi(`/api/montage/jobs/${reelId}`, { method: "DELETE" }).catch(() => {});
+    setReelId(null);
+  };
+  const reelFile = reelMedia ? media.find((m) => m.id === reelMedia) : undefined;
+
   // ---- Create the post ----
   const [making, setMaking] = useState<{ done: number; total: number } | null>(null);
-  const story = deck.format === "9:16";
+  const story = !motion && deck.format === "9:16";
   const empty = deck.slides.every((s) => !s.title.trim() && !s.body.trim() && !s.photo);
   // The visuals of the last "Créer le post": the same visuals are not sent to Médias twice.
   const lastRender = useRef<{ key: string; ids: string[] } | null>(null);
@@ -311,16 +391,58 @@ export function VisualsPage() {
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <StudioTabs />
             <div className="ml-auto flex items-center gap-2">
-              <Button variant="ghost" onClick={reset} disabled={!!making} title="Repartir d'un visuel vide">
+              <Button variant="ghost" onClick={reset} disabled={!!making} title={motion ? "Repartir d'une scène vide" : "Repartir d'un visuel vide"}>
                 <RotateCcw className="size-4" />
                 <span className="max-sm:hidden">Recommencer</span>
               </Button>
-              <Button variant="primary" onClick={createPost} disabled={!fonts || !!making || empty}>
-                {making ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                {making ? `Visuel ${Math.min(making.done + 1, making.total)}/${making.total}…` : "Créer le post"}
-              </Button>
+              {motion ? (
+                reelId ? (
+                  <Button onClick={cancelReel}>
+                    <X className="size-4" />
+                    Annuler le reel
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={generate} disabled={starting || empty || motionOld}>
+                    <Clapperboard className="size-4" />
+                    Générer le reel
+                  </Button>
+                )
+              ) : (
+                <Button variant="primary" onClick={createPost} disabled={!fonts || !!making || empty}>
+                  {making ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {making ? `Visuel ${Math.min(making.done + 1, making.total)}/${making.total}…` : "Créer le post"}
+                </Button>
+              )}
             </div>
           </div>
+
+          {motion && reelId && (
+            <div className="mb-4 rounded-xl border border-line bg-surface p-4" aria-live="polite">
+              <p className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+                <Loader2 className="size-4 animate-spin text-accent" />
+                {reel?.step ?? (data?.worker.online ? "Ton Mac prépare le reel…" : "En attente de ton Mac (éteint ou en veille)…")}
+              </p>
+              <Progress value={reel?.status === "working" ? reel.progress : undefined} />
+              <p className="mt-2 text-[12px] text-ink-3">Compte une à deux minutes. Tu peux quitter la page : le reel arrivera dans la bibliothèque.</p>
+            </div>
+          )}
+          {motion && motionOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">Le programme de ton Mac est trop ancien pour animer un reel : mets-le à jour (version 0.6.0).</p>}
+          {motion && reelFile && !reelId && (
+            <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface p-4">
+              {reelFile.url && <video src={reelFile.url} controls playsInline preload="metadata" className="h-[280px] rounded-lg bg-black" />}
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <p className="text-[14px] font-semibold">Ton reel animé est prêt</p>
+                <p className="text-[12.5px] text-ink-3">Il est dans la bibliothèque. Si un texte ne va pas, corrige la scène et génère-le à nouveau.</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="primary" onClick={() => openComposer({ mediaId: reelFile.id, caption: deck.caption })}>
+                    <CalendarPlus className="size-4" />
+                    Programmer
+                  </Button>
+                  <Button onClick={() => playMedia(reelFile.id)}>Voir en grand</Button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
             {/* ---------- Preview and slides ---------- */}
@@ -332,13 +454,13 @@ export function VisualsPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="scroll-thin flex min-w-0 flex-1 gap-2 overflow-x-auto p-1" role="tablist" aria-label="Visuels">
+                <div className="scroll-thin flex min-w-0 flex-1 gap-2 overflow-x-auto p-1" role="tablist" aria-label={motion ? "Scènes" : "Visuels"}>
                   {deck.slides.map((s, i) => (
                     <button
                       key={s.id}
                       role="tab"
                       aria-selected={i === index}
-                      aria-label={`Visuel ${i + 1}`}
+                      aria-label={`${unit} ${i + 1}`}
                       onClick={() => setCurrent(i)}
                       className={cn(
                         "press relative w-[68px] shrink-0 overflow-hidden rounded-lg outline-none transition-shadow duration-150 focus-visible:ring-2 focus-visible:ring-accent/50",
@@ -349,11 +471,11 @@ export function VisualsPage() {
                       <span className="tabular absolute bottom-1 left-1 rounded bg-black/55 px-1 text-[10px] font-medium text-white">{i + 1}</span>
                     </button>
                   ))}
-                  {deck.slides.length < MAX_SLIDES && (
+                  {deck.slides.length < max && (
                     <button
                       onClick={addSlide}
-                      aria-label="Ajouter un visuel"
-                      title="Ajouter un visuel"
+                      aria-label={motion ? "Ajouter une scène" : "Ajouter un visuel"}
+                      title={motion ? "Ajouter une scène" : "Ajouter un visuel"}
                       className="press grid w-[68px] shrink-0 place-items-center rounded-lg border border-dashed border-line-strong text-ink-3 hover:border-ink-3 hover:text-ink"
                       style={{ aspectRatio: `${W} / ${HEIGHTS[deck.format]}` }}
                     >
@@ -364,22 +486,23 @@ export function VisualsPage() {
               </div>
               <div className="flex flex-wrap items-center gap-1 text-[12.5px] text-ink-3">
                 <span className="mr-1">
-                  {deck.slides.length > 1 ? `Visuel ${index + 1} sur ${deck.slides.length} · carrousel` : "Un seul visuel · post photo"}
+                  {motion ? `Scène ${index + 1} sur ${deck.slides.length} · environ ${seconds} s en tout` : deck.slides.length > 1 ? `Visuel ${index + 1} sur ${deck.slides.length} · carrousel` : "Un seul visuel · post photo"}
                 </span>
-                <IconButton label="Reculer ce visuel" onClick={() => move(-1)} disabled={index === 0}>
+                <IconButton label={motion ? "Reculer cette scène" : "Reculer ce visuel"} onClick={() => move(-1)} disabled={index === 0}>
                   <ArrowUp className="size-3.5 -rotate-90" />
                 </IconButton>
-                <IconButton label="Avancer ce visuel" onClick={() => move(1)} disabled={index === deck.slides.length - 1}>
+                <IconButton label={motion ? "Avancer cette scène" : "Avancer ce visuel"} onClick={() => move(1)} disabled={index === deck.slides.length - 1}>
                   <ArrowDown className="size-3.5 -rotate-90" />
                 </IconButton>
-                <IconButton label="Dupliquer ce visuel" onClick={duplicate} disabled={deck.slides.length >= MAX_SLIDES}>
+                <IconButton label={motion ? "Dupliquer cette scène" : "Dupliquer ce visuel"} onClick={duplicate} disabled={deck.slides.length >= max}>
                   <Copy className="size-3.5" />
                 </IconButton>
-                <IconButton label="Supprimer ce visuel" onClick={remove} disabled={deck.slides.length <= 1} danger>
+                <IconButton label={motion ? "Supprimer cette scène" : "Supprimer ce visuel"} onClick={remove} disabled={deck.slides.length <= 1} danger>
                   <Trash2 className="size-3.5" />
                 </IconButton>
                 {story && deck.slides.length > 1 && <span className="ml-auto text-warn">En story, chaque visuel devient une story à part.</span>}
               </div>
+              {motion && <p className="text-[12px] text-ink-3">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut."}</p>}
             </div>
 
             {/* ---------- Settings ---------- */}
@@ -390,15 +513,15 @@ export function VisualsPage() {
                   onChange={(e) => setIdea(e.target.value)}
                   rows={3}
                   maxLength={3000}
-                  placeholder="Ton idée, par ex. « 5 erreurs quand on débute avec Claude Code »"
-                  aria-label="Idée du post"
+                  placeholder={motion ? "L'idée du reel, par ex. « 3 romantasy à lire après Fourth Wing »" : "Ton idée, par ex. « 5 erreurs quand on débute avec Claude Code »"}
+                  aria-label={motion ? "Idée du reel" : "Idée du post"}
                   className={cn(inputClass, "resize-y py-2 leading-snug")}
                 />
                 <div className="mt-2 flex items-center gap-2">
                   <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2">
-                    Visuels
-                    <select value={count} onChange={(e) => setCount(Number(e.target.value))} className="h-8 rounded-lg border border-line-strong bg-surface px-2 text-[13px] outline-none focus:border-accent/60">
-                      {Array.from({ length: MAX_SLIDES }, (_, i) => i + 1).map((n) => (
+                    {motion ? "Scènes" : "Visuels"}
+                    <select value={Math.min(count, max)} onChange={(e) => setCount(Number(e.target.value))} className="h-8 rounded-lg border border-line-strong bg-surface px-2 text-[13px] outline-none focus:border-accent/60">
+                      {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
                         <option key={n} value={n}>
                           {n}
                         </option>
@@ -413,7 +536,7 @@ export function VisualsPage() {
                   ) : (
                     <Button className="ml-auto" onClick={askClaude} disabled={!idea.trim() || asking || workerOld}>
                       <Sparkles className="size-4 text-accent" />
-                      Écrire le post
+                      {motion ? "Écrire les scènes" : "Écrire le post"}
                     </Button>
                   )}
                 </div>
@@ -453,19 +576,27 @@ export function VisualsPage() {
                   </div>
                 )}
                 {deck.slides.some((s) => s.title.trim() && s.title !== "Ton accroche ici") && !jobId && (
-                  <p className="mt-2 text-[11.5px] text-ink-3">Le texte de Claude remplace les visuels actuels.</p>
+                  <p className="mt-2 text-[11.5px] text-ink-3">{motion ? "Le texte de Claude remplace les scènes actuelles." : "Le texte de Claude remplace les visuels actuels."}</p>
                 )}
               </Panel>
 
-              <Panel title={`Texte du visuel ${index + 1}`}>
+              <Panel title={motion ? `Texte de la scène ${index + 1}` : `Texte du visuel ${index + 1}`}>
                 <Field label="Gros texte">
-                  <textarea aria-label="Gros texte" value={slide.title} onChange={(e) => patchSlide({ title: e.target.value })} rows={2} maxLength={200} className={cn(inputClass, "resize-y py-2 leading-snug")} />
+                  <textarea aria-label="Gros texte" value={slide.title} onChange={(e) => patchSlide({ title: e.target.value })} rows={2} maxLength={motion ? 120 : 200} className={cn(inputClass, "resize-y py-2 leading-snug")} />
                 </Field>
                 <Field label="Petit texte">
-                  <textarea aria-label="Petit texte" value={slide.body} onChange={(e) => patchSlide({ body: e.target.value })} rows={3} maxLength={600} className={cn(inputClass, "resize-y py-2 leading-snug")} />
+                  <textarea aria-label="Petit texte" value={slide.body} onChange={(e) => patchSlide({ body: e.target.value })} rows={3} maxLength={motion ? 240 : 600} className={cn(inputClass, "resize-y py-2 leading-snug")} />
                 </Field>
               </Panel>
 
+              {motion && (
+                <Panel title="Musique">
+                  <Toggle label="Mettre une musique de ton dossier sous les scènes" checked={music} onChange={setMusic} />
+                  <p className="text-[12px] text-ink-3">{"Le Mac prend un morceau du dossier Musique de Metricove. S'il est vide, le reel sort sans son."}</p>
+                </Panel>
+              )}
+
+              {!motion && (
               <Panel title={`Photo du visuel ${index + 1}`}>
                 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,.jpg,.jpeg,.png,.webp,.heic" className="hidden" onChange={(e) => (importPhoto(e.target.files?.[0]), (e.target.value = ""))} />
                 <div className="flex flex-wrap gap-2">
@@ -513,8 +644,9 @@ export function VisualsPage() {
                   <p className="mt-2 text-[12px] text-ink-3">Sans photo, le visuel prend le fond choisi plus bas. Une photo sans texte donne un post photo simple.</p>
                 )}
               </Panel>
+              )}
 
-              <Panel title="Style de tous les visuels" icon={<Palette className="size-3.5 text-accent" />}>
+              <Panel title={motion ? "Style du reel" : "Style de tous les visuels"} icon={<Palette className="size-3.5 text-accent" />}>
                 {projects.length > 0 && (
                   <Field label="Profil de style">
                     <div className="flex flex-wrap items-center gap-2">
@@ -553,23 +685,25 @@ export function VisualsPage() {
                     </span>
                   </Field>
                 )}
+                {!motion && (
                 <Field label="Format">
                   <div className="flex flex-wrap items-center gap-2">
                     <Segmented value={deck.format} onChange={(format) => patch({ format })} options={FORMAT_OPTIONS.map((f) => ({ value: f.value, label: f.label }))} />
                     <span className="text-[12px] text-ink-3">{FORMAT_OPTIONS.find((f) => f.value === deck.format)?.hint}</span>
                   </div>
                 </Field>
+                )}
                 <LookControls look={deck} onChange={patch} suggestedHandle={suggestedHandle} />
               </Panel>
 
-              <Panel title="Description du post">
+              <Panel title={motion ? "Description du reel" : "Description du post"}>
                 <textarea
                   value={deck.caption}
                   onChange={(e) => patch({ caption: e.target.value })}
                   rows={5}
                   maxLength={5000}
-                  placeholder="Le texte publié avec les visuels. Tu peux aussi l'écrire plus tard, dans le post."
-                  aria-label="Description du post"
+                  placeholder={motion ? "Le texte publié avec le reel. Tu peux aussi l'écrire plus tard, dans le post." : "Le texte publié avec les visuels. Tu peux aussi l'écrire plus tard, dans le post."}
+                  aria-label={motion ? "Description du reel" : "Description du post"}
                   className={cn(inputClass, "resize-y py-2 leading-snug")}
                 />
               </Panel>
