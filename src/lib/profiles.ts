@@ -30,9 +30,55 @@ export type StyleProfile = {
   tone: string;
   /** Folder of a skill on the Mac (holding a SKILL.md) that Claude reads before writing. Empty for none. */
   skill: string;
+  /** What Claude imitates and draws from: model posts, inspiration images, ideas. */
+  refs: ProfileRefs;
   /** False while the project still uses its starter style untouched. */
   saved: boolean;
 };
+
+export type ProfileRefs = {
+  /** Posts of the project that worked: Claude imitates their structure and tone. */
+  examples: { id: string; text: string }[];
+  /** Post ideas waiting for their turn. */
+  ideas: { id: string; text: string }[];
+  /** Inspiration images (screenshots of carousels, visuals): Claude looks at them on the Mac. Files live on the server. */
+  images: { id: string; name: string }[];
+};
+
+export const emptyRefs = (): ProfileRefs => ({ examples: [], ideas: [], images: [] });
+export const MAX_EXAMPLES = 8;
+export const MAX_EXAMPLE = 3000;
+export const MAX_IDEAS = 50;
+export const MAX_IDEA = 300;
+export const MAX_REF_IMAGES = 6;
+/** An inspiration image is shrunk by the browser before it is sent. */
+export const MAX_REF_IMAGE_BYTES = 1_500_000;
+
+const cleanList = (raw: unknown, max: number, length: number) => {
+  const seen = new Set<string>();
+  const out: { id: string; text: string }[] = [];
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const text = typeof item?.text === "string" ? item.text.replace(/\r\n?/g, "\n").trim().slice(0, length) : "";
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    const id = typeof item?.id === "string" && /^[\w-]{1,40}$/.test(item.id) && !out.some((o) => o.id === item.id) ? item.id : crypto.randomUUID();
+    out.push({ id, text });
+    if (out.length >= max) break;
+  }
+  return out;
+};
+
+/** The model posts and the ideas a browser sent; the images are only changed by their own routes. */
+export function cleanRefs(raw: unknown, base: ProfileRefs): ProfileRefs {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    examples: r.examples === undefined ? base.examples : cleanList(r.examples, MAX_EXAMPLES, MAX_EXAMPLE),
+    ideas: r.ideas === undefined ? base.ideas : cleanList(r.ideas, MAX_IDEAS, MAX_IDEA),
+    images: base.images,
+  };
+}
+
+export const sameTexts = (a: { text: string }[], b: { text: string }[]) => a.length === b.length && a.every((x, i) => x.text === b[i].text);
 
 export const LOOK_THEMES: LookTheme[] = ["paper", "night", "accent", "gradient"];
 export const MAX_TONE = 3000;
@@ -82,7 +128,7 @@ export function presetFor(projectName: string): PresetId {
 
 export const starterProfile = (preset: PresetId, handle = ""): StyleProfile => {
   const p = presetOf(preset);
-  return { preset: p.id, look: { ...p.look, handle }, tone: p.tone, skill: "", saved: false };
+  return { preset: p.id, look: { ...p.look, handle }, tone: p.tone, skill: "", refs: emptyRefs(), saved: false };
 };
 
 const LOOK_KEYS = ["theme", "accent", "font", "align", "valign", "grain", "numbers", "handle", "logo"] as const;

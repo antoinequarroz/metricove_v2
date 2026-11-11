@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Look, StyleProfile } from "./profiles";
+import { MAX_REF_IMAGE_BYTES, type Look, type StyleProfile } from "./profiles";
 
 type Profiles = Record<string, StyleProfile>;
 
@@ -43,7 +43,7 @@ export function useProfiles() {
     return () => void listeners.delete(setProfiles);
   }, [reload]);
 
-  const save = useCallback(async (projectId: string, change: { look?: Look; tone?: string; skill?: string; preset?: string }) => {
+  const save = useCallback(async (projectId: string, change: { look?: Look; tone?: string; skill?: string; preset?: string; refs?: { examples?: { id: string; text: string }[]; ideas?: { id: string; text: string }[] } }) => {
     const { profile } = await call<{ profile: StyleProfile }>(`/api/profiles/${projectId}`, { method: "PUT", body: JSON.stringify(change) });
     publish({ ...(cache ?? {}), [projectId]: profile });
     return profile;
@@ -54,7 +54,22 @@ export function useProfiles() {
     return profile;
   }, []);
 
-  return { profiles, error, reload, save, reset };
+  /** Sends an inspiration image (shrunk first) and adds it to the project. */
+  const addImage = useCallback(async (projectId: string, file: File) => {
+    const blob = await shrinkImage(file);
+    const res = await fetch(`/api/profiles/${projectId}/images?name=${encodeURIComponent(file.name.slice(0, 80))}`, { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
+    publish({ ...(cache ?? {}), [projectId]: body.profile });
+    return body.profile as StyleProfile;
+  }, []);
+  const removeImage = useCallback(async (projectId: string, imageId: string) => {
+    const { profile } = await call<{ profile: StyleProfile }>(`/api/profiles/${projectId}/images/${imageId}`, { method: "DELETE" });
+    publish({ ...(cache ?? {}), [projectId]: profile });
+    return profile;
+  }, []);
+
+  return { profiles, error, reload, save, reset, addImage, removeImage };
 }
 
 /** A logo file made small enough to travel with every visual: 256 px at most, PNG (keeps transparency). */
@@ -75,6 +90,35 @@ export async function shrinkLogo(file: File): Promise<string> {
     return canvas.toDataURL("image/png");
   } catch {
     throw new Error("Logo illisible par ce navigateur : exporte-le en PNG ou en JPEG.");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** An inspiration image as a JPEG of 1600 px at most: enough for Claude to read it, light enough to keep. */
+async function shrinkImage(file: File): Promise<Blob> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    for (const [side, quality] of [[1600, 0.85], [1200, 0.75], [900, 0.65]] as const) {
+      const scale = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) break;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (blob && blob.size <= MAX_REF_IMAGE_BYTES) return blob;
+    }
+    throw new Error("trop lourde");
+  } catch {
+    throw new Error("Image illisible par ce navigateur : exporte-la en JPEG ou en PNG.");
   } finally {
     URL.revokeObjectURL(url);
   }

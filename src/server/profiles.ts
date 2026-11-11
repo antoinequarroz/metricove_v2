@@ -1,7 +1,9 @@
 import "server-only";
-import { cleanLook, MAX_SKILL, MAX_TONE, PRESETS, presetFor, starterProfile, type StyleProfile } from "@/lib/profiles";
+import fs from "node:fs";
+import path from "node:path";
+import { cleanLook, cleanRefs, emptyRefs, MAX_REF_IMAGE_BYTES, MAX_REF_IMAGES, MAX_SKILL, MAX_TONE, PRESETS, presetFor, type ProfileRefs, starterProfile, type StyleProfile } from "@/lib/profiles";
 import type { Project } from "@/lib/types";
-import { getSetting, listAccounts, listProjects, setSetting } from "./db";
+import { DATA_DIR, getSetting, listAccounts, listProjects, setSetting } from "./db";
 
 const key = (projectId: string) => `profile:${projectId}`;
 
@@ -23,7 +25,20 @@ export function profileOf(project: Project): StyleProfile {
     look: typeof look === "string" ? starter.look : look,
     tone: typeof saved.tone === "string" ? saved.tone : starter.tone,
     skill: typeof saved.skill === "string" ? saved.skill : "",
+    refs: storedRefs(saved.refs),
     saved: true,
+  };
+}
+
+function storedRefs(raw: unknown): ProfileRefs {
+  const refs = cleanRefs(raw, emptyRefs());
+  const images = (raw as ProfileRefs | undefined)?.images;
+  return {
+    ...refs,
+    images: (Array.isArray(images) ? images : [])
+      .filter((i) => typeof i?.id === "string" && IMAGE_ID.test(i.id))
+      .map((i) => ({ id: i.id, name: String(i.name ?? "").slice(0, 80) }))
+      .slice(0, MAX_REF_IMAGES),
   };
 }
 
@@ -46,27 +61,84 @@ export function saveProfile(project: Project, raw: unknown): StyleProfile | stri
     look,
     tone: typeof r.tone === "string" ? r.tone.trim().slice(0, MAX_TONE) : current.tone,
     skill,
+    refs: r.refs === undefined ? current.refs : cleanRefs(r.refs, current.refs),
     saved: true,
   };
+  return store(project.id, profile);
+}
+
+function store(projectId: string, profile: StyleProfile) {
   const { saved: _saved, ...stored } = profile;
   void _saved;
-  setSetting(key(project.id), stored);
+  setSetting(key(projectId), stored);
   return profile;
+}
+
+/* ---------- Inspiration images ---------- */
+
+const IMAGE_ID = /^[0-9a-f-]{36}\.(jpg|png|webp)$/;
+const imageDir = (projectId: string) => path.join(DATA_DIR, "refs", projectId.replace(/[^\w-]/g, ""));
+
+/** The kind of image the bytes really are, whatever the browser says. */
+function imageKind(b: Buffer): "jpg" | "png" | "webp" | undefined {
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (b.length > 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "png";
+  if (b.length > 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP") return "webp";
+  return undefined;
+}
+
+export function addRefImage(project: Project, bytes: Buffer, name: string): StyleProfile | string {
+  const current = profileOf(project);
+  if (current.refs.images.length >= MAX_REF_IMAGES) return `${MAX_REF_IMAGES} images au plus : retires-en une d'abord`;
+  if (bytes.length > MAX_REF_IMAGE_BYTES) return "Image trop lourde";
+  const kind = imageKind(bytes);
+  if (!kind) return "Image illisible : JPEG, PNG ou WebP";
+  const id = `${crypto.randomUUID()}.${kind}`;
+  fs.mkdirSync(imageDir(project.id), { recursive: true });
+  fs.writeFileSync(path.join(imageDir(project.id), id), bytes);
+  const clean = name.replace(/[\0-\x1f]/g, "").trim().slice(0, 80) || "Image";
+  return store(project.id, { ...current, refs: { ...current.refs, images: [...current.refs.images, { id, name: clean }] }, saved: true });
+}
+
+/** The file of an inspiration image of this project, if it is one. */
+export function refImageFile(project: Project, imageId: string): { file: string; type: string } | undefined {
+  if (!IMAGE_ID.test(imageId) || !profileOf(project).refs.images.some((i) => i.id === imageId)) return undefined;
+  const file = path.join(imageDir(project.id), imageId);
+  if (!fs.existsSync(file)) return undefined;
+  return { file, type: imageId.endsWith(".png") ? "image/png" : imageId.endsWith(".webp") ? "image/webp" : "image/jpeg" };
+}
+
+export function removeRefImage(project: Project, imageId: string): StyleProfile {
+  const current = profileOf(project);
+  if (IMAGE_ID.test(imageId)) fs.rmSync(path.join(imageDir(project.id), imageId), { force: true });
+  if (!current.refs.images.some((i) => i.id === imageId)) return current;
+  return store(project.id, { ...current, refs: { ...current.refs, images: current.refs.images.filter((i) => i.id !== imageId) } });
 }
 
 /** Back to the starter style. */
 export function resetProfile(project: Project): StyleProfile {
-  setSetting(key(project.id), null);
+  forgetProfile(project.id);
   return profileOf(project);
 }
 
-export const forgetProfile = (projectId: string) => setSetting(key(projectId), null);
+export function forgetProfile(projectId: string) {
+  setSetting(key(projectId), null);
+  fs.rmSync(imageDir(projectId), { recursive: true, force: true });
+}
+
+export type Voice = { tone?: string; skill?: string; examples?: string[]; images?: string[] };
 
 /** What Claude needs to write in the project's voice. Sent to the Mac with each writing request. */
-export function voiceOf(projectId: string | undefined): { tone?: string; skill?: string } | undefined {
+export function voiceOf(projectId: string | undefined): Voice | undefined {
   const project = projectId ? listProjects().find((p) => p.id === projectId) : undefined;
   if (!project) return undefined;
   const p = profileOf(project);
-  const voice = { ...(p.tone.trim() ? { tone: p.tone.trim() } : {}), ...(p.skill ? { skill: p.skill } : {}) };
-  return voice.tone || voice.skill ? voice : undefined;
+  const voice: Voice = {
+    ...(p.tone.trim() ? { tone: p.tone.trim() } : {}),
+    ...(p.skill ? { skill: p.skill } : {}),
+    ...(p.refs.examples.length ? { examples: p.refs.examples.map((e) => e.text) } : {}),
+    // Addresses the Mac downloads with its token.
+    ...(p.refs.images.length ? { images: p.refs.images.map((i) => `/api/profiles/${project.id}/images/${i.id}`) } : {}),
+  };
+  return Object.keys(voice).length ? voice : undefined;
 }

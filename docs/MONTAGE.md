@@ -200,10 +200,15 @@ signature, logo), le ton de Claude et, au choix, le dossier d'un skill sur le Ma
   enregistré, le projet reçoit un style de départ d'après son nom (AntoineQuarroz, LivreMatch, Carnadzons).
 - `PUT /api/profiles/:projectId` `{ look?, tone?, skill?, preset? }` (seuls les champs envoyés changent),
   `DELETE` pour revenir au style de départ.
-- Les tâches `script`, `caption` et `post` d'un projet portent `job.voice = { tone?, skill? }`, copié à la création.
-  Le worker (0.3.0) met `tone` à la place de ses règles de ton d'origine et, si `skill` désigne un dossier qui
-  contient un `SKILL.md`, ajoute ce fichier au prompt (8 000 caractères au plus ; rien d'autre n'est lu).
-  Un worker plus ancien ignore `voice` et garde ses règles d'origine.
+- Références du profil (`refs`) : `examples` (posts modèles, 8 au plus), `ideas` (idées de posts) changent par le
+  `PUT` ; `images` (images d'inspiration, 6 au plus) par `POST /api/profiles/:projectId/images?name=…` (corps =
+  l'image, JPEG/PNG/WebP, 1,5 Mo au plus), `GET` et `DELETE /api/profiles/:projectId/images/:imageId`.
+- Les tâches `script`, `caption` et `post` d'un projet portent `job.voice = { tone?, skill?, examples?, images? }`,
+  copié à la création. Le worker met `tone` à la place de ses règles de ton d'origine ; si `skill` désigne un
+  dossier qui contient un `SKILL.md`, il ajoute ce fichier au prompt (8 000 caractères au plus ; rien d'autre
+  n'est lu) ; `examples` sont donnés comme modèles à imiter ; pour un `post`, il télécharge `images` (adresses
+  `/api/profiles/…`) dans son dossier de travail et demande à Claude de les lire. Worker 0.3.0 pour le ton et le
+  skill, 0.4.0 pour les références. Un worker plus ancien ignore ce qu'il ne connaît pas.
 
 ### Côté interface
 

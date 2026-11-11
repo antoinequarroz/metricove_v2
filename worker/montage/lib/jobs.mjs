@@ -35,7 +35,7 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       return;
     }
     if (action === "post") {
-      const post = await writePost(cfg, job, step);
+      const post = await writePost(api, cfg, job, step);
       await api.patch(job.id, { status: "done", post });
       log(`[${job.id.slice(0, 8)}] post envoyé (${post.slides.length} visuel(s), ${post.caption.length} car.)`);
       rmSync(dir, { recursive: true, force: true });

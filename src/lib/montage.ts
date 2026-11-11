@@ -170,7 +170,7 @@ export type MontageJob = {
   /** Drawings sent with the last request to Claude. */
   marks?: MontageMark[];
   /** Voice of the project (style profile), copied when the job was made: Claude writes with it. */
-  voice?: { tone?: string; skill?: string };
+  voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[] };
   /** Subtitle style of the project, copied when the job was made. */
   style?: CaptionStyle;
   versions: MontageVersion[];

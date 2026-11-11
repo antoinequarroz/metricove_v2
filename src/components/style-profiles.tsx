@@ -1,9 +1,9 @@
 "use client";
 
-import { ChevronDown, Save } from "lucide-react";
+import { ChevronDown, ImagePlus, Lightbulb, Loader2, Plus, Save, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { type Look, MAX_SKILL, MAX_TONE, PRESETS, presetOf, sameLook, type StyleProfile } from "@/lib/profiles";
+import { type Look, MAX_EXAMPLE, MAX_EXAMPLES, MAX_IDEA, MAX_IDEAS, MAX_REF_IMAGES, MAX_SKILL, MAX_TONE, PRESETS, presetOf, sameLook, sameTexts, type StyleProfile } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
 import type { Project } from "@/lib/types";
 import { useProfiles } from "@/lib/use-profiles";
@@ -16,7 +16,8 @@ import { Button } from "./ui";
 export function StyleProfiles() {
   const projects = useStore((s) => s.projects);
   const loaded = useStore((s) => s.loaded);
-  const { profiles, error, reload, save } = useProfiles();
+  const hooks = useProfiles();
+  const { profiles, error, reload } = hooks;
   const [fonts, setFonts] = useState<Fonts | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -50,7 +51,7 @@ export function StyleProfiles() {
         if (!profile) return null;
         return (
           <div key={project.id} className={cn(i && "border-t border-line")}>
-            <ProfileCard project={project} profile={profile} fonts={fonts} open={open === project.id} onToggle={() => setOpen((o) => (o === project.id ? null : project.id))} save={save} />
+            <ProfileCard project={project} profile={profile} fonts={fonts} open={open === project.id} onToggle={() => setOpen((o) => (o === project.id ? null : project.id))} hooks={hooks} />
           </div>
         );
       })}
@@ -58,21 +59,24 @@ export function StyleProfiles() {
   );
 }
 
-type Draft = { preset: StyleProfile["preset"]; look: Look; tone: string; skill: string };
-const draftOf = (p: StyleProfile): Draft => ({ preset: p.preset, look: p.look, tone: p.tone, skill: p.skill });
+type Texts = { id: string; text: string }[];
+type Draft = { preset: StyleProfile["preset"]; look: Look; tone: string; skill: string; examples: Texts; ideas: Texts };
+const draftOf = (p: StyleProfile): Draft => ({ preset: p.preset, look: p.look, tone: p.tone, skill: p.skill, examples: p.refs.examples, ideas: p.refs.ideas });
+const edited = (d: Draft, p: StyleProfile) => !sameLook(d.look, p.look) || d.tone.trim() !== p.tone.trim() || d.skill.trim() !== p.skill || !sameTexts(d.examples, p.refs.examples) || !sameTexts(d.ideas, p.refs.ideas);
 
-function ProfileCard({ project, profile, fonts, open, onToggle, save }: { project: Project; profile: StyleProfile; fonts: Fonts | null; open: boolean; onToggle: () => void; save: ReturnType<typeof useProfiles>["save"] }) {
+function ProfileCard({ project, profile, fonts, open, onToggle, hooks }: { project: Project; profile: StyleProfile; fonts: Fonts | null; open: boolean; onToggle: () => void; hooks: ReturnType<typeof useProfiles> }) {
+  const { save } = hooks;
   const accounts = useStore((s) => s.accounts);
   const [draft, setDraft] = useState<Draft>(() => draftOf(profile));
   const [busy, setBusy] = useState(false);
   const [starter, setStarter] = useState(profile.preset);
-  const dirty = !sameLook(draft.look, profile.look) || draft.tone.trim() !== profile.tone.trim() || draft.skill.trim() !== profile.skill;
+  const dirty = edited(draft, profile);
   // What the server holds changed (saved from the Studio): follow it, unless something is being edited here.
   const shown = useRef(profile);
   useEffect(() => {
     const before = shown.current;
     shown.current = profile;
-    setDraft((d) => (sameLook(d.look, before.look) && d.tone.trim() === before.tone.trim() && d.skill.trim() === before.skill ? draftOf(profile) : d));
+    setDraft((d) => (edited(d, before) ? d : draftOf(profile)));
   }, [profile]);
 
   const slides = useMemo(() => [newSlide(project.name, "Voici à quoi ressemblent les visuels de ce projet."), newSlide("Suite", "")], [project.name]);
@@ -87,7 +91,7 @@ function ProfileCard({ project, profile, fonts, open, onToggle, save }: { projec
     if (busy) return;
     setBusy(true);
     try {
-      const saved = await save(project.id, { preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "" }, tone: draft.tone, skill: draft.skill });
+      const saved = await save(project.id, { preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "" }, tone: draft.tone, skill: draft.skill, refs: { examples: draft.examples, ideas: draft.ideas } });
       setDraft(draftOf(saved));
       toast.success(`Style de ${project.name} enregistré`, { description: "Les prochains visuels et textes du projet le suivent." });
     } catch (e) {
@@ -98,7 +102,7 @@ function ProfileCard({ project, profile, fonts, open, onToggle, save }: { projec
   };
   const useStarter = () => {
     const p = presetOf(starter);
-    setDraft((d) => ({ preset: p.id, look: { ...p.look, handle: d.look.handle, logo: d.look.logo }, tone: p.tone, skill: d.skill }));
+    setDraft((d) => ({ ...d, preset: p.id, look: { ...p.look, handle: d.look.handle, logo: d.look.logo }, tone: p.tone }));
   };
 
   return (
@@ -148,6 +152,7 @@ function ProfileCard({ project, profile, fonts, open, onToggle, save }: { projec
               />
               <span className="text-[11.5px] text-ink-3">Le dossier d&apos;un skill sur ton Mac. Claude lit son fichier SKILL.md avant d&apos;écrire pour ce projet.</span>
             </Field>
+            <References project={project} profile={profile} draft={draft} setDraft={setDraft} hooks={hooks} />
             <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
               <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2">
                 Repartir de
@@ -171,5 +176,145 @@ function ProfileCard({ project, profile, fonts, open, onToggle, save }: { projec
         </div>
       )}
     </>
+  );
+}
+
+/** What Claude imitates for this project: model posts, inspiration images, and the list of ideas. */
+function References({ project, profile, draft, setDraft, hooks }: { project: Project; profile: StyleProfile; draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft>>; hooks: ReturnType<typeof useProfiles> }) {
+  const posts = useStore((s) => s.posts);
+  const [text, setText] = useState("");
+  const [idea, setIdea] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [sending, setSending] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const images = profile.refs.images;
+
+  // Published posts of this project, newest first, not already taken as models.
+  const published = useMemo(
+    () =>
+      posts
+        .filter((p) => p.status === "published" && p.caption.trim() && p.accountIds.some((id) => project.accountIds.includes(id)) && !draft.examples.some((e) => e.text === p.caption.trim().slice(0, MAX_EXAMPLE)))
+        .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt))
+        .slice(0, 30),
+    [posts, project.accountIds, draft.examples],
+  );
+  const addExample = (raw: string) => {
+    const t = raw.trim().slice(0, MAX_EXAMPLE);
+    if (!t || draft.examples.length >= MAX_EXAMPLES || draft.examples.some((e) => e.text === t)) return;
+    setDraft((d) => ({ ...d, examples: [...d.examples, { id: crypto.randomUUID(), text: t }] }));
+  };
+  const addIdea = () => {
+    const t = idea.replace(/\s+/g, " ").trim().slice(0, MAX_IDEA);
+    if (!t || draft.ideas.length >= MAX_IDEAS) return;
+    if (!draft.ideas.some((e) => e.text === t)) setDraft((d) => ({ ...d, ideas: [...d.ideas, { id: crypto.randomUUID(), text: t }] }));
+    setIdea("");
+  };
+  const sendImages = async (files: FileList | null) => {
+    if (!files?.length || sending) return;
+    setSending(true);
+    try {
+      let room = MAX_REF_IMAGES - images.length;
+      for (const file of Array.from(files)) {
+        if (room-- <= 0) {
+          toast(`${MAX_REF_IMAGES} images au plus par projet`);
+          break;
+        }
+        await hooks.addImage(project.id, file);
+      }
+    } catch (e) {
+      toast.error("Image non ajoutée", { description: (e as Error).message });
+    } finally {
+      setSending(false);
+    }
+  };
+  const dropImage = (id: string) => hooks.removeImage(project.id, id).catch((e: Error) => toast.error("Image non retirée", { description: e.message }));
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-line pt-3">
+      <div>
+        <h3 className="text-[13px] font-semibold">Références</h3>
+        <p className="text-[11.5px] text-ink-3">Ce que Claude imite quand il écrit pour ce projet. Il reprend la structure et le ton, sans recopier.</p>
+      </div>
+
+      <Field label={`Posts modèles (${draft.examples.length}/${MAX_EXAMPLES})`}>
+        {draft.examples.map((e) => (
+          <div key={e.id} className="flex items-start gap-2 rounded-lg border border-line bg-surface-2/50 px-3 py-2">
+            <p className="line-clamp-3 min-w-0 flex-1 whitespace-pre-line text-[12.5px] leading-snug text-ink-2">{e.text}</p>
+            <button type="button" onClick={() => setDraft((d) => ({ ...d, examples: d.examples.filter((x) => x.id !== e.id) }))} aria-label="Retirer ce post modèle" title="Retirer" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-danger">
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ))}
+        {draft.examples.length < MAX_EXAMPLES && (
+          <>
+            <textarea aria-label="Texte d'un post modèle" value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={MAX_EXAMPLE} placeholder="Colle ici le texte d'un de tes posts qui a bien marché." className={cn(inputClass, "resize-y py-2 leading-snug")} />
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" type="button" disabled={!text.trim()} onClick={() => (addExample(text), setText(""))}>
+                <Plus className="size-3.5" />
+                Ajouter ce texte
+              </Button>
+              <Button size="sm" type="button" disabled={!published.length} title={published.length ? undefined : "Aucun post publié pour ce projet"} onClick={() => setPicking((p) => !p)}>
+                Choisir un post publié
+              </Button>
+            </div>
+            {picking && published.length > 0 && (
+              <div className="scroll-thin flex max-h-56 flex-col gap-1 overflow-y-auto rounded-lg border border-line p-1.5">
+                {published.map((p) => (
+                  <button key={p.id} type="button" onClick={() => addExample(p.caption)} className="press rounded-md px-2 py-1.5 text-left hover:bg-ink/[0.04]">
+                    <span className="block text-[11px] text-ink-3">{new Date(p.scheduledAt).toLocaleDateString("fr-CH", { dateStyle: "medium" })}</span>
+                    <span className="line-clamp-2 text-[12.5px] leading-snug">{p.caption}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </Field>
+
+      <Field label={`Images d'inspiration (${images.length}/${MAX_REF_IMAGES})`}>
+        <input ref={fileInput} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => (sendImages(e.target.files), (e.target.value = ""))} />
+        <div className="flex flex-wrap gap-2">
+          {images.map((i) => (
+            <span key={i.id} className="group relative size-20 overflow-hidden rounded-lg bg-surface-2 shadow-[0_0_0_1px_var(--line-strong)]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={`/api/profiles/${project.id}/images/${i.id}`} alt={i.name} title={i.name} loading="lazy" className="size-full object-cover" />
+              <button type="button" onClick={() => dropImage(i.id)} aria-label={`Retirer l'image ${i.name}`} title="Retirer" className="press absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-black/60 text-white">
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          {images.length < MAX_REF_IMAGES && (
+            <button type="button" onClick={() => fileInput.current?.click()} disabled={sending} aria-label="Ajouter des images d'inspiration" className="press grid size-20 place-items-center rounded-lg border border-dashed border-line-strong text-ink-3 hover:border-ink-3 hover:text-ink disabled:opacity-60">
+              {sending ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
+            </button>
+          )}
+        </div>
+        <span className="text-[11.5px] text-ink-3">Captures de carrousels ou de visuels que tu aimes. Claude les regarde avant d&apos;écrire un post, pour reprendre le découpage et le type d&apos;accroche. Enregistrées tout de suite.</span>
+      </Field>
+
+      <Field label={`Idées de posts (${draft.ideas.length})`}>
+        {draft.ideas.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {draft.ideas.map((e) => (
+              <span key={e.id} className="flex max-w-full items-center gap-1 rounded-full border border-line-strong bg-surface py-0.5 pr-1 pl-2.5 text-[12px] text-ink-2">
+                <Lightbulb className="size-3 shrink-0 text-accent" />
+                <span className="truncate">{e.text}</span>
+                <button type="button" onClick={() => setDraft((d) => ({ ...d, ideas: d.ideas.filter((x) => x.id !== e.id) }))} aria-label={`Retirer l'idée ${e.text}`} className="press grid size-5 shrink-0 place-items-center rounded-full text-ink-3 hover:text-danger">
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input aria-label="Nouvelle idée de post" value={idea} onChange={(e) => setIdea(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addIdea())} maxLength={MAX_IDEA} placeholder="Une idée de post, par ex. « 3 romantasy pour débuter »" className={cn(inputClass, "h-9 min-w-0 flex-1")} />
+          <Button size="sm" className="h-9" type="button" disabled={!idea.trim() || draft.ideas.length >= MAX_IDEAS} onClick={addIdea}>
+            <Plus className="size-3.5" />
+            Ajouter
+          </Button>
+        </div>
+        <span className="text-[11.5px] text-ink-3">Elles apparaissent dans Studio → Carrousel et photo, sous « Écrit par Claude ».</span>
+      </Field>
+    </div>
   );
 }

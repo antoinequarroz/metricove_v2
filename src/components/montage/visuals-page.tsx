@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Copy, ImagePlus, Images, Loader2, Palette, Plus, RotateCcw, Save, Send, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, ImagePlus, Images, Lightbulb, Loader2, Palette, Plus, RotateCcw, Save, Send, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -104,6 +104,7 @@ export function VisualsPage() {
   const styled = deck.profileId && profiles?.[deck.profileId] ? deck.profileId : undefined;
   const profile = styled ? profiles![styled] : undefined;
   const styledProject = projects.find((p) => p.id === styled);
+  const projectIdeas = profile?.refs.ideas ?? [];
   const lookChanged = !!profile && !sameLook(lookOf(deck), profile.look);
   const applyProfile = (id: string) => {
     const p = profiles?.[id];
@@ -421,6 +422,19 @@ export function VisualsPage() {
                     <Loader2 className="size-3.5 animate-spin" />
                     {pending?.step ?? (data?.worker.online ? "Claude écrit sur ton Mac…" : "En attente de ton Mac (éteint ou en veille)…")}
                   </p>
+                )}
+                {!jobId && projectIdeas.length > 0 && (
+                  <div className="mt-2">
+                    <p className="mb-1 text-[11.5px] text-ink-3">Idées de {styledProject?.name ?? "ce projet"}</p>
+                    <div className="scroll-thin flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+                      {projectIdeas.map((i) => (
+                        <button key={i.id} type="button" onClick={() => setIdea(i.text)} title="Reprendre cette idée" className="press max-w-full truncate rounded-full border border-line-strong bg-surface px-2.5 py-0.5 text-[11.5px] text-ink-2 hover:text-ink">
+                          <Lightbulb className="mr-1 inline size-3 text-accent" />
+                          {i.text}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
                 {workerOld && <p className="mt-2 text-[12px] text-warn">Le programme de ton Mac est trop ancien pour écrire un post entier : mets-le à jour (version 0.2.0).</p>}
                 {!jobId && ready.length > 0 && (
