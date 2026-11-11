@@ -148,8 +148,14 @@ export function upsertAccount(a: Account) {
     .run({ ...a, connected: a.connected ? 1 : 0, avatarUrl: a.avatarUrl ?? null, externalId: a.externalId ?? null, providerKind: a.providerKind ?? null });
 }
 
+/** Only the follower count, so a refresh never writes back an older name or avatar. */
+export function setAccountFollowers(id: string, followers: number) {
+  db().prepare("update accounts set followers = ? where id = ?").run(followers, id);
+}
+
 export function deleteAccount(id: string) {
   db().prepare("delete from accounts where id = ?").run(id);
+  for (const t of ["account_stats", "post_stats", "follower_history"]) db().prepare(`delete from ${t} where account_id = ?`).run(id);
   for (const p of listProjects()) if (p.accountIds.includes(id)) saveProject({ ...p, accountIds: p.accountIds.filter((a) => a !== id) });
 }
 
@@ -354,6 +360,9 @@ export function savePostStats(accountId: string, posts: PostStat[]) {
   const tx = conn.transaction(() => {
     const put = conn.prepare("insert into post_stats (account_id, external_id, data) values (?, ?, ?) on conflict(account_id, external_id) do update set data = excluded.data");
     for (const p of posts) put.run(accountId, p.externalId, JSON.stringify(p));
+    // Posts older than 90 days are no longer shown anywhere.
+    const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    conn.prepare("delete from post_stats where account_id = ? and json_extract(data, '$.publishedAt') < ?").run(accountId, cutoff);
   });
   tx();
 }

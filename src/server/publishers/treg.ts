@@ -29,6 +29,8 @@ type CallInit = {
   body?: unknown;
   form?: Record<string, string | boolean | undefined>;
   headers?: Record<string, string>;
+  /** Milliseconds before giving up. Two minutes by default. */
+  timeout?: number;
 };
 
 let team = "main";
@@ -63,7 +65,7 @@ export async function call<T = unknown>(id: string, init: CallInit = {}): Promis
     method: init.method ?? (body ? "POST" : "GET"),
     headers: { "X-Treg-Token": token(), ...(type ? { "Content-Type": type } : {}), ...init.headers },
     body,
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(init.timeout ?? 120_000),
   });
   const text = await res.text();
   if (!res.ok) {

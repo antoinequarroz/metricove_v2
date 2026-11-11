@@ -81,9 +81,9 @@ La page **Statistiques** lit, pour chaque compte, les abonnés et les derniers p
 
 | Réseau | Ce qui est lu | Remarque |
 | --- | --- | --- |
-| Instagram | Abonnés, personnes touchées (28 jours), 12 derniers posts | Gratuit. |
-| Facebook | Abonnés de la Page, 12 derniers posts | Gratuit. Pas de vues par post. |
-| YouTube | Abonnés, 12 dernières vidéos | Gratuit, 3 unités du quota Google par lecture. |
-| TikTok | 12 dernières vidéos | Gratuit. La connexion treg doit autoriser la lecture des vidéos. |
-| X | Abonnés, 5 derniers posts | Payant : environ 0,035 $ par lecture. Lu seulement avec « Actualiser », au plus une fois toutes les 6 heures. |
+| Instagram | Abonnés, personnes touchées (28 jours), 25 derniers posts | Gratuit. |
+| Facebook | Abonnés de la Page, 25 derniers posts | Gratuit. |
+| YouTube | Abonnés, 25 dernières vidéos | Gratuit, 3 unités du quota Google par lecture. |
+| TikTok | 20 dernières vidéos | Gratuit. La connexion treg doit autoriser la lecture des vidéos. |
+| X | Abonnés, 10 derniers posts sur 28 jours | Payant : 0,06 $ au plus par lecture. Lu seulement avec « Actualiser », au plus une fois toutes les 6 heures. |
 | LinkedIn | Rien | treg ne donne pas les chiffres d'un profil personnel. |

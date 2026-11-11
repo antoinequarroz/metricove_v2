@@ -3,7 +3,7 @@
 import { ArrowDownRight, ArrowUpRight, ExternalLink, Eye, Heart, MessageCircle, RefreshCw, Share2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { NETWORK_ORDER, NETWORKS } from "@/lib/networks";
 import { useProjectAccounts, useStore } from "@/lib/store";
@@ -23,6 +23,10 @@ const SORTS: { key: Sort; label: string }[] = [
 
 const interactionsOf = (p: PostStat) => (p.likes ?? 0) + (p.comments ?? 0) + (p.shares ?? 0) + (p.saves ?? 0);
 const show = (n: number | undefined) => (n === undefined ? "–" : compact(n));
+/** A total that stays unknown when no post reports the number. */
+const total = (posts: PostStat[], of: (p: PostStat) => number | undefined) => (posts.some((p) => of(p) !== undefined) ? posts.reduce((t, p) => t + (of(p) ?? 0), 0) : undefined);
+/** The automatic first read is tried once per visit of the app, not at each return to the page. */
+let askedOnce = false;
 
 export function StatsPage() {
   const accounts = useProjectAccounts();
@@ -31,19 +35,25 @@ export function StatsPage() {
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [sort, setSort] = useState<Sort>("recent");
-  const [only, setOnly] = useState<string | null>(null);
-  const asked = useRef(false);
+  const [picked, setOnly] = useState<string | null>(null);
+  // A filter on an account that left the view (other project, account removed) no longer applies.
+  const only = picked && accounts.some((a) => a.id === picked) ? picked : null;
 
-  const refresh = useCallback(async (quiet = false) => {
+  /** `auto` is the silent first read: it never pays for X. The button does. */
+  const refresh = useCallback(async (auto = false) => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/stats/refresh", { method: "POST" });
-      const body = (await res.json()) as StatsPayload & { warnings?: string[]; error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Erreur");
+      const res = await fetch("/api/stats/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paid: !auto }) });
+      const body = (await res.json().catch(() => ({}))) as StatsPayload & { warnings?: string[]; error?: string };
+      if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
       setData(body);
+      setError("");
       // Followers shown in the rest of the app come from the same refresh.
       useStore.getState().load();
-      if (!quiet) toast.success("Statistiques à jour");
+      if (!auto) {
+        if (body.accounts.length) toast.success("Statistiques à jour");
+        else toast("Aucun compte lisible", { description: "Aucun de ces comptes ne donne de statistiques pour le moment." });
+      }
       for (const w of body.warnings ?? []) toast.warning("Statistiques incomplètes", { description: w, duration: 10_000 });
     } catch (e) {
       toast.error("Impossible de lire les statistiques", { description: (e as Error).message });
@@ -52,20 +62,23 @@ export function StatsPage() {
     }
   }, []);
 
-  useEffect(() => {
+  const loadStats = useCallback(() => {
     fetch("/api/stats")
       .then(async (r) => {
-        if (!r.ok) throw new Error("Erreur");
+        if (!r.ok) throw new Error(`Erreur ${r.status}`);
         const body = (await r.json()) as StatsPayload;
         setData(body);
+        setError("");
         // First visit: nothing stored yet, so the numbers are read right away.
-        if (body.available && !body.accounts.length && !asked.current) {
-          asked.current = true;
+        if (body.available && !body.accounts.length && !askedOnce) {
+          askedOnce = true;
           refresh(true);
         }
       })
       .catch((e: Error) => setError(e.message));
   }, [refresh]);
+
+  useEffect(loadStats, [loadStats]);
 
   const view = useMemo(() => {
     const ids = new Set(accounts.map((a) => a.id));
@@ -85,7 +98,7 @@ export function StatsPage() {
           followers: stat?.followers ?? (a.followers || undefined),
           delta: history.length > 1 ? history[history.length - 1] - history[0] : undefined,
           posts: mine.length,
-          views: mine.some((p) => p.views !== undefined) ? mine.reduce((t, p) => t + (p.views ?? 0), 0) : undefined,
+          views: total(mine, (p) => p.views),
           interactions: mine.length ? mine.reduce((t, p) => t + interactionsOf(p), 0) : undefined,
         };
       });
@@ -99,8 +112,8 @@ export function StatsPage() {
         followers: rows.reduce((t, r) => t + (r.followers ?? 0), 0),
         delta: deltas.length ? deltas.reduce((t, r) => t + (r.delta ?? 0), 0) : undefined,
         posts: recent.length,
-        views: recent.reduce((t, p) => t + (p.views ?? 0), 0),
-        interactions: recent.reduce((t, p) => t + interactionsOf(p), 0),
+        views: total(recent, (p) => p.views),
+        interactions: recent.length ? recent.reduce((t, p) => t + interactionsOf(p), 0) : undefined,
       },
     };
   }, [accounts, data]);
@@ -130,7 +143,7 @@ export function StatsPage() {
           <h1 className="font-display text-[34px] leading-[1.05]">Statistiques</h1>
         </div>
         <div className="ml-auto">
-          <Button onClick={() => refresh()} disabled={refreshing || !data?.available}>
+          <Button onClick={() => refresh()} disabled={refreshing || !data?.available} title="Relit chaque réseau. X coûte quelques centimes par lecture.">
             <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
             {refreshing ? "Lecture…" : "Actualiser"}
           </Button>
@@ -138,8 +151,8 @@ export function StatsPage() {
       </header>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
-          {error ? (
-            <Notice title="Impossible de charger les statistiques" text={error} />
+          {error && !data ? (
+            <Notice title="Impossible de charger les statistiques" text={error} action={<Button onClick={loadStats}>Réessayer</Button>} />
           ) : !data ? null : !accounts.length ? (
             <Notice title="Aucun compte" text="Connectez un compte pour voir ses statistiques ici." />
           ) : empty && refreshing ? (
@@ -154,7 +167,7 @@ export function StatsPage() {
               <section className="grid grid-cols-4 gap-3 max-md:grid-cols-2">
                 <Tile label="Abonnés" value={view.totals.followers} delta={view.totals.delta} hint="tous comptes" i={0} />
                 <Tile label="Vues" value={view.totals.views} hint={`posts des ${DAYS} derniers jours`} i={1} />
-                <Tile label="Interactions" value={view.totals.interactions} hint="j'aime, commentaires, partages" i={2} />
+                <Tile label="Interactions" value={view.totals.interactions} hint="j'aime, commentaires, partages, enregistrements" i={2} />
                 <Tile label="Posts" value={view.totals.posts} hint={`publiés en ${DAYS} jours`} i={3} />
               </section>
 
@@ -178,16 +191,21 @@ export function StatsPage() {
                           key={r.account.id}
                           onClick={() => setOnly(only === r.account.id ? null : r.account.id)}
                           className={cn("cursor-pointer border-t border-line transition-colors duration-150 hover:bg-surface-2/70", only === r.account.id && "bg-accent-soft/60")}
-                          title="Voir les posts de ce compte"
                         >
                           <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-3">
+                            {/* The button makes the filter reachable from the keyboard. Its click bubbles to the row. */}
+                            <button
+                              type="button"
+                              aria-pressed={only === r.account.id}
+                              title={only === r.account.id ? "Voir les posts de tous les comptes" : `Voir les posts de @${r.account.handle}`}
+                              className="flex w-full items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                            >
                               <Avatar account={r.account} size={30} />
-                              <div className="min-w-0 max-sm:max-w-[110px]">
-                                <div className="truncate font-medium">{r.account.name}</div>
-                                <div className="truncate text-[11.5px] text-ink-3">{accountNote(r.account, r.stat?.error, r.stat?.reach)}</div>
-                              </div>
-                            </div>
+                              <span className="block min-w-0 max-sm:max-w-[110px]">
+                                <span className="block truncate font-medium">{r.account.name}</span>
+                                <span className="block truncate text-[11.5px] text-ink-3">{accountNote(r.account, r.stat?.error, r.stat?.reach)}</span>
+                              </span>
+                            </button>
                           </td>
                           <td className="tabular px-3 py-2.5 text-right font-semibold">{show(r.followers)}</td>
                           <td className="px-3 py-2.5 max-sm:hidden">
@@ -205,7 +223,7 @@ export function StatsPage() {
                   </table>
                 </div>
                 <p className="mt-2 text-[12px] text-ink-3">
-                  Posts, vues et interactions comptent les publications des {DAYS} derniers jours. L&apos;évolution des abonnés se remplit jour après jour.
+                  Posts, vues et interactions comptent les publications des {DAYS} derniers jours, jusqu&apos;à 25 par compte (10 sur X). L&apos;évolution des abonnés se remplit jour après jour.
                 </p>
               </section>
 
@@ -250,7 +268,7 @@ export function StatsPage() {
 /** Ids of the posts Metricove published itself, as the networks name them. */
 function usePublishedIds() {
   const posts = useStore((s) => s.posts);
-  return useMemo(() => new Set(posts.flatMap((p) => Object.values(p.results ?? {}).map((r) => r.externalId ?? ""))), [posts]);
+  return useMemo(() => new Set(posts.flatMap((p) => Object.values(p.results ?? {}).flatMap((r) => (r.externalId ? [r.externalId] : [])))), [posts]);
 }
 
 function accountNote(a: Account, error?: string, reach?: number) {
@@ -259,23 +277,24 @@ function accountNote(a: Account, error?: string, reach?: number) {
   return `@${a.handle}${reach !== undefined ? ` · ${compact(reach)} personnes touchées` : ""}`;
 }
 
-function Notice({ title, text }: { title: string; text: string }) {
+function Notice({ title, text, action }: { title: string; text: string; action?: React.ReactNode }) {
   return (
     <div className="rise flex flex-col items-center gap-1 rounded-xl border border-dashed border-line-strong px-6 py-14 text-center">
       <p className="text-[14px] font-medium">{title}</p>
       <p className="max-w-sm text-[13px] text-ink-3">{text}</p>
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }
 
-function Tile({ label, value, hint, delta, i }: { label: string; value: number; hint: string; delta?: number; i: number }) {
+function Tile({ label, value, hint, delta, i }: { label: string; value?: number; hint: string; delta?: number; i: number }) {
   return (
     <div className="rise rounded-xl border border-line bg-surface px-4 py-3.5 shadow-card" style={{ animationDelay: `${i * 40}ms` }}>
       <div className="flex items-center justify-between text-[12px] font-medium text-ink-3">
         {label}
         <Delta value={delta} />
       </div>
-      <div className="tabular mt-1 font-display text-[30px] leading-none">{compact(value)}</div>
+      <div className="tabular mt-1 font-display text-[30px] leading-none">{show(value)}</div>
       <div className="mt-1.5 truncate text-[11.5px] text-ink-3">{hint}</div>
     </div>
   );
@@ -311,7 +330,7 @@ function PostRow({ post: p, account, first, viaMetricove }: { post: PostStat; ac
   const [broken, setBroken] = useState(false);
   const hue = account?.hue ?? 20;
   return (
-    <div className={cn("flex items-center gap-3.5 px-4 py-2.5", !first && "border-t border-line")}>
+    <div className={cn("flex items-center gap-3.5 px-4 py-2.5 max-sm:gap-2.5", !first && "border-t border-line")}>
       <div
         className="relative size-11 shrink-0 overflow-hidden rounded-lg"
         style={{ background: `linear-gradient(140deg, oklch(0.78 0.1 ${hue}), oklch(0.55 0.13 ${hue + 40}))` }}
@@ -334,7 +353,7 @@ function PostRow({ post: p, account, first, viaMetricove }: { post: PostStat; ac
         </div>
       </div>
       <Metric Icon={Eye} value={p.views} label="vues" strong />
-      <Metric Icon={Heart} value={p.likes} label="j'aime" />
+      <Metric Icon={Heart} value={p.likes} label="j'aime" className="max-sm:hidden" />
       <Metric Icon={MessageCircle} value={p.comments} label="commentaires" className="max-sm:hidden" />
       <Metric Icon={Share2} value={p.shares} label="partages" className="max-md:hidden" />
       {p.url ? (
