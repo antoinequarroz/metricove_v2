@@ -29,7 +29,7 @@ export function loadConfig(path = process.env.MONTAGE_CONFIG || join(HERE, "conf
 
 /**
  * Thème d'une tâche : le thème par défaut de la config, surchargé par `themes[projectId]`
- * puis par `job.theme` (prévu côté API plus tard). Clés : font, fontFiles, accent, text, ink, dark, logo…
+ * puis par `job.theme` (apparence du profil de style du projet). Clés : font, fontFiles, accent, text, ink, dark, logo…
  */
 export function themeFor(cfg, job = {}) {
   const t = { ...cfg.theme, ...(job.projectId && cfg.themes[job.projectId]), ...(job.theme || {}) };

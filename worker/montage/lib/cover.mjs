@@ -11,6 +11,8 @@ import { home, ensureDir, run, themeFor, log } from "./util.mjs";
 import { transcribe } from "./transcribe.mjs";
 import { ask } from "./claude.mjs";
 import { isLivreMatch } from "./caption.mjs";
+import { voiceRules } from "./voice.mjs";
+import { withFont, fontFaceCss, fontDataUrl } from "./fonts.mjs";
 
 const SCHEMA = {
   type: "object", required: ["line1", "line2", "accent"],
@@ -45,9 +47,10 @@ export function genericPage({ label, rc, bg, theme }) {
   const i = accent ? rc.line2.toLowerCase().indexOf(accent.toLowerCase()) : -1;
   const l2 = i < 0 ? esc(rc.line2) : `${esc(rc.line2.slice(0, i))}<span style="color:${theme.accent}">${esc(rc.line2.slice(i, i + accent.length))}</span>${esc(rc.line2.slice(i + accent.length))}`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
+${fontFaceCss(theme, fontDataUrl)}
 *{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden;background:${theme.dark}}
 #bg{position:absolute;inset:0;background:url('${bg}') center/cover;filter:brightness(.35) saturate(.9)}
-#st{position:absolute;inset:0;font-family:"${theme.font}",${theme.fallbackFonts};color:${theme.text}}
+#st{position:absolute;inset:0;font-family:"${theme.font}",${theme.fallbackFonts};${/^\d{2,3}%$/.test(theme.fontStretch || "") ? `font-stretch:${theme.fontStretch};` : ""}color:${theme.text}}
 #label{position:absolute;left:90px;right:90px;top:520px;color:${theme.accent};font-weight:700;font-size:32px;letter-spacing:.14em;text-transform:uppercase}
 #hook{position:absolute;left:90px;right:90px;top:600px;font-weight:900;line-height:.92;letter-spacing:-.03em}
 #hook .line{display:inline-block;white-space:nowrap}
@@ -101,7 +104,7 @@ ${spoken ? `Texte dit dans la vidéo : ${spoken.slice(0, 3000)}` : ""}
 ${c.instructions ? `Consignes d'Antoine (prioritaires) : ${c.instructions}` : ""}
 Modèles du style voulu : « Choisi. / Ou brûlé. », « Un job. / Un méchant. », « Sans pouvoir. / En danger. ».
 Règles : line1 = 1 à 3 mots (12 caractères max) ; line2 = 1 à 4 mots (18 caractères max) ; accent = le mot fort de line2 ;
-sub = une phrase de 4 à 9 mots qui donne envie${lm ? ", sans spoiler au-delà de la 4e de couverture, ni prix ni note" : ""}. N'invente aucun fait.`, SCHEMA, dir);
+sub = une phrase de 4 à 9 mots qui donne envie${lm ? ", sans spoiler au-delà de la 4e de couverture, ni prix ni note" : ""}. N'invente aucun fait.${job.voice?.tone || job.voice?.skill ? `\nTon et règles du projet (les limites de longueur ci-dessus passent avant) :\n${voiceRules(job, "", { examples: false })}` : ""}`, SCHEMA, dir);
 
     await step("Rendu de la couverture…", 0.75);
     const out = join(dir, "couverture.jpg");
@@ -114,7 +117,7 @@ sub = une phrase de 4 à 9 mots qui donne envie${lm ? ", sans spoiler au-delà d
       const frame = join(dir, "fond.jpg");
       await run("ffmpeg", ["-v", "error", "-y", "-ss", String(Math.min(1, (media.duration || 2) / 2)), "-i", video, "-frames:v", "1", "-q:v", "3", frame]);
       const bg = `data:image/jpeg;base64,${readFileSync(frame).toString("base64")}`;
-      await shot(lmDir, genericPage({ label: media.title, rc, bg, theme: themeFor(cfg, job) }), out);
+      await shot(lmDir, genericPage({ label: media.title, rc, bg, theme: await withFont(cfg, themeFor(cfg, job)) }), out);
     }
     await step("Envoi de la couverture…", 0.9);
     await api.req("PUT", `/api/media/${media.id}/cover`, { body: readFileSync(out), headers: { "Content-Type": "image/jpeg" } });

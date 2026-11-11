@@ -3,10 +3,10 @@
 //   node remplir-profil.mjs livrematch            remplit le profil
 //   node remplir-profil.mjs livrematch --dry-run  montre ce qui serait envoyé, sans rien changer
 //   node remplir-profil.mjs livrematch --skills   liste les skills trouvés sur ce Mac pour ce projet, sans rien changer
-// L'apparence et le ton du fichier remplacent ceux du profil. Ce qui est gardé : la signature, le logo déjà
+// L'apparence, le ton et les skills du fichier remplacent ceux du profil. Ce qui est gardé : la signature, le logo déjà
 // déposé, les images, les posts modèles et les idées déjà saisis. Les posts modèles viennent du fichier, puis des posts déjà publiés du projet.
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { HERE, home, loadConfig } from "./lib/util.mjs";
 import { Api } from "./lib/api.mjs";
 import { skillFiles, skillInfo } from "./lib/voice.mjs";
@@ -72,14 +72,20 @@ if (logoFile && !current.look.logo && existsSync(logoFile)) {
   if (type && data.length < 390_000) logo = `data:${type};base64,${data}`;
 }
 
+// Les skills du fichier : un chemin relatif part du dossier du worker (skills livrés avec Metricove).
+const skill = String(spec.skill || "").split(",").map((f) => f.trim()).filter(Boolean)
+  .map((f) => (f.startsWith("/") || f.startsWith("~") ? f : join(HERE, f))).join(",");
+const skillsFound = skill.split(",").filter(Boolean).flatMap((f) => skillFiles(f));
+
 const body = {
   ...(spec.look ? { look: { ...spec.look, ...(logo ? { logo } : {}) } } : {}),
   ...(spec.tone ? { tone: spec.tone } : {}),
-  ...(spec.skill ? { skill: spec.skill } : {}),
+  ...(skill ? { skill } : {}),
   refs: { examples: examples.map((text) => ({ text })), ideas: ideas.map((text) => ({ text })) },
 };
 
 console.log(`Projet : ${project.name}`);
+if (skill) console.log(`Skills : ${skillsFound.length ? skillsFound.map((f) => basename(dirname(f))).join(", ") : `aucun SKILL.md trouvé dans ${skill}`}`);
 console.log(`Apparence : ${spec.look ? `fond ${spec.look.theme}${spec.look.fields ? ` (${spec.look.fields.map((f) => f.bg).join(", ")})` : ""}, accent ${spec.look.accent || "inchangé"}, police ${spec.look.font}` : "inchangée"} (signature gardée)`);
 console.log(`Logo : ${current.look.logo ? "celui du profil est gardé" : logo ? `repris de ${logoFile}` : "aucun"}`);
 console.log(`Ton : ${spec.tone ? `${spec.tone.length} caractères` : "inchangé"}`);

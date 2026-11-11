@@ -6,6 +6,7 @@
 import { writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import { run, ensureDir } from "./util.mjs";
+import { fontFaceCss, fontPaths } from "./fonts.mjs";
 
 const E = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const f = (x) => Number(x).toFixed(3);
@@ -56,7 +57,8 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
   const A = theme.accent, T = theme.text, INK = theme.ink, DARK = theme.dark;
   const HL = /^#[0-9a-f]{6}$/i.test(captions.highlight || "") ? captions.highlight : A;
   const look = captions.look || "karaoke";
-  const fontFaces = (theme.fontFiles || []).map((p) => `@font-face{font-family:"${theme.font}";src:url("assets/${basename(p)}");}`).join("\n");
+  const STRETCH = /^\d{2,3}%$/.test(theme.fontStretch || "") ? `font-stretch:${theme.fontStretch};` : "";
+  const fontFaces = fontFaceCss(theme, (p) => `assets/${basename(p)}`);
   const els = [], js = [];
 
   // Place des sous-titres : bas, haut, milieu, ou « auto » = sous le visage, sinon au-dessus.
@@ -136,7 +138,7 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
   const css = `${fontFaces}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent}
-#root{position:relative;width:${W}px;height:${H}px;font-family:"${theme.font}",${theme.fallbackFonts};color:${T}}
+#root{position:relative;width:${W}px;height:${H}px;font-family:"${theme.font}",${theme.fallbackFonts};${STRETCH}color:${T}}
 .m{overflow:hidden;padding:0.22em 0.05em 0.28em;margin:-0.22em -0.05em -0.28em}.m>span{display:inline-block}
 .shade{position:absolute;left:0;right:0}
 .shade-bottom{top:${Math.round(H * (capTop - 0.2))}px;bottom:0;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0.42) 45%,rgba(0,0,0,0.62) 100%)}
@@ -173,7 +175,7 @@ window.__timelines["main"]=tl; tl.seek(0);
 /** Rend la page en .mov transparent (ProRes 4444). */
 export async function renderOverlay(cfg, dir, html, out, { fps, theme }) {
   ensureDir(join(dir, "assets"));
-  for (const p of theme.fontFiles || []) if (existsSync(p)) copyFileSync(p, join(dir, "assets", basename(p)));
+  for (const p of fontPaths(theme)) if (existsSync(p)) copyFileSync(p, join(dir, "assets", basename(p)));
   writeFileSync(join(dir, "hyperframes.json"), JSON.stringify({ paths: { assets: "assets" }, media: { autoProxy: true } }));
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "metricove-montage", private: true, type: "module" }));
   writeFileSync(join(dir, "index.html"), html);

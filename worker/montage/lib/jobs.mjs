@@ -11,6 +11,7 @@ import { listTracks } from "./audio.mjs";
 import { listBroll, resolveBroll } from "./broll.mjs";
 import { writeCaption } from "./caption.mjs";
 import { makeCover } from "./cover.mjs";
+import { withFont } from "./fonts.mjs";
 import { writePost } from "./post.mjs";
 
 export async function handle(api, cfg, { job, action, rushes = [], media }) {
@@ -47,7 +48,7 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       return;
     }
     assertSpace(cfg);
-    const theme = themeFor(cfg, job);
+    const theme = await withFont(cfg, themeFor(cfg, job));
     await step("Récupération des rushes…", 0.02);
     const rushPaths = await localRushes(api, cfg, rushes.filter((r) => job.rushIds.includes(r.id)));
 

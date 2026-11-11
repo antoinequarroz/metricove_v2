@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listMedia } from "@/server/db";
 import { claimJob, listRushes, workerSeen } from "@/server/montage";
+import { themeOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +12,14 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const b = (await req.json().catch(() => ({}))) as { worker?: string; version?: string };
   workerSeen({ worker: b.worker?.slice(0, 40), version: b.version?.slice(0, 20) });
-  const job = claimJob();
-  if (!job) return new Response(null, { status: 204 });
+  const claimed = claimJob();
+  if (!claimed) return new Response(null, { status: 204 });
+  // An edit lives for days (versions, feedback, final render): it gets the project's profile as it is now,
+  // not as it was when the job was made. Not stored with the job.
+  const styled = claimed.kind === "montage" || claimed.kind === "cover";
+  const voice = styled ? voiceOf(claimed.projectId) : undefined;
+  const theme = styled ? themeOf(claimed.projectId) : undefined;
+  const job = { ...claimed, ...(voice ? { voice: { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

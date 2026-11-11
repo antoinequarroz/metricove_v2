@@ -127,6 +127,40 @@ export function forgetProfile(projectId: string) {
   fs.rmSync(imageDir(projectId), { recursive: true, force: true });
 }
 
+/** Colors and font of the Mac's video overlays (subtitles, opening hook, end card) and generic covers. */
+export type VideoTheme = { accent: string; ink: string; dark?: string; text?: string; font?: string; googleFont?: string; fontStretch?: string };
+
+const luminance = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/**
+ * The look of the project, as the Mac's video theme. Only for a profile Antoine saved: a starter style
+ * he never touched must not replace the theme set on the Mac.
+ */
+export function themeOf(projectId: string | undefined): VideoTheme | undefined {
+  const project = projectId ? listProjects().find((p) => p.id === projectId) : undefined;
+  if (!project) return undefined;
+  const p = profileOf(project);
+  if (!p.saved) return undefined;
+  const { look } = p;
+  // The end card and the subtitles need a dark field with light text: the darkest field of the brand.
+  const field = look.theme === "custom" ? [...look.fields].sort((a, b) => luminance(a.bg) - luminance(b.bg))[0] : undefined;
+  const dark = field && luminance(field.bg) < 0.25 ? field.bg : look.theme === "night" ? "#111418" : undefined;
+  const text = field && dark && luminance(field.ink) > 0.6 ? field.ink : undefined;
+  return {
+    accent: look.accent,
+    // Text written on the accent color (the opening hook).
+    ink: luminance(look.accent) > 0.45 ? (dark ?? "#141414") : (text ?? "#ffffff"),
+    ...(dark ? { dark } : {}),
+    ...(text ? { text } : {}),
+    ...(look.font === "grotesque"
+      ? { font: "Bricolage Grotesque", googleFont: "Bricolage Grotesque:opsz,wdth,wght@12..96,75..100,200..800", fontStretch: "90%" }
+      : {}),
+  };
+}
+
 export type Voice = { tone?: string; skill?: string; examples?: string[]; images?: string[] };
 
 /** What Claude needs to write in the project's voice. Sent to the Mac with each writing request. */

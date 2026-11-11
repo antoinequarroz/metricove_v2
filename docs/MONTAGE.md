@@ -209,6 +209,14 @@ signature, logo), le ton de Claude et, au choix, le dossier d'un skill sur le Ma
   n'est lu) ; `examples` sont donnés comme modèles à imiter ; pour un `post`, il télécharge `images` (adresses
   `/api/profiles/…`) dans son dossier de travail et demande à Claude de les lire. Worker 0.3.0 pour le ton et le
   skill, 0.4.0 pour les références. Un worker plus ancien ignore ce qu'il ne connaît pas.
+- Les tâches `montage` et `cover` reçoivent le profil au moment où le Mac les prend (`POST /api/montage/worker/claim`),
+  sans qu'il soit enregistré dans la tâche : un montage dure plusieurs jours et suit ainsi le profil du jour.
+  `job.voice = { tone?, skill? }` guide ce que Claude écrit et choisit (accroches, carton de fin, mots clés, emojis,
+  musique, B-roll, accroche de couverture). `job.theme = { accent, ink, dark?, text?, font?, googleFont?, fontStretch? }`
+  vient de l'apparence d'un profil **enregistré** (jamais d'un style de départ) et passe avant le thème du Mac :
+  couleurs des sous-titres, du bandeau d'accroche, du carton de fin et des couvertures génériques. `googleFont`
+  (police « Grotesque ») est téléchargée une fois dans `fontsDir` (`~/Movies/Metricove/polices`) ; sans réseau,
+  les polices de secours servent. Worker 0.5.0.
 
 ### Côté interface
 

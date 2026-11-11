@@ -169,8 +169,10 @@ export type MontageJob = {
   feedback?: string;
   /** Drawings sent with the last request to Claude. */
   marks?: MontageMark[];
-  /** Voice of the project (style profile), copied when the job was made: Claude writes with it. */
+  /** Voice of the project (style profile): Claude writes with it. Copied when the job was made; refreshed for edits and covers when the Mac takes the job. */
   voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[] };
+  /** Colors and font of the project (style profile) for the video overlays: added when the Mac takes the job. */
+  theme?: { accent: string; ink: string; dark?: string; text?: string; font?: string; googleFont?: string; fontStretch?: string };
   /** Subtitle style of the project, copied when the job was made. */
   style?: CaptionStyle;
   versions: MontageVersion[];
