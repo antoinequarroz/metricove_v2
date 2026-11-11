@@ -206,9 +206,12 @@ export function scanInbox() {
     }
     seen.delete(file);
 
-    const sidecar = file.slice(0, -ext.length) + ".json";
+    const base = file.slice(0, -ext.length);
+    const sidecar = base + ".json";
+    // teaser.mp4 + teaser.jpg + teaser.json: the JSON describes the video, not its picture.
+    const sidecarIsForVideo = IMAGE_EXT.has(ext) && [...VIDEO_EXT].some((v) => fs.existsSync(base + v));
     let meta: VideoMeta = {};
-    if (fs.existsSync(sidecar)) {
+    if (!sidecarIsForVideo && fs.existsSync(sidecar)) {
       try {
         meta = JSON.parse(fs.readFileSync(sidecar, "utf8"));
       } catch (e) {
@@ -217,11 +220,19 @@ export function scanInbox() {
     }
     try {
       const { media, post } = ingestMedia(file, name, meta);
-      if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+      if (!sidecarIsForVideo && fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
       imported.push(media.id);
       console.log(`[inbox] ${name} importée${post ? ` (post ${post.status})` : ""}`);
     } catch (e) {
       console.error(`[inbox] import de ${name} impossible:`, (e as Error).message);
+      // A file the library refuses (unreadable or too heavy photo) is set aside, not retried forever.
+      if (e instanceof MediaError) {
+        try {
+          fs.renameSync(file, `${file}.refuse`);
+        } catch {
+          // Read-only folder: it will be tried again.
+        }
+      }
     }
   }
   return imported;

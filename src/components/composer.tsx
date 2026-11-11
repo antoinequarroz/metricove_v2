@@ -93,13 +93,14 @@ function ComposerForm() {
   const m = media.find((x) => x.id === mediaId);
   const when = new Date(`${day}T${time}`);
   const networks = [...new Set(selectedAccounts.map((a) => a.network))] as Network[];
-  const story = format === "story";
+  /** Instagram and Facebook are the only ones with stories and photos: the format choice shows with them. */
+  const hasSocial = networks.some((n) => STORY_NETWORKS.includes(n));
+  // Without one of them selected there is no story to speak of (and no switch to leave it).
+  const story = format === "story" && hasSocial;
   // A story shows no text: its length doesn't matter.
   const tooLong = story ? [] : networks.filter((n) => caption.length > NETWORKS[n].limit);
   const hasYoutube = networks.includes("youtube");
-  /** Instagram and Facebook are the only ones with stories and photos: the format choice shows with them. */
-  const hasSocial = networks.some((n) => STORY_NETWORKS.includes(n));
-  const problems = postProblems({ format, media: m, networks });
+  const problems = postProblems({ format: story ? "story" : "feed", media: m, networks });
   // What Instagram would refuse about this photo, and that one click can fix.
   const photoMisfit = !!m && m.kind === "image" && !story && networks.includes("instagram") && !fitsInstagramFeed(m);
   const photoNotJpeg = !!m && networks.includes("instagram") && instagramRefusesFile(m);
@@ -133,7 +134,7 @@ function ComposerForm() {
         accountIds: selected,
         caption,
         mediaId: m?.id,
-        format: story ? "story" : undefined,
+        format: story ? "story" : "feed",
         scheduledAt: (now ? new Date() : when).toISOString(),
         status,
         origin: existing?.origin ?? (m?.source === "claude-code" ? "claude-code" : "manual"),
@@ -167,13 +168,15 @@ function ComposerForm() {
   /** Cuts the middle of the photo so Instagram's feed accepts it, as a new photo in the library. */
   const cropForInstagram = async () => {
     if (!m?.url) return;
+    const from = m.id;
     setCropping(true);
     try {
       // Only cut when the feed needs it. Otherwise the photo is just saved again as a JPEG.
       const ratio = !photoMisfit ? ratioOf(m) : ratioOf(m) < IG_PHOTO_RATIO.min ? IG_PHOTO_RATIO.min : IG_PHOTO_RATIO.max;
       const file = await cropImageToRatio(m.url, ratio, m.title);
       const cropped = await uploadMedia(file, undefined, (photoMisfit ? `${m.title} (${ratio < 1 ? "4:5" : "1,91:1"})` : m.title).slice(0, 200));
-      setMediaId(cropped.id);
+      // Only if the person hasn't picked something else meanwhile.
+      setMediaId((cur) => (cur === from ? cropped.id : cur));
       toast.success(photoMisfit ? "Photo recadrée" : "Photo convertie en JPEG", { description: "L'originale reste dans la bibliothèque." });
     } catch (e) {
       toast.error(photoMisfit ? "Recadrage impossible" : "Conversion impossible", { description: (e as Error).message });
@@ -385,7 +388,7 @@ function ComposerForm() {
                 <Label>Format</Label>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <Segmented<PostFormat>
-                    value={format}
+                    value={story ? "story" : "feed"}
                     onChange={setFormat}
                     options={[
                       { value: "feed", label: "Publication" },
@@ -619,7 +622,7 @@ function ComposerForm() {
           <div className="p-5">
             {previewAccount ? (
               <div key={previewAccount.id} className="rise mx-auto max-w-[360px]">
-                <PostPreview account={previewAccount} caption={caption} media={m} date={isNaN(when.getTime()) ? new Date() : when} youtube={yt} format={format} />
+                <PostPreview account={previewAccount} caption={caption} media={m} date={isNaN(when.getTime()) ? new Date() : when} youtube={yt} format={story ? "story" : "feed"} />
                 <p className="mt-3 text-center text-[11.5px] text-ink-3">
                   Aperçu {story && STORY_NETWORKS.includes(previewAccount.network) ? "story " : ""}
                   {NETWORKS[previewAccount.network].label} · @{previewAccount.handle}

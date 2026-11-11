@@ -28,7 +28,8 @@ export async function POST(req: Request) {
   // Accounts that already got this video keep their result, so publishing again (after a
   // failure on another network) never sends a duplicate. A new video starts from scratch.
   const mediaId = body.mediaId || undefined;
-  const format: PostFormat | undefined = body.format === "story" ? "story" : undefined;
+  // A script that updates a post without naming the format keeps the one it had.
+  const format: PostFormat | undefined = body.format === "story" ? "story" : body.format === "feed" ? undefined : existing?.format;
 
   // The same rules as the editor, so a script can't schedule a post the networks would refuse.
   if (status === "scheduled") {

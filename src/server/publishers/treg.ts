@@ -33,6 +33,15 @@ type CallInit = {
 let team = "main";
 const token = () => tregTokens().get(team) ?? "";
 
+// `team` says which token every call uses. A sync and a publication must not switch it under
+// each other's feet (a publication waits minutes on Instagram): they take turns.
+let turn: Promise<unknown> = Promise.resolve();
+function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  const run = turn.then(work, work);
+  turn = run.catch(() => {});
+  return run;
+}
+
 async function call<T = unknown>(id: string, init: CallInit = {}): Promise<{ data: T; headers: Headers }> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(init.query ?? {})) if (v !== undefined) qs.set(k, String(v));
@@ -308,8 +317,9 @@ async function instagramPublish(a: Account, query: Record<string, string | undef
     } catch (e2) {
       const reason = (e2 as Error).message;
       console.error("[treg] instagram via facebook-page", reason);
-      // Meta did answer through the Page: the photo or the video itself is the problem.
-      if (/"code":(?:36\d{3}|9004|2207\d{3}|352)\b|aspect ratio|image_url|video_url/i.test(reason)) throw instagramError(e2);
+      // Only a missing Page connection (or the same refusal again) is fixed by connecting the Page method.
+      // Anything else is the real reason: a file Meta can't read, an expired connection, a limit, a timeout.
+      if (!/does not have permission|"code":10\b|not connected|no connection|authorization[- ]method|page-tools|No usable Instagram/i.test(reason)) throw instagramError(e2);
       throw new Error(
         `Meta refuse la publication par la connexion « Instagram » de treg. Reliez @${a.handle} à une Page Facebook, puis connectez la méthode Page dans treg (instagram, page-tools).`,
       );
@@ -317,12 +327,21 @@ async function instagramPublish(a: Account, query: Record<string, string | undef
   }
   // Instagram downloads and processes the media before it can be published. A photo takes seconds, a video minutes.
   const [first, next, tries] = opts.video ? [10_000, 20_000, 27] : [3_000, 5_000, 24];
+  let hiccups = 0;
   for (let i = 0; ; i++) {
     await sleep(i === 0 ? first : next);
-    const { data: s } = await call<{ status_code?: string; status?: string }>("instagram.instagram.media.container.status", {
-      query: { ig_container_id: c.id, fields: "status_code,status" },
-      headers,
-    });
+    let s: { status_code?: string; status?: string };
+    try {
+      ({ data: s } = await call<{ status_code?: string; status?: string }>("instagram.instagram.media.container.status", {
+        query: { ig_container_id: c.id, fields: "status_code,status" },
+        headers,
+      }));
+      hiccups = 0;
+    } catch (e) {
+      // One lost answer must not throw away a media Instagram is still processing.
+      if (++hiccups >= 3 || i >= tries) throw e;
+      continue;
+    }
     if (s.status_code === "FINISHED") break;
     if (s.status_code === "ERROR" || s.status_code === "EXPIRED") throw new Error(`Instagram a refusé ${opts.video ? "la vidéo" : "la photo"} : ${s.status ?? s.status_code}`);
     if (i >= tries) throw new Error(`Instagram traite encore ${opts.video ? "la vidéo après 9 minutes" : "la photo après 2 minutes"}`);
@@ -537,7 +556,17 @@ export const tregPublisher: Publisher = {
     return { ready: true, detail: n > 1 ? `treg.to · ${n} équipes` : "treg.to" };
   },
 
-  async syncAccounts() {
+  syncAccounts() {
+    return inTurn(() => syncAll());
+  },
+
+  publish(post, accounts, media) {
+    return inTurn(() => publishAll(this, post, accounts, media));
+  },
+};
+
+async function syncAll() {
+  {
     const all: Account[] = [];
     const warnings: string[] = [];
     for (const label of tregTokens().keys()) {
@@ -559,14 +588,16 @@ export const tregPublisher: Publisher = {
     if (!all.length && warnings.length) throw new Error(warnings[0]);
     if (!all.length) throw new Error("Aucun compte trouvé dans treg : vérifiez les connexions et les jetons (TREG_TOKENS)");
     return { accounts: all, warnings };
-  },
+  }
+}
 
-  async publish(post, accounts, media) {
+async function publishAll(self: Publisher, post: Post, accounts: Account[], media?: MediaFile) {
+  {
     const at = () => new Date().toISOString();
     const results: Record<string, TargetResult> = {};
     for (const a of accounts) {
-      if (!this.status().ready) {
-        results[a.id] = { status: "failed", error: `treg n'est pas configuré : ${this.status().detail}`, at: at() };
+      if (!self.status().ready) {
+        results[a.id] = { status: "failed", error: `treg n'est pas configuré : ${self.status().detail}`, at: at() };
       } else if (!a.externalId || !a.providerKind?.startsWith("treg:") || !tregTokens().has(a.providerKind.slice(5))) {
         results[a.id] = { status: "failed", error: "Compte non relié à treg (synchronisez les comptes)", at: at() };
       } else {
@@ -580,5 +611,5 @@ export const tregPublisher: Publisher = {
       }
     }
     return results;
-  },
-};
+  }
+}
