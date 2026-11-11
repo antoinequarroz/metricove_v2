@@ -75,6 +75,10 @@ export function db() {
       account_ids text not null default '[]',
       position integer not null default 0
     );
+    create table if not exists settings (
+      key text primary key,
+      value text not null
+    );
   `);
   // Columns added after the first release.
   const cols = (conn.prepare("pragma table_info(posts)").all() as { name: string }[]).map((c) => c.name);
@@ -104,6 +108,18 @@ function maybeSeed(conn: Database.Database) {
     seedPosts().forEach(savePost);
   });
   tx();
+}
+
+/* ---------- Settings (Réglages page) ---------- */
+
+export function getSetting<T>(key: string): T | undefined {
+  const row = db().prepare("select value from settings where key = ?").get(key) as { value: string } | undefined;
+  return row ? (JSON.parse(row.value) as T) : undefined;
+}
+
+export function setSetting(key: string, value: unknown) {
+  if (value === undefined || value === null) db().prepare("delete from settings where key = ?").run(key);
+  else db().prepare("insert into settings (key, value) values (?, ?) on conflict(key) do update set value = excluded.value").run(key, JSON.stringify(value));
 }
 
 /* ---------- Accounts ---------- */

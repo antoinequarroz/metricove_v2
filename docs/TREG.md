@@ -61,7 +61,9 @@ Meta ne laisse pas encore l'app « Instagram Login » de treg publier. Metricove
 treg connections connect --provider instagram --capability page-tools
 ```
 
-Cette connexion utilise aussi Facebook. Metricove appelle donc la Page par le nom de son outil treg (`facebook`), pour que treg ne confonde pas les deux.
+Cette connexion utilise aussi Facebook. Metricove le voit et appelle alors la Page par le nom de son outil treg (`facebook`), pour que treg ne confonde pas les deux.
+
+Si une équipe a plusieurs connexions Facebook, Metricove prend seul celle qui a une Page choisie (la plus récente d'abord) et ignore les connexions vides. La page **Réglages** montre ce choix par équipe et permet d'en imposer une. Après un changement, clique sur « Synchroniser » dans Comptes.
 
 ## Stories vidéo sur Facebook
 

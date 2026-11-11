@@ -17,7 +17,7 @@ Copier `.env.example` en `.env.local` et remplir :
 
 | Variable | Rôle |
 | --- | --- |
-| `APP_PASSWORD` | Mot de passe de l'app. **Obligatoire en ligne**, sinon tout le monde y a accès. |
+| `APP_PASSWORD` | Mot de passe de l'app. **Obligatoire en ligne**, sinon tout le monde y a accès. Il se change ensuite dans **Réglages** : le nouveau est gardé (haché) dans `data/auth.json` et passe devant `APP_PASSWORD`. Mot de passe oublié : supprime ce fichier, `APP_PASSWORD` revient. |
 | `API_TOKEN` | Jeton pour Hermes et Claude Code (`Authorization: Bearer …` sur `/api`). |
 | `PUBLISHER` | `demo` (rien n'est envoyé) ou `postiz`. |
 | `POSTIZ_URL` | API publique de Postiz, par ex. `https://postiz.antoinequarroz.ch/api/public/v1`. |
