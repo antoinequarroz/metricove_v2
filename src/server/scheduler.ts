@@ -2,6 +2,7 @@ import "server-only";
 import path from "node:path";
 import { claimDuePosts, DATA_DIR, getMediaRow, listAccounts, releaseStuckPosts, savePost } from "./db";
 import { scanInbox } from "./media";
+import { refreshStatsIfStale } from "./stats";
 import { getPublisher } from "./publishers";
 import type { MediaFile } from "./publishers/types";
 import { mimeOfFile } from "@/lib/formats";
@@ -24,6 +25,7 @@ export async function tick() {
       g.__metricoveAgain = false;
       for (const post of claimDuePosts()) await publishOne(post);
     } while (g.__metricoveAgain);
+    refreshStatsIfStale();
   } catch (e) {
     console.error("[scheduler]", e);
   } finally {
