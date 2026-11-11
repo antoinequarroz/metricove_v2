@@ -191,6 +191,20 @@ Envoyées avec une demande de nouvelle version : `{ id, version, t, text, image?
 `GET|PUT /api/montage/styles/:projectId` (corps = `captions`). Un nouveau montage d'un projet reçoit `job.style`
 (copie du style au moment de la création) : le worker l'utilise quand l'EDL n'a pas de `captions`.
 
+### Profil de style du projet (`job.voice`)
+
+Chaque projet a un profil de style (Réglages → Styles) : l'apparence de ses visuels (fond, couleur, texte,
+signature, logo), le ton de Claude et, au choix, le dossier d'un skill sur le Mac.
+
+- `GET /api/profiles` → `{ profiles: { [projectId]: { preset, look, tone, skill, saved } } }`. Sans profil
+  enregistré, le projet reçoit un style de départ d'après son nom (AntoineQuarroz, LivreMatch, Carnadzons).
+- `PUT /api/profiles/:projectId` `{ look?, tone?, skill?, preset? }` (seuls les champs envoyés changent),
+  `DELETE` pour revenir au style de départ.
+- Les tâches `script`, `caption` et `post` d'un projet portent `job.voice = { tone?, skill? }`, copié à la création.
+  Le worker (0.3.0) met `tone` à la place de ses règles de ton d'origine et, si `skill` désigne un dossier qui
+  contient un `SKILL.md`, ajoute ce fichier au prompt (8 000 caractères au plus ; rien d'autre n'est lu).
+  Un worker plus ancien ignore `voice` et garde ses règles d'origine.
+
 ### Côté interface
 
 - `POST /api/montage/jobs` `{ kind, title, projectId?, brief, rushIds?, script? }` → `queued`, action `propose` (ou `script`).

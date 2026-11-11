@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { HERE } from "./util.mjs";
 import { ask } from "./claude.mjs";
 import { isLivreMatch } from "./caption.mjs";
+import { voiceRules } from "./voice.mjs";
 
 const LIMITS = { x: 280, twitter: 280, instagram: 2200, tiktok: 2200, linkedin: 3000, facebook: 5000, youtube: 5000 };
 const NAMES = { x: "X (Twitter)", instagram: "Instagram", tiktok: "TikTok", linkedin: "LinkedIn", facebook: "Facebook", youtube: "YouTube" };
@@ -37,12 +38,11 @@ ${n > 1
 LA DESCRIPTION ("caption") : ${max} caractères au plus, hashtags compris${max <= 280 ? " (X : vise 240 caractères au plus)" : ""}. Elle complète les visuels sans les recopier, et se termine par 3 à 5 hashtags pertinents.
 
 TON ET RÈGLES
-${lm
+${voiceRules(job, lm
   ? `- LivreMatch : lecture et recommandations de livres (romantasy, fantasy). Tutoiement, ton chaleureux et accrocheur.
-- Ni prix, ni note, ni Amazon. Aucun spoiler au-delà de la 4e de couverture. Invitation au quiz sur livrematch.fr dans la description.
-${examples ? `- Descriptions déjà publiées (imite le ton, ne recopie pas) :\n${examples}` : ""}`
-  : `- Perso : Antoine parle de développement et d'IA (outils, automatisation, retours d'expérience). Ton direct, concret, à la première personne, sans jargon inutile.`}
-- N'invente AUCUN fait (chiffre, client, lieu, parcours, citation) : uniquement ce qui est dans l'idée. S'il manque une information indispensable, écris [à compléter].`;
+- Ni prix, ni note, ni Amazon. Aucun spoiler au-delà de la 4e de couverture. Invitation au quiz sur livrematch.fr dans la description.`
+  : `- Perso : Antoine parle de développement et d'IA (outils, automatisation, retours d'expérience). Ton direct, concret, à la première personne, sans jargon inutile.`)}
+${examples ? `- Descriptions déjà publiées (imite le ton, ne recopie pas) :\n${examples}\n` : ""}- N'invente AUCUN fait (chiffre, client, lieu, parcours, citation) : uniquement ce qui est dans l'idée. S'il manque une information indispensable, écris [à compléter].`;
 
   await step("Claude écrit le post…", 0.4);
   const schema = {

@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import { HERE, ensureDir, log } from "./util.mjs";
 import { transcribe } from "./transcribe.mjs";
 import { ask } from "./claude.mjs";
+import { voiceRules } from "./voice.mjs";
 
 const LIMITS = { x: 280, twitter: 280, instagram: 2200, tiktok: 2200, linkedin: 3000, facebook: 5000, youtube: 5000 };
 const NAMES = { x: "X (Twitter)", instagram: "Instagram", tiktok: "TikTok", linkedin: "LinkedIn", facebook: "Facebook", youtube: "YouTube" };
@@ -54,14 +55,12 @@ ${spoken ? `TEXTE DIT DANS LA VIDÉO (transcription) :\n${spoken.slice(0, 4000)}
 ${c.draft ? `CE QU'ANTOINE A DÉJÀ ÉCRIT (brouillon à réécrire en gardant son sens, OU consigne à suivre si c'est une instruction) :\n${c.draft}` : ""}
 
 TON ET RÈGLES
-${lm
+${voiceRules(job, lm
   ? `- LivreMatch : lecture et recommandations de livres (romantasy, fantasy). Tutoiement, ton chaleureux et accrocheur.
-- Structure des légendes LivreMatch : accroche d'une ligne avec un emoji, 2-3 lignes de contexte, « … pourrait te plaire si tu aimes : » avec 3-4 tirets, invitation au quiz sur livrematch.fr.
-- Ni prix, ni note, ni Amazon. Aucun spoiler au-delà de la 4e de couverture.
-${examples ? `- Modèles déjà publiés (imite le ton et la structure, ne recopie pas) :\n${examples}` : ""}`
+- Ni prix, ni note, ni Amazon. Aucun spoiler au-delà de la 4e de couverture.`
   : `- Perso : Antoine parle de développement et d'IA (outils, automatisation, retours d'expérience). Ton direct, concret, à la première personne, sans jargon inutile.
-- LinkedIn : une accroche forte en première ligne, des paragraphes courts, une question ou un appel à l'action à la fin.`}
-- N'invente AUCUN fait sur Antoine (parcours, chiffres, clients, lieux) : uniquement ce qui est dans la vidéo, le brouillon ou le titre.
+- LinkedIn : une accroche forte en première ligne, des paragraphes courts, une question ou un appel à l'action à la fin.`)}
+${lm ? `- Structure des légendes LivreMatch : accroche d'une ligne avec un emoji, 2-3 lignes de contexte, « … pourrait te plaire si tu aimes : » avec 3-4 tirets, invitation au quiz sur livrematch.fr.\n` : ""}${examples ? `- Modèles déjà publiés (imite le ton et la structure, ne recopie pas) :\n${examples}\n` : ""}- N'invente AUCUN fait sur Antoine (parcours, chiffres, clients, lieux) : uniquement ce qui est dans la vidéo, le brouillon ou le titre.
 - Termine par 3 à 5 hashtags pertinents.
 - Pas de guillemets autour du texte, pas de titre, pas de commentaire : uniquement la description.
 ${c.youtube ? "- Donne aussi youtubeTitle : un titre YouTube accrocheur de 100 caractères maximum." : "- youtubeTitle : chaîne vide."}`;

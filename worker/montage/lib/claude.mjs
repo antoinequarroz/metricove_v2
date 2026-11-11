@@ -1,6 +1,7 @@
 // Propositions de Claude Code (abonnement du Mac) : choix des phrases, ordre, mots coupés, 3 accroches, fin, zooms,
 // mots clés, emojis, musique ; textes de prompteur. Read reste permis : Claude lit les images des notes dessinées.
 import { run, log } from "./util.mjs";
+import { voiceRules } from "./voice.mjs";
 
 const wordRefs = (description) => ({
   type: "array", description,
@@ -110,7 +111,9 @@ export async function writeScript(cfg, job, cwd) {
   const prompt = `Écris un texte de prompteur en français pour une vidéo face caméra (${b.format || "9:16"}, ${b.seconds || 45} s environ).
 Sujet et consignes : ${b.instructions || job.title}
 ${b.hook ? `Accroche imposée : ${b.hook}\n` : ""}${b.cta ? `Appel à l'action : ${b.cta}\n` : ""}
-Structure : une accroche forte (1 phrase), 3 idées concrètes, un appel à l'action. Ton direct, oral, tutoiement.
+Structure : une accroche forte (1 phrase), 3 idées concrètes, un appel à l'action. Texte fait pour être dit à voix haute.
+Ton et règles du projet :
+${voiceRules(job, "- Ton direct, oral, tutoiement.")}
 Une phrase courte par ligne (12 mots maximum), sans titres, sans puces, sans emojis, sans didascalies.
 N'invente aucun fait (lieu, métier, chiffre, nom, expérience) qui n'est pas dans les consignes : reste sur ce qui est donné.
 S'il manque une information indispensable, mets au plus deux trous à compléter, sous la forme [à compléter : …]. Rends uniquement le texte.`;

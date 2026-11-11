@@ -4,6 +4,7 @@ import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
 import { getRushRow, getStyle, listJobs, saveJob } from "@/server/montage";
+import { voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
     title: clip(b.title, 120) ?? (kind === "script" ? "Texte de prompteur" : "Nouveau montage"),
     projectId,
     style: projectId && kind === "montage" ? getStyle(projectId) : undefined,
+    voice: kind === "script" ? voiceOf(projectId) : undefined,
     status: "queued",
     action: kind === "script" ? "script" : "propose",
     brief: {
@@ -81,6 +83,7 @@ function captionJob(b: Body) {
     kind: "caption",
     title: media ? `Description : ${media.title}`.slice(0, 120) : "Description de post",
     projectId: project?.id,
+    voice: voiceOf(project?.id),
     status: "queued",
     action: "caption",
     brief: { format: media?.aspect ?? "9:16" },
@@ -148,6 +151,7 @@ function postJob(b: Body) {
     kind: "post",
     title: `Post : ${idea}`.slice(0, 120),
     projectId: project?.id,
+    voice: voiceOf(project?.id),
     status: "queued",
     action: "post",
     brief: { format: "4:5" },

@@ -3,8 +3,10 @@
 // Visuals made in the Studio: a carousel (2 to 10 slides) or a single image, drawn on a canvas.
 // The same drawing code makes the preview on screen and the 1080-pixel JPEG that is published.
 
+import type { Look, LookTheme } from "./profiles";
+
 export type VisualFormat = "4:5" | "1:1" | "9:16";
-export type ThemeId = "paper" | "night" | "accent" | "gradient";
+export type ThemeId = LookTheme;
 
 export type Slide = {
   id: string;
@@ -18,18 +20,11 @@ export type Slide = {
   dim?: number;
 };
 
-export type Deck = {
+/** The look (shared with the style profile of a project), plus what belongs to this post only. */
+export type Deck = Look & {
   format: VisualFormat;
-  theme: ThemeId;
-  /** Accent color, "#rrggbb". */
-  accent: string;
-  font: "serif" | "sans";
-  align: "left" | "center";
-  valign: "top" | "middle" | "bottom";
-  grain: boolean;
-  numbers: boolean;
-  /** Small signature at the bottom, e.g. "@livrematchfr". Empty for none. */
-  handle: string;
+  /** The project whose style profile was applied last. */
+  profileId?: string;
   slides: Slide[];
   /** Description of the post, handed to the post editor. */
   caption: string;
@@ -38,6 +33,7 @@ export type Deck = {
 export const W = 1080;
 export const HEIGHTS: Record<VisualFormat, number> = { "4:5": 1350, "1:1": 1080, "9:16": 1920 };
 export const MAX_SLIDES = 10;
+const LOGO_H = 64;
 
 export const FORMAT_OPTIONS: { value: VisualFormat; label: string; hint: string }[] = [
   { value: "4:5", label: "4:5", hint: "Fil Instagram et Facebook" },
@@ -237,7 +233,9 @@ function fit(ctx: CanvasRenderingContext2D, text: string, font: (size: number) =
     ctx.font = font(size);
     const lines = wrap(ctx, text, box.width);
     const lineHeight = Math.round(size * leading);
-    if (size <= to || (lines.length * lineHeight <= box.height && widest(ctx, lines) <= box.width)) return { lines, size, lineHeight, font: font(size) };
+    // A word cut in two is the last resort: the text shrinks first.
+    const cut = text.split(/\s+/).some((w) => ctx.measureText(w).width > box.width);
+    if (size <= to || (!cut && lines.length * lineHeight <= box.height && widest(ctx, lines) <= box.width)) return { lines, size, lineHeight, font: font(size) };
     size -= 4;
   }
 }
@@ -333,12 +331,24 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
     headRoom = 80;
   }
   const handle = deck.handle.trim();
+  const logo = deck.logo ? photoOf(deck.logo, onPhotoReady) : undefined;
+  let handleX = pad;
+  if (logo && logo.naturalHeight > 0) {
+    // The logo sits on the signature line, 64 px tall, never wider than 220 px.
+    const scale = Math.min(LOGO_H / logo.naturalHeight, 220 / logo.naturalWidth);
+    const w = logo.naturalWidth * scale;
+    const h = logo.naturalHeight * scale;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(logo, pad, bottom - 10 - h / 2, w, h);
+    handleX = pad + w + 20;
+    footRoom = 96;
+  }
   if (handle) {
     ctx.font = small;
     ctx.fillStyle = pal.sub;
     ctx.textAlign = "left";
-    ctx.fillText(handle.slice(0, 40), pad, bottom);
-    footRoom = 80;
+    ctx.fillText(handle.slice(0, 40), handleX, bottom);
+    footRoom = Math.max(footRoom, 80);
   }
   if (total > 1 && index < total - 1) {
     // "Swipe" arrow on every slide but the last.
@@ -355,7 +365,7 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
     ctx.lineTo(x, y);
     ctx.lineTo(x - 22, y + 20);
     ctx.stroke();
-    footRoom = 80;
+    footRoom = Math.max(footRoom, 80);
   }
 
   // ---- Title and text ----
@@ -418,6 +428,8 @@ export async function renderSlide(deck: Deck, index: number, fonts: Fonts): Prom
     await loadPhoto(photo);
     if (photoFailed(photo)) throw new Error(`La photo du visuel ${index + 1} ne se charge plus : remets-la.`);
   }
+  // A logo that no longer loads is simply left out: it must not block a post.
+  if (deck.logo) await loadPhoto(deck.logo);
   await loadFonts(fonts);
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -448,6 +460,8 @@ export function loadDraft(): Deck | undefined {
       format: d.format && d.format in HEIGHTS ? d.format : base.format,
       theme: THEMES.some((t) => t.value === d.theme) ? d.theme! : base.theme,
       accent: /^#[0-9a-f]{6}$/i.test(d.accent ?? "") ? d.accent! : base.accent,
+      logo: typeof d.logo === "string" && d.logo.startsWith("data:image/") ? d.logo : undefined,
+      profileId: typeof d.profileId === "string" ? d.profileId : undefined,
       slides: d.slides.slice(0, MAX_SLIDES).map((s) => ({ ...newSlide(String(s.title ?? ""), String(s.body ?? "")), photo: typeof s.photo === "string" ? s.photo : undefined, photoY: s.photoY, dim: s.dim })),
       caption: String(d.caption ?? ""),
     };

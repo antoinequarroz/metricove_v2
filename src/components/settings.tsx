@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { NetworkBadge } from "@/lib/networks";
 import { cn } from "@/lib/utils";
+import { StyleProfiles } from "./style-profiles";
 import { Button } from "./ui";
 
 type Overview = {
@@ -72,6 +73,11 @@ export function SettingsPage() {
             </div>
           )}
           {overview && <PasswordSection overview={overview} onChanged={load} />}
+          <div id="styles" className="scroll-mt-4">
+            <Section delay={40} title="Styles" hint="Un profil par projet : mêmes couleurs, même signature et même ton à chaque carrousel, post photo ou texte écrit par Claude.">
+              <StyleProfiles />
+            </Section>
+          </div>
           {overview?.publisher.name === "treg" && <FacebookSection />}
           <InfoSection overview={overview} />
         </div>

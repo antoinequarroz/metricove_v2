@@ -1,17 +1,18 @@
 "use client";
 
-import { AlignCenter, AlignLeft, ArrowDown, ArrowUp, Copy, ImagePlus, Images, Loader2, Plus, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, ImagePlus, Images, Loader2, Palette, Plus, RotateCcw, Save, Send, Sparkles, Trash2, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { isImageFile } from "@/lib/image";
 import type { MontageJob } from "@/lib/montage";
+import { lookOf, sameLook } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
+import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import {
-  ACCENTS,
   appFonts,
   type Deck,
-  drawSlide,
   emptyDeck,
   type Fonts,
   FORMAT_OPTIONS,
@@ -25,11 +26,11 @@ import {
   retryPhoto,
   saveDraft,
   type Slide,
-  THEMES,
   W,
 } from "@/lib/visuals";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
+import { Field, inputClass, LookControls, SlideCanvas } from "./look-parts";
 import { PageHeader, StudioTabs, VideoTabs } from "./parts";
 import { montageApi, useMontage } from "./use-montage";
 
@@ -40,8 +41,6 @@ const knowsPosts = (version?: string) => {
   for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== POST_WORKER[i]) return (v[i] ?? 0) > POST_WORKER[i];
   return true;
 };
-
-const inputClass = "w-full rounded-lg border border-line-strong bg-surface px-3 text-[13px] outline-none transition-[border-color,box-shadow] duration-150 focus:border-accent/60 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
 
 export function VisualsPage() {
   const [deck, setDeck] = useState<Deck>(emptyDeck);
@@ -68,6 +67,8 @@ export function VisualsPage() {
     if (restored) saveDraft(deck);
   }, [deck, restored]);
 
+  const deckRef = useRef(deck);
+  deckRef.current = deck;
   const index = Math.min(current, deck.slides.length - 1);
   const slide = deck.slides[index];
   const patch = (p: Partial<Deck>) => setDeck((d) => ({ ...d, ...p }));
@@ -98,8 +99,38 @@ export function VisualsPage() {
     });
     setCurrent(to);
   };
+  // ---- Style profile of the project ----
+  const { profiles, save: saveProfile } = useProfiles();
+  const styled = deck.profileId && profiles?.[deck.profileId] ? deck.profileId : undefined;
+  const profile = styled ? profiles![styled] : undefined;
+  const styledProject = projects.find((p) => p.id === styled);
+  const lookChanged = !!profile && !sameLook(lookOf(deck), profile.look);
+  const applyProfile = (id: string) => {
+    const p = profiles?.[id];
+    setDeck((d) => (p ? { ...d, ...lookOf(p.look), logo: p.look.logo, profileId: id } : { ...d, profileId: undefined }));
+  };
+  // The active project gives its style: on arrival, and each time another project is chosen.
+  useEffect(() => {
+    if (!restored || !profiles || activeProject === "all" || !profiles[activeProject]) return;
+    if (deckRef.current.profileId !== activeProject) applyProfile(activeProject);
+  }, [restored, profiles, activeProject]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [savingLook, setSavingLook] = useState(false);
+  const keepLook = async () => {
+    if (!styled || savingLook) return;
+    setSavingLook(true);
+    try {
+      await saveProfile(styled, { look: { ...lookOf(deck), logo: deck.logo ?? "" } });
+      toast.success(`Style de ${styledProject?.name ?? "ce projet"} enregistré`, { description: "Les prochains visuels du projet partiront de ce style." });
+    } catch (e) {
+      toast.error("Style non enregistré", { description: (e as Error).message });
+    } finally {
+      setSavingLook(false);
+    }
+  };
+
   const reset = () => {
-    setDeck(emptyDeck());
+    const base = emptyDeck();
+    setDeck(profile && styled ? { ...base, ...lookOf(profile.look), logo: profile.look.logo, profileId: styled } : base);
     setCurrent(0);
   };
 
@@ -137,8 +168,6 @@ export function VisualsPage() {
   const ready = (data?.jobs ?? []).filter((j) => j.kind === "post" && j.status === "done" && j.post?.result && j.id !== jobId && !taken.includes(j.id)).slice(0, 4);
 
   // The deck as it was when Claude was asked: a result must not erase what was written meanwhile.
-  const deckRef = useRef(deck);
-  deckRef.current = deck;
   const askedDeck = useRef<Deck | null>(null);
 
   const applyResult = (job: MontageJob) => {
@@ -202,7 +231,7 @@ export function VisualsPage() {
     try {
       const { job } = await montageApi<{ job: MontageJob }>("/api/montage/jobs", {
         method: "POST",
-        body: JSON.stringify({ kind: "post", idea, slides: count, projectId: activeProject !== "all" ? activeProject : undefined }),
+        body: JSON.stringify({ kind: "post", idea, slides: count, projectId: styled ?? (activeProject !== "all" ? activeProject : undefined) }),
       });
       askedDeck.current = deckRef.current;
       setJobId(job.id);
@@ -261,7 +290,7 @@ export function VisualsPage() {
     }
   };
 
-  const project = projects.find((p) => p.id === activeProject);
+  const project = styledProject ?? projects.find((p) => p.id === activeProject);
   const suggestedHandle = useMemo(() => {
     const pool = project ? accounts.filter((a) => project.accountIds.includes(a.id)) : accounts;
     const a = pool.find((x) => x.network === "instagram") ?? pool[0];
@@ -468,87 +497,52 @@ export function VisualsPage() {
                 )}
               </Panel>
 
-              <Panel title="Style de tous les visuels">
+              <Panel title="Style de tous les visuels" icon={<Palette className="size-3.5 text-accent" />}>
+                {projects.length > 0 && (
+                  <Field label="Profil de style">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        aria-label="Profil de style"
+                        value={styled ?? ""}
+                        onChange={(e) => applyProfile(e.target.value)}
+                        disabled={!profiles}
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-2 text-[13px] outline-none focus:border-accent/60"
+                      >
+                        <option value="">Aucun (style libre)</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      {lookChanged && (
+                        <>
+                          <Button size="sm" className="h-9" onClick={() => applyProfile(styled!)} title="Revenir au style enregistré du projet">
+                            <RotateCcw className="size-3.5" />
+                            Rétablir
+                          </Button>
+                          <Button size="sm" className="h-9" onClick={keepLook} disabled={savingLook} title="Faire de ces réglages le style du projet">
+                            <Save className="size-3.5" />
+                            Enregistrer
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    <span className="text-[11.5px] text-ink-3">
+                      {styled ? (lookChanged ? "Modifié pour ce post seulement, tant que tu n'enregistres pas." : "Couleurs, texte, signature et ton de Claude viennent du projet.") : "Choisis un projet pour reprendre son style."}{" "}
+                      <Link href="/settings#styles" className="font-medium text-accent">
+                        Tous les profils
+                      </Link>
+                    </span>
+                  </Field>
+                )}
                 <Field label="Format">
                   <div className="flex flex-wrap items-center gap-2">
                     <Segmented value={deck.format} onChange={(format) => patch({ format })} options={FORMAT_OPTIONS.map((f) => ({ value: f.value, label: f.label }))} />
                     <span className="text-[12px] text-ink-3">{FORMAT_OPTIONS.find((f) => f.value === deck.format)?.hint}</span>
                   </div>
                 </Field>
-                <Field label="Fond">
-                  <Segmented value={deck.theme} onChange={(theme) => patch({ theme })} options={THEMES} />
-                </Field>
-                <Field label="Couleur">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {ACCENTS.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => patch({ accent: c })}
-                        aria-label={`Couleur ${c}`}
-                        aria-pressed={deck.accent === c}
-                        className={cn("press size-7 rounded-full outline-none transition-shadow duration-150 focus-visible:ring-2 focus-visible:ring-accent/50", deck.accent === c ? "shadow-[0_0_0_2px_var(--surface),0_0_0_4px_var(--ink)]" : "shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]")}
-                        style={{ background: c }}
-                      />
-                    ))}
-                    <label className="press relative grid size-7 cursor-pointer place-items-center rounded-full border border-dashed border-line-strong text-ink-3 hover:text-ink" title="Autre couleur">
-                      <Plus className="size-3.5" />
-                      <input type="color" value={deck.accent} onChange={(e) => patch({ accent: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Autre couleur" />
-                    </label>
-                  </div>
-                </Field>
-                <Field label="Texte">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Segmented
-                      value={deck.font}
-                      onChange={(font) => patch({ font })}
-                      options={[
-                        { value: "serif", label: "Élégant" },
-                        { value: "sans", label: "Net" },
-                      ]}
-                    />
-                    <div className="flex rounded-lg border border-line bg-bg-2/70 p-0.5">
-                      {(
-                        [
-                          ["left", AlignLeft, "Aligner à gauche"],
-                          ["center", AlignCenter, "Centrer"],
-                        ] as const
-                      ).map(([value, Icon, label]) => (
-                        <button
-                          key={value}
-                          onClick={() => patch({ align: value })}
-                          aria-label={label}
-                          aria-pressed={deck.align === value}
-                          className={cn("grid h-7 w-8 place-items-center rounded-md transition-[background-color,color,box-shadow] duration-150", deck.align === value ? "bg-surface text-ink shadow-card" : "text-ink-3 hover:text-ink")}
-                        >
-                          <Icon className="size-3.5" />
-                        </button>
-                      ))}
-                    </div>
-                    <Segmented
-                      value={deck.valign}
-                      onChange={(valign) => patch({ valign })}
-                      options={[
-                        { value: "top", label: "Haut" },
-                        { value: "middle", label: "Milieu" },
-                        { value: "bottom", label: "Bas" },
-                      ]}
-                    />
-                  </div>
-                </Field>
-                <Field label="Signature">
-                  <div className="flex gap-2">
-                    <input aria-label="Signature" value={deck.handle} onChange={(e) => patch({ handle: e.target.value })} maxLength={40} placeholder={suggestedHandle || "@toncompte"} className={cn(inputClass, "h-9")} />
-                    {suggestedHandle && deck.handle !== suggestedHandle && (
-                      <Button size="sm" className="h-9" onClick={() => patch({ handle: suggestedHandle })}>
-                        {suggestedHandle}
-                      </Button>
-                    )}
-                  </div>
-                </Field>
-                <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
-                  <Toggle label="Grain" checked={deck.grain} onChange={(grain) => patch({ grain })} />
-                  <Toggle label="Numéros de page" checked={deck.numbers} onChange={(numbers) => patch({ numbers })} />
-                </div>
+                <LookControls look={deck} onChange={patch} suggestedHandle={suggestedHandle} />
               </Panel>
 
               <Panel title="Description du post">
@@ -570,35 +564,6 @@ export function VisualsPage() {
   );
 }
 
-/** One slide drawn on a canvas that follows the width it is given. */
-function SlideCanvas({ deck, index, fonts, small, className }: { deck: Deck; index: number; fonts: Fonts | null; small?: boolean; className?: string }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const [tick, setTick] = useState(0);
-  const H = HEIGHTS[deck.format];
-  // Only what this slide draws: typing in another slide or in the description redraws nothing here.
-  const drawn = JSON.stringify([{ ...deck, slides: undefined, caption: undefined }, deck.slides[index], deck.slides.length]);
-  const latest = useRef(deck);
-  latest.current = deck;
-
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas || !fonts) return;
-    // Thumbnails are drawn small. The main preview is sharp on a Retina screen without drawing 1080 px at each keystroke.
-    const width = small ? 204 : Math.min(W, Math.round((canvas.clientWidth || 400) * Math.min(2, window.devicePixelRatio || 1)));
-    const height = Math.round((width * H) / W);
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(width / W, 0, 0, width / W, 0, 0);
-    drawSlide(ctx, latest.current, index, fonts, () => setTick((t) => t + 1));
-  }, [drawn, index, fonts, small, H, tick]);
-
-  return <canvas ref={ref} className={cn("block w-full bg-surface-2", className)} style={{ aspectRatio: `${W} / ${H}` }} aria-label={`Aperçu du visuel ${index + 1}`} role="img" />;
-}
-
 function Panel({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="rounded-xl border border-line bg-surface p-4">
@@ -611,29 +576,11 @@ function Panel({ title, icon, children }: { title: string; icon?: React.ReactNod
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-[12px] font-medium text-ink-2">{label}</span>
-      {children}
-    </div>
-  );
-}
-
 function Slider({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   return (
     <label className="flex items-center gap-3 text-[12px] font-medium text-ink-2">
       <span className="w-20 shrink-0">{label}</span>
       <input type="range" min={min} max={max} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} className="min-w-0 flex-1 accent-[var(--accent)]" />
-    </label>
-  );
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-2">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="size-4 accent-[var(--accent)]" />
-      {label}
     </label>
   );
 }
