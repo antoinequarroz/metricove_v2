@@ -87,13 +87,15 @@ export function Timeline({
   const placed = useMemo(() => timeline(edl), [edl]);
   const dur = edlDuration(edl);
   const tail = (edl.endCard ? END_CARD : 0) + 0.5;
-  const { scroller, pps, setZoom, fitted } = useTimelineZoom(dur, LABEL_W, tail);
+  // While an edge of a shot is pulled the scale stays still: otherwise the whole timeline would slide under the pointer.
+  const [held, setHeld] = useState<number | null>(null);
+  const { scroller, pps, setZoom, fitted } = useTimelineZoom(held ?? dur, LABEL_W, tail, time);
   const width = (dur + tail) * pps;
   const strip = useFilmstrip(src);
   const wave = useWaveform(src);
   const [help, setHelp] = useState(false);
   if (zoomRef) zoomRef.current = (dir) => setZoom((z) => (dir === 0 ? 1 : dir > 0 ? z * 1.5 : z / 1.5));
-  useFollowPlayhead(scroller, time * pps, !!playing, LABEL_W);
+  useFollowPlayhead(scroller, time * pps, !!playing, LABEL_W, !!moving || held !== null);
   // Edges that pull what is dragged: the cuts between shots and the playhead.
   const edges = useMemo(() => [0, ...placed.map((s) => s.end), time], [placed, time]);
   const near = (t: number) => snap(t, edges, 8 / pps);
@@ -111,14 +113,19 @@ export function Timeline({
     const base = edl;
     const s0 = base.segments.find((s) => s.id === id)!;
     onSelect({ kind: "seg", id });
-    drag(e, (dx) => {
-      const next = structuredClone(base);
-      const s = next.segments.find((x) => x.id === id)!;
-      const d = dx / pps;
-      if (edge === "in") s.in = clamp(s0.in + d, 0, s0.out - 0.2);
-      else s.out = clamp(s0.out + d, s0.in + 0.2, rushDur(id) ?? rushDur(s0.rush) ?? s0.out + 30);
-      onChange(next);
-    });
+    setHeld(dur);
+    drag(
+      e,
+      (dx) => {
+        const next = structuredClone(base);
+        const s = next.segments.find((x) => x.id === id)!;
+        const d = dx / pps;
+        if (edge === "in") s.in = clamp(s0.in + d, 0, s0.out - 0.2);
+        else s.out = clamp(s0.out + d, s0.in + 0.2, rushDur(id) ?? rushDur(s0.rush) ?? s0.out + 30);
+        onChange(next);
+      },
+      () => setHeld(null),
+    );
   };
 
   const move = (e: React.PointerEvent, id: string) => {
@@ -214,11 +221,11 @@ export function Timeline({
   };
 
   const ticks = useMemo(() => {
-    const step = [0.5, 1, 2, 5, 10, 30, 60].find((x) => x * pps >= 56) ?? 120;
+    const step = [1, 2, 5, 10, 30, 60].find((x) => x * pps >= 56) ?? 120;
     const out = [];
-    for (let t = 0; t <= dur + END_CARD; t += step) out.push(t);
+    for (let t = 0; t <= dur + tail; t += step) out.push(t);
     return out;
-  }, [dur, pps]);
+  }, [dur, tail, pps]);
 
   const selSeg = selection?.kind === "seg" ? edl.segments.find((s) => s.id === selection.id) : undefined;
   const selZoom = selection?.kind === "zoom" ? zooms[selection.i] : undefined;
@@ -291,7 +298,7 @@ export function Timeline({
           <div className="flex h-6 border-b border-line">
             <div className="sticky left-0 z-20 shrink-0 bg-surface" style={{ width: LABEL_W }} />
             <div
-              className="relative flex-1 cursor-pointer"
+              className="relative flex-1 cursor-pointer overflow-hidden"
               onPointerDown={(e) => {
                 onSeek(secAt(e.clientX));
                 drag(e, (dx) => onSeek(secAt(e.clientX + dx)));
@@ -309,7 +316,7 @@ export function Timeline({
             <Track label="Vidéo" hint={stale ? "avant retouche" : undefined}>
               <div className="absolute inset-0 cursor-pointer" onPointerDown={(e) => onSeek(secAt(e.clientX))}>
                 <Filmstrip strip={strip} pps={pps} height={44} dim={stale} />
-                {!strip.frames.length && <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">Images de la vidéo…</span>}
+                {!strip.frames.length && !strip.failed && <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">Images de la vidéo…</span>}
               </div>
             </Track>
           )}
@@ -334,8 +341,13 @@ export function Timeline({
                     <span className="mr-1 font-mono text-ink-3">{k + 1}</span>
                     {s.text}
                   </span>
-                  <Handle side="left" onPointerDown={(e) => trim(e, s.id, "in")} label="Raccourcir le début" />
-                  <Handle side="right" onPointerDown={(e) => trim(e, s.id, "out")} label="Raccourcir la fin" />
+                  {/* On a very short shot the two handles would cover it all: zoom in to trim it. */}
+                  {(s.end - s.start) * pps >= 24 && (
+                    <>
+                      <Handle side="left" onPointerDown={(e) => trim(e, s.id, "in")} label="Raccourcir le début" />
+                      <Handle side="right" onPointerDown={(e) => trim(e, s.id, "out")} label="Raccourcir la fin" />
+                    </>
+                  )}
                 </div>
               );
             })}

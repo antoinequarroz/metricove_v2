@@ -89,15 +89,18 @@ function Review({
 
   const history = useUndo<Edl>(draft, (edl) => {
     setDraft(edl);
-    setDirty(true);
+    // Back at the version on show: nothing is left to apply.
+    setDirty(JSON.stringify(edl) !== JSON.stringify(version?.edl));
+    setSelection(null);
   });
   const edit = (fn: (e: Edl) => Edl) => {
     history.record(draft);
     setDraft((d) => (d ? fn(structuredClone(d)) : d));
     setDirty(true);
   };
-  const setEdl = (next: Edl) => {
-    history.record(draft);
+  /** `key` names a panel of sliders: its changes in a row make one step to undo. */
+  const setEdl = (next: Edl, key?: string) => {
+    history.record(draft, key);
     setDraft(next);
     setDirty(true);
   };
@@ -123,8 +126,13 @@ function Review({
       const s = next.segments.find((x) => x.id === selection.id);
       if (!s || next.segments.filter((x) => x.kept).length < 2) return;
       s.kept = false;
-    } else if (selection.kind === "zoom") next.zooms?.splice(selection.i, 1);
-    else next.broll?.splice(selection.i, 1);
+    } else if (selection.kind === "zoom") {
+      if (!next.zooms?.[selection.i]) return;
+      next.zooms.splice(selection.i, 1);
+    } else {
+      if (!next.broll?.[selection.i]) return;
+      next.broll.splice(selection.i, 1);
+    }
     setEdl(next);
     setSelection(null);
   };
@@ -148,7 +156,11 @@ function Review({
     }
   };
 
-  const apply = async () => draft && (await call({ edl: draft }, "Modifications envoyées au Mac pour un nouvel aperçu")) && setDirty(false);
+  const apply = async () => {
+    if (!draft || !(await call({ edl: draft }, "Modifications envoyées au Mac pour un nouvel aperçu"))) return;
+    setDirty(false);
+    history.reset();
+  };
   const revise = async () => {
     if (await call({ revise: feedback, marks }, marks.length ? `Demande et ${marks.length} note${marks.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude")) {
       setFeedback("");
@@ -390,8 +402,8 @@ function Review({
                   </div>
                   {dirty && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">Modifications pas encore rendues : la vidéo montre encore la version {version.n}. Clique sur « Voir l&apos;aperçu » pour que le Mac la refasse.</p>}
 
-                  {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={setEdl} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
-                  {tab === "settings" && <SettingsPanel edl={draft} onChange={setEdl} tracks={worker?.tracks} />}
+                  {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
+                  {tab === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
                   {tab === "text" && (
                   <>
                   <p className="text-[12px] text-ink-3">

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 /* Shared by the two editing timelines (face-camera montage and animated reel):
    pictures of the video along the track, the shape of its sound, keyboard shortcuts, undo, snapping. */
 
-export type Strip = { frames: { t: number; url: string }[]; duration: number; aspect: number };
+export type Strip = { frames: { t: number; url: string }[]; duration: number; aspect: number; failed?: boolean };
 const NO_STRIP: Strip = { frames: [], duration: 0, aspect: 9 / 16 };
 
 /**
@@ -26,7 +26,8 @@ export function useFilmstrip(src: string | undefined, max = 72, height = 44): St
     const frames: Strip["frames"] = [];
     const start = () => {
       const duration = v.duration;
-      if (off || !Number.isFinite(duration) || duration <= 0 || !v.videoWidth) return;
+      if (off) return;
+      if (!Number.isFinite(duration) || duration <= 0 || !v.videoWidth) return void setStrip({ ...NO_STRIP, failed: true });
       const aspect = v.videoWidth / v.videoHeight;
       canvas.height = height * 2;
       canvas.width = Math.round(height * 2 * aspect);
@@ -61,6 +62,8 @@ export function useFilmstrip(src: string | undefined, max = 72, height = 44): St
       grab(0);
     };
     v.addEventListener("loadeddata", start, { once: true });
+    // A video the browser cannot read: say so, the track stops waiting.
+    v.addEventListener("error", () => !off && !frames.length && setStrip({ ...NO_STRIP, failed: true }), { once: true });
     v.src = src;
     return () => {
       off = true;
@@ -74,7 +77,8 @@ export function useFilmstrip(src: string | undefined, max = 72, height = 44): St
 /** The pictures laid along a track: `pps` pixels per second, each tile shows the picture nearest to its middle. */
 export function Filmstrip({ strip, pps, height, dim }: { strip: Strip; pps: number; height: number; dim?: boolean }) {
   if (!strip.frames.length || !(pps > 0)) return null;
-  const tile = Math.max(12, height * strip.aspect);
+  // At most 400 tiles: zoomed far in, each picture is stretched wider so that the strip still runs to the end.
+  const tile = Math.max(12, height * strip.aspect, (strip.duration * pps) / 400);
   const count = Math.min(400, Math.ceil((strip.duration * pps) / tile));
   const near = (t: number) => strip.frames.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a));
   return (
@@ -87,6 +91,7 @@ export function Filmstrip({ strip, pps, height, dim }: { strip: Strip; pps: numb
 }
 
 export type Wave = { peaks: Float32Array; rate: number; duration: number; silent: boolean };
+const NO_WAVE: Wave = { peaks: new Float32Array(0), rate: 50, duration: 0, silent: true };
 
 /** The shape of the sound of a video (loudest point of every 20 ms), decoded in the browser. Null until known or when too heavy. */
 export function useWaveform(src: string | undefined): Wave | null {
@@ -97,8 +102,12 @@ export function useWaveform(src: string | undefined): Wave | null {
     const stop = new AbortController();
     (async () => {
       const r = await fetch(src, { signal: stop.signal });
-      // A long video in full quality would fill the memory of the tab for a drawing.
-      if (!r.ok || Number(r.headers.get("content-length") ?? 0) > 120_000_000) return;
+      // A long video in full quality would fill the memory of the tab for a drawing: the track then stays flat.
+      if (!r.ok || Number(r.headers.get("content-length") ?? 0) > 60_000_000) {
+        setWave(NO_WAVE);
+        stop.abort();
+        return;
+      }
       const audio = await new OfflineAudioContext(1, 1, 44_100).decodeAudioData(await r.arrayBuffer());
       const data = audio.getChannelData(0);
       const rate = 50;
@@ -113,7 +122,10 @@ export function useWaveform(src: string | undefined): Wave | null {
       }
       if (top > 0.002) for (let i = 0; i < peaks.length; i++) peaks[i] /= top;
       if (!stop.signal.aborted) setWave({ peaks, rate, duration: audio.duration, silent: top <= 0.002 });
-    })().catch(() => {});
+    })().catch(() => {
+      // No sound to read (or a file the browser cannot decode): a flat track, not an endless wait.
+      if (!stop.signal.aborted) setWave(NO_WAVE);
+    });
     return () => stop.abort();
   }, [src]);
   return wave;
@@ -163,22 +175,26 @@ export function snap(t: number, points: number[], tol: number) {
 }
 
 /**
- * Undo and redo over one edited value. `record(previous)` before each change; changes that follow each other
- * within half a second (a drag) count as one step.
+ * Undo and redo over one edited value. `record(previous, key?)` before each change. One gesture is one step:
+ * a drag keeps recording the same previous value (skipped), and changes that carry the same `key` (a slider)
+ * within a second count as one.
  */
 export function useUndo<T>(current: T | undefined, restore: (value: T) => void) {
   const past = useRef<T[]>([]);
   const future = useRef<T[]>([]);
   const last = useRef(0);
+  const lastKey = useRef<string | undefined>(undefined);
   const [, bump] = useState(0);
-  const record = (previous: T | undefined) => {
+  const record = (previous: T | undefined, key?: string) => {
     if (previous === undefined) return;
     const now = performance.now();
-    if (now - last.current > 500) {
+    const same = previous === past.current.at(-1) || (key !== undefined && key === lastKey.current && now - last.current <= 1000);
+    if (!same) {
       past.current.push(previous);
       if (past.current.length > 80) past.current.shift();
     }
     last.current = now;
+    lastKey.current = key;
     future.current = [];
     bump((n) => n + 1);
   };
@@ -187,6 +203,7 @@ export function useUndo<T>(current: T | undefined, restore: (value: T) => void) 
     if (value === undefined || current === undefined) return;
     to.push(current);
     last.current = 0;
+    lastKey.current = undefined;
     restore(value);
     bump((n) => n + 1);
   };
@@ -244,7 +261,9 @@ export function useTimelineKeys(keys: TimelineKeys) {
       const k = live.current;
       const target = e.target as HTMLElement | null;
       if (!k.enabled || e.defaultPrevented || e.altKey) return;
-      if (target?.closest?.("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
+      // Text being typed keeps every key. A slider, a checkbox or a list only keeps the keys it uses itself.
+      if (target?.closest?.("textarea, [contenteditable=true], [role=dialog], input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=button])")) return;
+      const control = !!target?.closest?.("input, select");
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       const v = k.video();
@@ -260,6 +279,9 @@ export function useTimelineKeys(keys: TimelineKeys) {
         }
         return;
       }
+      if (control) return;
+      // A key held down repeats: only stepping through the video should.
+      if (e.repeat && key !== "ArrowLeft" && key !== "ArrowRight" && key !== "j") return void (key === " " && done());
       if (key === "Delete" || key === "Backspace") {
         if (k.onDelete) {
           done();
@@ -271,10 +293,25 @@ export function useTimelineKeys(keys: TimelineKeys) {
       if (key === "m" && k.onMark) return void (done(), k.onMark());
       if (key === "+" || key === "=") return void (done(), k.onZoom?.(1));
       if (key === "-") return void (done(), k.onZoom?.(-1));
-      if (key === "0") return void (done(), k.onZoom?.(0));
-      if (!k.canPlay || !v) return;
+      // On a French keyboard the 0 key gives « à » without Shift.
+      if (key === "0" || key === "à" || e.code === "Digit0" || e.code === "Numpad0") return void (done(), k.onZoom?.(0));
+      if (!v) return;
+      const pause = () => {
+        v.pause();
+        v.playbackRate = 1;
+      };
+      // A video that plays can always be stopped, even when it no longer matches the timeline.
+      if (!k.canPlay) {
+        if ((key === " " && !target?.closest?.("button, a, [role=tab], [role=button]")) || key === "k") {
+          done();
+          pause();
+        }
+        return;
+      }
       const now = v.currentTime;
-      const go = (t: number) => k.onSeek(Math.min(Math.max(0, t), Math.max(0, k.total - 0.01)));
+      // The video on screen can be longer than the edited timeline (edits not rendered yet).
+      const end = Math.max(k.total, Number.isFinite(v.duration) ? v.duration : 0);
+      const go = (t: number) => k.onSeek(Math.min(Math.max(0, t), Math.max(0, end - 0.01)));
       if (key === " ") {
         // Space on a focused button presses that button, as everywhere else.
         if (target?.closest?.("button, a, [role=tab], [role=button]")) return;
@@ -282,10 +319,10 @@ export function useTimelineKeys(keys: TimelineKeys) {
         if (v.paused) {
           v.playbackRate = 1;
           v.play().catch(() => {});
-        } else v.pause();
+        } else pause();
       } else if (key === "k") {
         done();
-        v.pause();
+        pause();
       } else if (key === "l") {
         done();
         if (v.paused) {
@@ -297,14 +334,14 @@ export function useTimelineKeys(keys: TimelineKeys) {
         go(now - 2);
       } else if (key === "ArrowLeft" || key === "ArrowRight") {
         done();
-        v.pause();
+        pause();
         go(now + (key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 : 1 / 30));
       } else if (key === "Home") {
         done();
         go(0);
       } else if (key === "End") {
         done();
-        go(k.total);
+        go(end);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -316,7 +353,7 @@ export function useTimelineKeys(keys: TimelineKeys) {
  * The zoom of a timeline: 1 shows the whole video in the width at hand. Returns the pixels per second, the zoom
  * setter, and a ref for the scrolling box (⌘ or Ctrl + wheel zooms around the pointer).
  */
-export function useTimelineZoom(total: number, label: number, pad = 0) {
+export function useTimelineZoom(total: number, label: number, pad = 0, focus?: number) {
   const scroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoomRaw] = useState(1);
   const [room, setRoom] = useState(0);
@@ -332,9 +369,30 @@ export function useTimelineZoom(total: number, label: number, pad = 0) {
   const fit = total > 0 && room > label + 40 ? (room - label - 2) / (total + pad) : 40;
   const pps = fit * zoom;
   const max = Math.max(1, 400 / fit);
-  const setZoom = (next: number | ((z: number) => number)) => setZoomRaw((z) => Math.min(max, Math.max(1, typeof next === "function" ? next(z) : next)));
-  const state = useRef({ pps, fit, max, label });
-  state.current = { pps, fit, max, label };
+  const state = useRef({ pps, fit, max, label, focus });
+  state.current = { pps, fit, max, label, focus };
+  /** Changes the zoom and keeps second `at` at `x` pixels from the left of the tracks. */
+  const zoomAround = (next: (z: number) => number, at: number, x: number) => {
+    const el = scroller.current;
+    const s = state.current;
+    setZoomRaw((z) => {
+      const to = Math.min(s.max, Math.max(1, next(z)));
+      if (el) requestAnimationFrame(() => (el.scrollLeft = at * s.fit * to - x));
+      return to;
+    });
+  };
+  /** Buttons and keys: the playhead stays where it is when it is in view, else the middle of the view does. */
+  const setZoom = (next: number | ((z: number) => number)) => {
+    const el = scroller.current;
+    const s = state.current;
+    const view = el ? el.clientWidth - s.label : 0;
+    const left = el?.scrollLeft ?? 0;
+    const head = s.focus !== undefined && s.focus >= 0 ? s.focus * s.pps - left : -1;
+    const x = head >= 0 && head <= view ? head : view / 2;
+    zoomAround(typeof next === "function" ? next : () => next, (left + x) / s.pps, x);
+  };
+  const zoomRef = useRef(zoomAround);
+  zoomRef.current = zoomAround;
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -343,13 +401,8 @@ export function useTimelineZoom(total: number, label: number, pad = 0) {
       e.preventDefault();
       const s = state.current;
       const x = e.clientX - el.getBoundingClientRect().left - s.label;
-      const at = (el.scrollLeft + x) / s.pps;
-      setZoomRaw((z) => {
-        const next = Math.min(s.max, Math.max(1, z * Math.exp(-e.deltaY * 0.0045)));
-        // The second under the pointer stays under the pointer.
-        requestAnimationFrame(() => (el.scrollLeft = at * s.fit * next - x));
-        return next;
-      });
+      // The second under the pointer stays under the pointer.
+      zoomRef.current((z) => z * Math.exp(-e.deltaY * 0.0045), (el.scrollLeft + x) / s.pps, x);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -357,13 +410,20 @@ export function useTimelineZoom(total: number, label: number, pad = 0) {
   return { scroller, pps, zoom, setZoom, fitted: zoom <= 1.001 };
 }
 
-/** While the video plays, the timeline scrolls so that the playhead stays in view. */
-export function useFollowPlayhead(scroller: React.RefObject<HTMLDivElement | null>, x: number, playing: boolean, label: number) {
+/**
+ * While the video plays, the timeline scrolls when the playhead runs out of the view on its own. A playhead that is
+ * already out of view (the user scrolled away to look elsewhere) is left alone, and nothing moves while `hold` (a drag).
+ */
+export function useFollowPlayhead(scroller: React.RefObject<HTMLDivElement | null>, x: number, playing: boolean, label: number, hold = false) {
+  const before = useRef(x);
   useEffect(() => {
     const el = scroller.current;
-    if (!el || !playing) return;
+    const was = before.current;
+    before.current = x;
+    if (!el || !playing || hold) return;
     const left = el.scrollLeft;
     const view = el.clientWidth - label;
-    if (x < left + 8 || x > left + view - 24) el.scrollLeft = Math.max(0, x - view * 0.15);
-  }, [scroller, x, playing, label]);
+    const inside = (p: number) => p >= left - 2 && p <= left + view - 24;
+    if (inside(was) && !inside(x)) el.scrollLeft = Math.max(0, x - view * 0.15);
+  }, [scroller, x, playing, label, hold]);
 }

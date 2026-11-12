@@ -47,8 +47,9 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     setTouched(true);
     setDraft(plan);
   });
-  const edit = (next: ReelPlan | undefined | ((d: ReelPlan | undefined) => ReelPlan | undefined)) => {
-    history.record(draft);
+  /** `key` names a slider or a field: its changes in a row make one step to undo. */
+  const edit = (next: ReelPlan | undefined | ((d: ReelPlan | undefined) => ReelPlan | undefined), key?: string) => {
+    history.record(draft, key);
     setTouched(true);
     setDraft(next);
   };
@@ -86,6 +87,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
       follow(latest.reel);
       setRange(null);
       setMarks([]);
+      setSelected(null);
       setCompareWith(null);
     }
   }, [latest?.n, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -112,8 +114,13 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   });
   // The Mac wrote the lengths on screen into the version on show: take them, unless edits are waiting.
   useEffect(() => {
-    if (version?.reel && !dirty) follow(version.reel);
+    // The list is read again every few seconds: the same plan again must not empty the steps to undo.
+    if (version?.reel && !dirty && JSON.stringify(version.reel) !== JSON.stringify(draft)) follow(version.reel);
   }, [version?.reel]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Edits by hand wait for a new render: the video on screen no longer matches the timeline, so it stops.
+  useEffect(() => {
+    if (dirty) player.current?.pause();
+  }, [dirty]);
 
   // The video keeps the clock: the playhead follows it frame by frame while it plays.
   useEffect(() => {
@@ -134,6 +141,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     follow(versions.find((v) => v.n === n)?.reel);
     setRange(null);
     setMarks([]);
+    setSelected(null);
   };
 
   const call = async (body: object, ok: string) => {
@@ -158,6 +166,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   const toggle = () => {
     const v = player.current;
     if (!v) return;
+    v.playbackRate = 1;
     if (v.paused) v.play().catch(() => {});
     else v.pause();
   };
@@ -223,7 +232,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     }
   };
 
-  const editScene = (id: string, patch: Partial<ReelScene>) => edit((d) => (d ? { ...d, scenes: d.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)) } : d));
+  const editScene = (id: string, patch: Partial<ReelScene>, key?: string) => edit((d) => (d ? { ...d, scenes: d.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)) } : d), key);
   const moveScene = (id: string, by: number) =>
     edit((d) => {
       if (!d) return d;
@@ -266,8 +275,9 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   };
   /** Takes the chosen scene out of the reel (Delete). */
   const cutSelected = () => {
-    if (!selected || keptCount < 2) return;
-    editScene(selected, { cut: true });
+    const scene = draft?.scenes.find((s) => s.id === selected);
+    if (!scene || scene.cut || keptCount < 2) return;
+    editScene(scene.id, { cut: true });
     setSelected(null);
   };
   /** Puts a note at the playhead (M): a place in the video and a few words for Claude, without drawing. */
@@ -286,7 +296,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     onSeek: seek,
     onSplit: trimHere,
     onMark: addNote,
-    onDelete: selected ? cutSelected : undefined,
+    onDelete: placed.some((p) => p.scene.id === selected) ? cutSelected : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
     onZoom: (dir) => zoomRef.current?.(dir),
@@ -585,8 +595,8 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                             </span>
                           </div>
                           <div className={cn("flex flex-col gap-1.5", s.cut && "opacity-50")}>
-                            <input aria-label={`Gros texte de la scène ${i + 1}`} value={s.title} onChange={(e) => editScene(s.id, { title: e.target.value })} maxLength={120} disabled={s.cut} placeholder="Gros texte" className={cn(inputClass, "h-8 font-medium")} />
-                            <textarea aria-label={`Petit texte de la scène ${i + 1}`} value={s.body} onChange={(e) => editScene(s.id, { body: e.target.value })} maxLength={240} rows={2} disabled={s.cut} placeholder="Petit texte" className={cn(inputClass, "resize-y py-1.5 leading-snug")} />
+                            <input aria-label={`Gros texte de la scène ${i + 1}`} value={s.title} onChange={(e) => editScene(s.id, { title: e.target.value }, `title:${s.id}`)} maxLength={120} disabled={s.cut} placeholder="Gros texte" className={cn(inputClass, "h-8 font-medium")} />
+                            <textarea aria-label={`Petit texte de la scène ${i + 1}`} value={s.body} onChange={(e) => editScene(s.id, { body: e.target.value }, `body:${s.id}`)} maxLength={240} rows={2} disabled={s.cut} placeholder="Petit texte" className={cn(inputClass, "resize-y py-1.5 leading-snug")} />
                             <label className="flex items-center gap-2 text-[12px] text-ink-2">
                               <span className="w-12 shrink-0">Durée</span>
                               <input
@@ -596,7 +606,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                                 step={0.1}
                                 disabled={s.cut}
                                 value={s.seconds ?? (at ? at.end - at.start : 3)}
-                                onChange={(e) => editScene(s.id, { seconds: Number(e.target.value) })}
+                                onChange={(e) => editScene(s.id, { seconds: Number(e.target.value) }, `dur:${s.id}`)}
                                 aria-label={`Durée de la scène ${i + 1}`}
                                 className="min-w-0 flex-1 accent-[var(--accent)]"
                               />
@@ -625,14 +635,14 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                     <Toggle label="Mettre une musique de ton dossier sous le reel" checked={draft.music} onChange={(music) => edit({ ...draft, music })} />
                     <label className="flex items-center gap-2 text-[12px] text-ink-2">
                       <span className="w-14 shrink-0">Volume</span>
-                      <input type="range" min={0} max={1} step={0.05} value={draft.volume ?? 0.7} disabled={!draft.music} onChange={(e) => edit({ ...draft, volume: Number(e.target.value) })} aria-label="Volume de la musique" className="min-w-0 flex-1 accent-[var(--accent)]" />
+                      <input type="range" min={0} max={1} step={0.05} value={draft.volume ?? 0.7} disabled={!draft.music} onChange={(e) => edit({ ...draft, volume: Number(e.target.value) }, "vol")} aria-label="Volume de la musique" className="min-w-0 flex-1 accent-[var(--accent)]" />
                       <span className="tabular w-10 text-right font-mono text-[11.5px]">{Math.round((draft.volume ?? 0.7) * 100)} %</span>
                     </label>
                     <MusicFields
                       value={{ track: draft.track, ...draft.cue }}
                       onChange={(patch) => {
                         const { track, ...cue } = patch;
-                        edit({ ...draft, ...("track" in patch ? { track } : {}), cue: { ...draft.cue, ...cue } });
+                        edit({ ...draft, ...("track" in patch ? { track } : {}), cue: { ...draft.cue, ...cue } }, "track" in patch ? undefined : `cue:${Object.keys(cue).join()}`);
                       }}
                       tracks={worker.tracks}
                       disabled={!draft.music}
@@ -654,31 +664,30 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
             </div>
 
             {/* ---------- Timeline ---------- */}
-{/* Drawing happens on one frame, and its tools take the room of the timeline on a small screen. */}
-            {!(drawing && canDraw && compareWith === null) && (
-              <ReelTimeline
-                src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
-                placed={placed}
-                total={total}
-                time={dirty ? -1 : time}
-                playing={playing}
-                onToggle={toggle}
-                onSeek={seek}
-                range={dirty ? null : range}
-                onRange={canAsk ? (r) => (setRange(r), r && setTab("claude")) : undefined}
-                marks={allMarks}
-                selected={selected}
-                onSelect={setSelected}
-                onResize={(id, seconds) => (editScene(id, { seconds }), setSelected(id), setTab("scenes"))}
-                onReorder={reorder}
-                onTrimHere={trimHere}
-                onCut={cutSelected}
-                onMark={canDraw ? addNote : undefined}
-                undo={history}
-                zoomRef={zoomRef}
-                stale={dirty}
-              />
-            )}
+            {/* Drawing happens on one frame, and its tools take the room of the timeline on a small screen: it stays in place, out of sight. */}
+            <ReelTimeline
+              hidden={drawing && canDraw && compareWith === null}
+              src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
+              placed={placed}
+              total={total}
+              time={dirty ? -1 : time}
+              playing={playing}
+              onToggle={toggle}
+              onSeek={seek}
+              range={dirty ? null : range}
+              onRange={canAsk ? (r) => (setRange(r), r && setTab("claude")) : undefined}
+              marks={allMarks}
+              selected={selected}
+              onSelect={setSelected}
+              onResize={(id, seconds) => (editScene(id, { seconds }), setSelected(id), setTab("scenes"))}
+              onReorder={reorder}
+              onTrimHere={trimHere}
+              onCut={cutSelected}
+              onMark={canDraw ? addNote : undefined}
+              undo={history}
+              zoomRef={zoomRef}
+              stale={dirty}
+            />
           </>
         )}
       </div>

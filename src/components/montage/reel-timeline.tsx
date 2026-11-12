@@ -41,6 +41,7 @@ export function ReelTimeline({
   undo,
   zoomRef,
   stale,
+  hidden,
 }: {
   /** The video on screen (its pictures and its sound are drawn in the tracks). */
   src?: string;
@@ -69,16 +70,18 @@ export function ReelTimeline({
   zoomRef?: React.RefObject<((dir: 1 | -1 | 0) => void) | null>;
   /** Edits wait for a new render: the tracks show what they will give, the video is the old one. */
   stale: boolean;
+  /** Kept in place but not shown (while drawing on the video), so the zoom and the scroll are not lost. */
+  hidden?: boolean;
 }) {
-  const { scroller, pps, setZoom, fitted } = useTimelineZoom(total, LABEL);
+  const { scroller, pps, setZoom, fitted } = useTimelineZoom(total, LABEL, 0, time);
   const strip = useFilmstrip(src);
   const wave = useWaveform(src);
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
-  const [resize, setResize] = useState<{ id: string; start: number; seconds: number; was: number } | null>(null);
+  const [resize, setResize] = useState<{ id: string; start: number; seconds: number; was: number; off: number; x0: number; pulled: boolean } | null>(null);
   const [moving, setMoving] = useState<{ id: string; dx: number } | null>(null);
   const [help, setHelp] = useState(false);
   if (zoomRef) zoomRef.current = (dir) => setZoom((z) => (dir === 0 ? 1 : dir > 0 ? z * 1.5 : z / 1.5));
-  useFollowPlayhead(scroller, time * pps, playing && !stale, LABEL);
+  useFollowPlayhead(scroller, time * pps, playing && !stale, LABEL, !!moving || !!resize || !!drag);
 
   const at = (clientX: number) => {
     const el = scroller.current;
@@ -151,20 +154,23 @@ export function ReelTimeline({
     onSelect(id);
   };
   const grab = (e: React.PointerEvent, id: string, start: number, seconds: number) => {
+    if (e.button !== 0) return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    setResize({ id, start, seconds, was: seconds });
+    // The handle is a few pixels wide: the edge keeps its distance to the pointer instead of jumping under it.
+    setResize({ id, start, seconds, was: seconds, off: start + seconds - at(e.clientX), x0: e.clientX, pulled: false });
   };
   const pull = (e: React.PointerEvent) => {
     if (!resize) return;
     e.stopPropagation();
-    setResize({ ...resize, seconds: Math.round(Math.min(MAX_SCENE, Math.max(MIN_SCENE, at(e.clientX) - resize.start)) * 10) / 10 });
+    if (!resize.pulled && Math.abs(e.clientX - resize.x0) < 3) return;
+    setResize({ ...resize, pulled: true, seconds: Math.round(Math.min(MAX_SCENE, Math.max(MIN_SCENE, at(e.clientX) + resize.off - resize.start)) * 10) / 10 });
   };
   const drop = (e: React.PointerEvent) => {
     if (!resize) return;
     e.stopPropagation();
     // A click on the edge without pulling is a click on the scene, not a new length.
-    if (Math.abs(resize.seconds - resize.was) < 0.1) {
+    if (!resize.pulled || Math.abs(resize.seconds - resize.was) < 0.1) {
       onSelect(resize.id);
       if (!stale) onSeek(at(e.clientX));
     } else onResize(resize.id, resize.seconds);
@@ -173,7 +179,7 @@ export function ReelTimeline({
 
   const sel = drag && Math.abs(drag.to - drag.from) >= 0.25 ? ([Math.min(drag.from, drag.to), Math.max(drag.from, drag.to)] as const) : range;
   const ticks = useMemo(() => {
-    const step = [0.5, 1, 2, 5, 10, 30].find((s) => s * pps >= 56) ?? 60;
+    const step = [1, 2, 5, 10, 30].find((s) => s * pps >= 56) ?? 60;
     return Array.from({ length: Math.floor(total / step) + 1 }, (_, i) => i * step);
   }, [total, pps]);
   const width = total * pps;
@@ -181,9 +187,9 @@ export function ReelTimeline({
   const chosen = placed.find((p) => p.scene.id === selected);
 
   return (
-    <div className="shrink-0 border-t border-line bg-surface/60 px-6 pt-2 pb-3 max-md:px-4">
+    <div className={cn("shrink-0 border-t border-line bg-surface/60 px-6 pt-2 pb-3 max-md:px-4", hidden && "hidden")}>
       <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3">
-        <button onClick={onToggle} disabled={stale} aria-label={playing ? "Pause" : "Lire"} title="Lire ou mettre en pause (Espace)" className={cn(tool, "text-ink")}>
+        <button onClick={onToggle} disabled={stale && !playing} aria-label={playing ? "Pause" : "Lire"} title="Lire ou mettre en pause (Espace)" className={cn(tool, "text-ink")}>
           {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
         </button>
         <span className="tabular mx-1 shrink-0 font-mono text-ink">
@@ -277,7 +283,7 @@ export function ReelTimeline({
           <Row label="Vidéo" h="h-10">
             <div className={cn("absolute inset-0 touch-none", !stale && "cursor-text")} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => setDrag(null)}>
               <Filmstrip strip={strip} pps={pps} height={40} dim={stale} />
-              {!strip.frames.length && <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">{src ? "Images de la vidéo…" : "Pas encore de vidéo"}</span>}
+              {!strip.frames.length && !strip.failed && <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">{src ? "Images de la vidéo…" : "Pas encore de vidéo"}</span>}
             </div>
           </Row>
 
