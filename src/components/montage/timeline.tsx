@@ -6,6 +6,7 @@ import { edlDuration, reorderKept, splitAt, timeline, type Edl, type MontageMark
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
 import { Button } from "../ui";
+import { TextBlocks } from "./free-texts";
 import { fmtSec } from "./parts";
 import { Filmstrip, SHORTCUTS, snap, useFilmstrip, useFollowPlayhead, useTimelineZoom, useWaveform, Waveform } from "./timeline-kit";
 
@@ -59,6 +60,8 @@ export function Timeline({
   playing,
   undo,
   zoomRef,
+  textSel,
+  onTextSel,
   onRemove,
   onMark,
 }: {
@@ -79,6 +82,9 @@ export function Timeline({
   undo?: { undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean };
   /** Lets the keyboard of the screen zoom this timeline (+, −, 0). */
   zoomRef?: React.RefObject<((dir: 1 | -1 | 0) => void) | null>;
+  /** The free text chosen (texts put on the video by hand have their own track). */
+  textSel?: string | null;
+  onTextSel?: (id: string) => void;
   /** Removes what is selected (the Delete key does the same). */
   onRemove?: () => void;
   /** Puts a note for Claude at the playhead (the M key does the same). */
@@ -421,6 +427,12 @@ export function Timeline({
               </div>
             )}
           </Track>
+
+          {!!edl.texts?.length && onTextSel && (
+            <Track label="Textes">
+              <TextBlocks texts={edl.texts} pps={pps} total={dur} selected={textSel ?? null} onSelect={onTextSel} onChange={(texts, key) => onChange({ ...edl, texts }, key)} near={near} />
+            </Track>
+          )}
 
           {src && (
             <Track label="Son" hint={stale ? "avant retouche" : undefined}>

@@ -11,6 +11,7 @@ import { overlayPage, renderOverlay } from "./hf.mjs";
 import { renderPlan, toOutput, outputWords, audioOf, captionsOf } from "./edl.mjs";
 import { buildAudio } from "./audio.mjs";
 import { brollFile } from "./broll.mjs";
+import { cleanTexts } from "./texts.mjs";
 
 export { timeline } from "./edl.mjs";
 
@@ -204,8 +205,9 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   const titleUntil = edl.title?.text ? Math.min(toOutput(plan, edl.title.until || 2.8), speechEnd) : Math.min(2.8, speechEnd);
   let overlay = null;
   const showWords = captions.on !== false && words.length;
-  if (showWords || edl.title?.text || endSec) {
-    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces });
+  const texts = cleanTexts(edl.texts);
+  if (showWords || edl.title?.text || endSec || texts.length) {
+    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces, texts });
     overlay = await renderOverlay(cfg, ensureDir(join(dir, "hf")), html, join(dir, "overlay.mov"), { fps: FPS, theme });
   }
 

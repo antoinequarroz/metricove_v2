@@ -307,3 +307,5 @@ Les deux écrans de montage (face caméra : `timeline.tsx` + `review-page.tsx` ;
 **Repères** — une note posée à la tête de lecture (touche M) est un `MontageMark` sans image (`{ id, version, t, text }`), envoyé avec `revise` comme les notes dessinées.
 
 **Couverture d'un reel** — l'image affichée est prise dans le navigateur et envoyée après la validation par `PUT /api/media/:id/cover` (JPEG).
+
+**Textes libres (worker 0.11.0)** — `texts: FreeText[]` dans `edl` (vidéo face caméra) et dans `reel` (reel animé), 12 au plus : `{ id, text, start, end, x, y, size: "s"|"m"|"l"|"xl", style: "plain"|"band" }`. `start` / `end` en secondes de la vidéo montée ; `x`, `y` : centre du texte, de 0 à 1 de l'image. Posés sans Claude depuis l'onglet « Textes » (composants `free-texts.tsx` : piste de la timeline, réglages, poignée sur la vidéo). Le Mac les dessine avec `worker/montage/lib/texts.mjs` : dans la surcouche des sous-titres pour une vidéo, dans la page du reel pour un reel. Une nouvelle proposition de Claude garde les textes de la version précédente.

@@ -7,6 +7,7 @@ import { writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import { run, ensureDir } from "./util.mjs";
 import { fontFaceCss, fontPaths } from "./fonts.mjs";
+import { textLayer } from "./texts.mjs";
 
 const E = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const f = (x) => Number(x).toFixed(3);
@@ -48,7 +49,7 @@ const SIZE = { s: 0.8, m: 1, l: 1.2 };
  * words : [{ w, s, e, seg, hl?, emoji? }] en secondes de la vidéo rendue ; speechEnd : fin de la parole ; dur : durée totale.
  * captions : { on, position, look, size, highlight, emoji } ; faces : { [seg]: { y0, y1 } } visage dans l'image (0..1), pour « auto ».
  */
-export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, theme, format, captions = {}, faces = {} }) {
+export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, theme, format, captions = {}, faces = {}, texts = [] }) {
   const k = Math.min(W, H) / 1080;
   const px = (v) => `${Math.round(v * k)}px`;
   const maxc = Math.round((theme.captionsMaxChars?.[format] || 18) / (SIZE[captions.size] || 1));
@@ -135,7 +136,12 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
     js.push(`tl.to("#end .eb",{scaleX:1,duration:0.45,ease:"expo.out"},${f(s + 0.15)}); tl.to("#end .m>span",{yPercent:0,duration:0.5,ease:"expo.out"},${f(s + 0.3)});`);
   }
 
+  // Textes libres posés à la main (au-dessus du reste, sauf du carton de fin qui est opaque).
+  const free = textLayer(texts, { W, H, total: endCard?.text ? speechEnd : dur, accent: A, onAccent: INK });
+  els.push(...free.els); js.unshift(...free.js.filter((x) => x.startsWith("gsap.set"))); js.push(...free.js.filter((x) => !x.startsWith("gsap.set")));
+
   const css = `${fontFaces}
+${free.css}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent}
 #root{position:relative;width:${W}px;height:${H}px;font-family:"${theme.font}",${theme.fallbackFonts};${STRETCH}color:${T}}

@@ -127,6 +127,8 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       const brollAuto = settings.brollAuto !== false;
       const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, broll: brollAuto ? listBroll(cfg) : null, cwd: dir });
       const edl = buildEdl(job, cands, p, { settings, captions, tracks });
+      // Les textes posés à la main restent d'une proposition à l'autre.
+      if (last?.edl.texts?.length) edl.texts = last.edl.texts;
       const bnotes = [];
       if (edl.broll?.length) {
         await step("Recherche du B-roll…", 0.45);

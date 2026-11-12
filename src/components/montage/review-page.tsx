@@ -4,7 +4,7 @@ import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, Message
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { edlDuration, splitAt, timeline, type CaptionStyle, type Edl, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { edlDuration, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
@@ -12,6 +12,7 @@ import { Annotator } from "./annotator";
 import { ReelReview } from "./reel-review";
 import { CaptionsEditor } from "./captions-editor";
 import { Segmented } from "./controls";
+import { TextGhost, TextPanel } from "./free-texts";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
@@ -39,7 +40,7 @@ export function ReviewPage({ id }: { id: string }) {
   return <Review job={job} worker={data.worker} rushes={data.rushes} refresh={refresh} />;
 }
 
-type Tab = "text" | "captions" | "settings";
+type Tab = "text" | "captions" | "texts" | "settings";
 
 function Review({
   job,
@@ -63,7 +64,11 @@ function Review({
   const player = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
   const [tab, setTab] = useState<Tab>("captions");
-  const [selection, setSelection] = useState<Selection>(null);
+  const [selection, setSelectionRaw] = useState<Selection>(null);
+  /** The free text chosen on the timeline or in the Texts tab (one thing is chosen at a time). */
+  const [textSel, setTextSelRaw] = useState<string | null>(null);
+  const setSelection = (s: Selection) => (setSelectionRaw(s), s && setTextSelRaw(null));
+  const setTextSel = (id: string | null) => (setTextSelRaw(id), id && (setSelectionRaw(null), setTab("texts")));
   const [drawing, setDrawing] = useState(false);
   const [marks, setMarks] = useState<MontageMark[]>([]);
   const openComposer = useStore((s) => s.openComposer);
@@ -104,6 +109,9 @@ function Review({
     setDraft(next);
     setDirty(true);
   };
+  const texts = draft?.texts ?? [];
+  const setTexts = (next: FreeText[], key?: string) => draft && setEdl({ ...draft, texts: next }, key);
+  const curText = texts.find((t) => t.id === textSel);
   const [playing, setPlaying] = useState(false);
   const composerOpen = useStore((s) => s.composer.open);
   const zoomRef = useRef<((dir: 1 | -1 | 0) => void) | null>(null);
@@ -203,7 +211,7 @@ function Review({
     onSeek: seek,
     onSplit: splitHere,
     onMark: addNote,
-    onDelete: selection && selection.kind !== "title" ? removeSelection : undefined,
+    onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : selection && selection.kind !== "title" ? removeSelection : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
     onZoom: (dir) => zoomRef.current?.(dir),
@@ -308,8 +316,11 @@ function Review({
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
                   <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m]))} onClose={() => setDrawing(false)}>
-                    <div onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
+                    <div className="relative" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
                       <Preview job={job} v={version} ref={player} onTime={setTime} />
+                      {curText && draft && tab === "texts" && !drawing && (
+                        <TextGhost text={curText} aspect={(([w, h]) => w / h)(draft.format.split(":").map(Number))} onMove={(x, y, key) => setTexts(texts.map((t) => (t.id === curText.id ? { ...t, x, y } : t)), key)} />
+                      )}
                     </div>
                   </Annotator>
                 )}
@@ -385,6 +396,7 @@ function Review({
                       options={[
                         { value: "captions", label: "Sous-titres" },
                         { value: "text", label: "Transcription" },
+                        { value: "texts", label: "Textes" },
                         { value: "settings", label: "Réglages" },
                       ]}
                     />
@@ -405,6 +417,7 @@ function Review({
                   {dirty && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">Modifications pas encore rendues : la vidéo montre encore la version {version.n}. Clique sur « Voir l&apos;aperçu » pour que le Mac la refasse.</p>}
 
                   {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
+                  {tab === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}
                   {tab === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
                   {tab === "text" && (
                   <>
@@ -481,6 +494,8 @@ function Review({
               rushes={rushes}
               selection={selection}
               onSelect={setSelection}
+              textSel={textSel}
+              onTextSel={setTextSel}
               src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
               stale={dirty}
               playing={playing}

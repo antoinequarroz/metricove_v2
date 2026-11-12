@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, MUSIC_FADE, type AudioSettings, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
+import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_TEXTS, MUSIC_FADE, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
 import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db } from "./db";
 
@@ -392,6 +392,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
     audio: e.audio === undefined ? undefined : cleanAudio(e.audio),
     broll: Array.isArray(e.broll) ? cleanBroll(e.broll) : undefined,
     brollAuto: e.brollAuto === undefined ? undefined : e.brollAuto === true,
+    ...(Array.isArray(e.texts) && e.texts.length ? { texts: cleanTexts(e.texts) } : {}),
     exports: Array.isArray(e.exports) ? [...new Set((e.exports as unknown[]).filter((f): f is MontageFormat => FORMATS.includes(f as string)))].filter((f) => f !== format) : undefined,
   };
 }
@@ -434,6 +435,34 @@ export function cleanCaptions(raw: unknown): CaptionStyle {
 }
 
 /** Where the music starts and its fades, kept only when set. */
+/** Texts put on the video by hand: at most 12, bounded. */
+export function cleanTexts(raw: unknown): FreeText[] {
+  const out: FreeText[] = [];
+  const seen = new Set<string>();
+  for (const t of Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []) {
+    if (out.length >= MAX_TEXTS) break;
+    const text = (str(t?.text, 200) ?? "").replace(/\r/g, "").trim();
+    const start = Math.max(0, num(t?.start) ?? 0);
+    const end = Math.min(num(t?.end) ?? start + 3, start + 600);
+    if (!text || !(end - start >= 0.3)) continue;
+    let id = (str(t?.id, 40) ?? "").replace(/[^\w-]/g, "");
+    if (!id || seen.has(id)) id = `t-${crypto.randomUUID().slice(0, 8)}`;
+    seen.add(id);
+    const unit = (v: unknown) => Math.min(1, Math.max(0, num(v) ?? 0.5));
+    out.push({
+      id,
+      text,
+      start: Math.round(start * 100) / 100,
+      end: Math.round(end * 100) / 100,
+      x: Math.round(unit(t?.x) * 1000) / 1000,
+      y: Math.round(unit(t?.y) * 1000) / 1000,
+      size: (["s", "m", "l", "xl"] as const).find((z) => z === t?.size) ?? "m",
+      style: t?.style === "band" ? "band" : "plain",
+    });
+  }
+  return out;
+}
+
 export function cleanCue(raw: unknown): MusicCue {
   const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const pick = (v: unknown, max: number) => (num(v) !== undefined && num(v)! >= 0 ? Math.round(Math.min(max, num(v)!) * 10) / 10 : undefined);
@@ -557,6 +586,7 @@ export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan |
     volume: volume === undefined ? (base?.volume ?? 0.7) : Math.min(1, Math.max(0, volume)),
     ...(track ? { track } : {}),
     ...(Object.keys(cue).length ? { cue } : {}),
+    ...(Array.isArray(r.texts) && r.texts.length ? { texts: cleanTexts(r.texts) } : {}),
     pace: PACES.find((p) => p === r.pace) ?? base?.pace ?? "normal",
     ...(base?.direction ? { direction: base.direction } : str(r.direction, 1000)?.trim() ? { direction: str(r.direction, 1000)!.trim() } : {}),
     ...(!base && duration !== undefined && duration > 0 ? { duration } : {}),

@@ -106,11 +106,18 @@ export type Edl = {
   /** More formats to render with the final video (same edit, reframed). */
   exports?: MontageFormat[];
   broll?: Broll[];
+  /** Texts put on the video by hand (seconds of the edited video). */
+  texts?: FreeText[];
   /** Claude adds B-roll where it helps (your shots first, then Pexels). */
   brollAuto?: boolean;
 };
 
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };
+/** A text put on the video by hand: when, where (centre of the text, 0 to 1 of the picture), how big. */
+export type FreeText = { id: string; text: string; start: number; end: number; x: number; y: number; size: "s" | "m" | "l" | "xl"; style: "plain" | "band" };
+export const MAX_TEXTS = 12;
+/** Height of the letters for a picture 1080 wide. Same as the Mac (worker/montage/lib/texts.mjs). */
+export const TEXT_SIZE = { s: 44, m: 64, l: 92, xl: 128 } as const;
 /** Where the music starts in its file, and its fades (seconds). Left out: from the start, short fades. */
 export type MusicCue = { start?: number; fadeIn?: number; fadeOut?: number };
 export const MUSIC_FADE = { in: 0.5, out: 1.5, maxIn: 5, maxOut: 8, maxStart: 600 };
@@ -157,6 +164,8 @@ export type ReelPlan = {
   track?: string;
   /** Where the music starts in its file, and its fades. */
   cue?: MusicCue;
+  /** Texts put over the reel by hand. */
+  texts?: FreeText[];
   pace: "calm" | "normal" | "fast";
   direction?: string;
   /** Length of the rendered video, in seconds. */

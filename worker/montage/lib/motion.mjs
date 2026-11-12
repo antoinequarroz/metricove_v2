@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { ensureDir, home, run, log } from "./util.mjs";
 import { googleFaces } from "./fonts.mjs";
 import { pickTrack, musicCue } from "./audio.mjs";
+import { cleanTexts, textLayer } from "./texts.mjs";
 import { writeArts, checkArt } from "./motion-art.mjs";
 
 const W = 1080, H = 1920, FPS = 30;
@@ -116,6 +117,8 @@ export function cleanMotion(m = {}) {
     track: String(m.track || "").slice(0, 200),
     // Départ dans le morceau et fondus, quand Antoine les a réglés.
     ...(m.cue && typeof m.cue === "object" ? { cue: { start: m.cue.start, fadeIn: m.cue.fadeIn, fadeOut: m.cue.fadeOut } } : {}),
+    // Textes libres posés à la main sur la vidéo (lib/texts.mjs).
+    texts: cleanTexts(m.texts),
     pace: Object.hasOwn(PACE, m.pace) ? m.pace : "normal",
     // Un rythme choisi par Antoine : Claude ne le change pas.
     paceSet: Object.hasOwn(PACE, m.pace),
@@ -339,7 +342,13 @@ ${sig}</div>`);
     else js.push(`tl.to("#s${i} .rule",{scaleX:1.6,duration:0.8,ease:"sine.inOut",yoyo:true,repeat:1},${f(Math.min(total - 1.7, after + 0.9))});`);
   });
 
+  // Textes libres posés à la main, au-dessus de toutes les scènes.
+  const sceneAt = (t) => Math.max(0, starts.findLastIndex((s) => s <= t + 0.01));
+  const free = textLayer(motion.texts, { W, H, total, accent: look.accent, onAccent: isDark(look.accent) ? "#ffffff" : "#171716", family: `"${F.display.family}",${FALLBACK[look.font]}`, track: 40, inkAt: (t) => colors(look, sceneAt(t)).ink });
+  els.push(...free.els); js.unshift(...free.js.filter((x) => x.startsWith("gsap.set"))); js.push(...free.js.filter((x) => !x.startsWith("gsap.set")));
+
   const css = `${face(F.display.family, fonts.display)}
+${free.css}
 ${sameFamily ? "" : face(F.body.family, fonts.body)}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:${W}px;height:${H}px;overflow:hidden;background:#111}

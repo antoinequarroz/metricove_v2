@@ -2,8 +2,9 @@
 
 import { Keyboard, MapPin, Maximize2, Minus, Pause, PenLine, Play, Plus, Redo2, Scissors, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { reelTimeline, type MontageMark } from "@/lib/montage";
+import { reelTimeline, type FreeText, type MontageMark } from "@/lib/montage";
 import { cn } from "@/lib/utils";
+import { TextBlocks } from "./free-texts";
 import { fmtSec } from "./parts";
 import { Filmstrip, SHORTCUTS, snap, useFilmstrip, useFollowPlayhead, useTimelineZoom, useWaveform, Waveform } from "./timeline-kit";
 
@@ -33,6 +34,10 @@ export function ReelTimeline({
   marks,
   selected,
   onSelect,
+  texts,
+  textSel,
+  onTextSel,
+  onTexts,
   onResize,
   onReorder,
   onTrimHere,
@@ -56,6 +61,11 @@ export function ReelTimeline({
   marks: MontageMark[];
   selected: string | null;
   onSelect: (id: string | null) => void;
+  /** Texts put over the reel by hand, their own track. */
+  texts: FreeText[];
+  textSel: string | null;
+  onTextSel: (id: string) => void;
+  onTexts?: (next: FreeText[], key?: string) => void;
   onResize: (id: string, seconds: number) => void;
   /** Moves a scene to place `index` among the scenes that play. */
   onReorder: (id: string, index: number) => void;
@@ -329,6 +339,14 @@ export function ReelTimeline({
               );
             })}
           </Row>
+
+          {(texts.length > 0 || textSel) && (
+            <Row label="Textes" h="h-8">
+              <div className={cn("absolute inset-0", !onTexts && "pointer-events-none")}>
+                <TextBlocks texts={texts} pps={pps} total={total} selected={textSel} onSelect={onTextSel} onChange={onTexts ?? (() => {})} near={near} className="top-1 bottom-1" />
+              </div>
+            </Row>
+          )}
 
           {/* Sound */}
           <Row label="Son" h="h-7" last>

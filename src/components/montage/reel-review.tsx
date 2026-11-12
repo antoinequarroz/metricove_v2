@@ -4,13 +4,14 @@ import { ArrowDown, ArrowLeft, Image as ImageIcon, ArrowUp, CalendarPlus, Check,
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { reelTimeline, type MontageJob, type MontageMark, type ReelPlan, type ReelScene } from "@/lib/montage";
+import { reelTimeline, type FreeText, type MontageJob, type MontageMark, type ReelPlan, type ReelScene } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
 import { Annotator } from "./annotator";
 import { Segmented } from "./controls";
 import { inputClass, Toggle } from "./look-parts";
+import { TextGhost, TextPanel } from "./free-texts";
 import { MusicFields } from "./music-fields";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { ReelTimeline } from "./reel-timeline";
@@ -29,9 +30,9 @@ const atLeast = (version: string | undefined, min: number[]) => {
 const MIN_SCENE = 1.5;
 const MAX_SCENE = 15;
 const fmtT = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
-const sameScenes = (a: ReelPlan, b: ReelPlan) => JSON.stringify([a.scenes, a.music, a.volume, a.pace, a.track ?? "", a.cue ?? {}]) === JSON.stringify([b.scenes, b.music, b.volume, b.pace, b.track ?? "", b.cue ?? {}]);
+const sameScenes = (a: ReelPlan, b: ReelPlan) => JSON.stringify([a.scenes, a.music, a.volume, a.pace, a.track ?? "", a.cue ?? {}, a.texts ?? []]) === JSON.stringify([b.scenes, b.music, b.volume, b.pace, b.track ?? "", b.cue ?? {}, b.texts ?? []]);
 
-type Tab = "claude" | "scenes" | "sound";
+type Tab = "claude" | "scenes" | "texts" | "sound";
 
 /** The editing screen of an animated reel: the video, its timeline, drawings, requests to Claude on a passage, edits by hand, versions. */
 export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: WorkerStatus; refresh: () => Promise<void> }) {
@@ -59,7 +60,11 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     setDraft(plan);
   };
   /** The scene chosen on the timeline (Delete takes it out, the Scenes tab shows it). */
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelectedScene] = useState<string | null>(null);
+  /** The text chosen on the timeline or in the Texts tab (one thing is chosen at a time). */
+  const [textSel, setTextSelRaw] = useState<string | null>(null);
+  const setSelected = (id: string | null) => (setSelectedScene(id), id && setTextSelRaw(null));
+  const setTextSel = (id: string | null) => (setTextSelRaw(id), id && (setSelectedScene(null), setTab("texts")));
   const [compareWith, setCompareWith] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -234,6 +239,9 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     }
   };
 
+  const texts = draft?.texts ?? [];
+  const setTexts = (next: FreeText[], key?: string) => edit((d) => (d ? { ...d, texts: next } : d), key);
+  const curText = texts.find((t) => t.id === textSel);
   const editScene = (id: string, patch: Partial<ReelScene>, key?: string) => edit((d) => (d ? { ...d, scenes: d.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)) } : d), key);
   const moveScene = (id: string, by: number) =>
     edit((d) => {
@@ -298,7 +306,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     onSeek: seek,
     onSplit: trimHere,
     onMark: addNote,
-    onDelete: placed.some((p) => p.scene.id === selected) ? cutSelected : undefined,
+    onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : placed.some((p) => p.scene.id === selected) ? cutSelected : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
     onZoom: (dir) => zoomRef.current?.(dir),
@@ -434,8 +442,9 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
                   <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => (setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m])), setTab("claude"))} onClose={() => setDrawing(false)}>
-                    <div onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
+                    <div className="relative" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
                       <Preview job={job} v={version} ref={player} onTime={setTime} />
+                      {curText && tab === "texts" && !drawing && <TextGhost text={curText} accent={draft.look.accent} onMove={(x, y, key) => setTexts(texts.map((t) => (t.id === curText.id ? { ...t, x, y } : t)), key)} />}
                     </div>
                   </Annotator>
                 )}
@@ -451,6 +460,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                     options={[
                       { value: "claude", label: "Demander à Claude" },
                       { value: "scenes", label: "Scènes" },
+                      { value: "texts", label: "Textes" },
                       { value: "sound", label: "Musique et rythme" },
                     ]}
                   />
@@ -629,6 +639,8 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                   </ol>
                 )}
 
+                {tab === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={dirty ? 0 : time} total={total} onSeek={dirty ? undefined : seek} disabled={job.status !== "review" || working} workerVersion={worker.version} />}
+
                 {tab === "sound" && (
                   <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-3 text-[13px]">
                     <p className="flex items-center gap-1.5 text-[12.5px] font-medium">
@@ -681,6 +693,10 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
               marks={allMarks}
               selected={selected}
               onSelect={setSelected}
+              texts={texts}
+              textSel={textSel}
+              onTextSel={setTextSel}
+              onTexts={job.status === "review" && !working ? setTexts : undefined}
               onResize={(id, seconds) => (editScene(id, { seconds }), setSelected(id), setTab("scenes"))}
               onReorder={reorder}
               onTrimHere={trimHere}

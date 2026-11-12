@@ -15,7 +15,7 @@ import { scan } from "./lib/rushes.mjs";
 import { handle } from "./lib/jobs.mjs";
 import { listTracks } from "./lib/audio.mjs";
 
-const VERSION = "0.10.0";
+const VERSION = "0.11.0";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 
