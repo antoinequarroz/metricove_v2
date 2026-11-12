@@ -174,6 +174,13 @@ function Review({
   };
   const sentMarks = (job.marks ?? []).filter((m) => m.version === version?.n);
   const canDraw = job.status === "review" && !!version?.preview && compareWith === null;
+  /** Puts a note at the playhead (M): a place in the video and a few words for Claude, without drawing. */
+  const addNote = () => {
+    if (!version || !canDraw) return;
+    if (marks.length >= 8) return void toast.message("8 notes au plus par demande");
+    player.current?.pause();
+    setMarks((x) => [...x, { id: crypto.randomUUID(), version: version.n, t: Math.round((player.current?.currentTime ?? time) * 100) / 100, text: "" }]);
+  };
   useTimelineKeys({
     enabled: !!draft && compareWith === null && !(drawing && canDraw) && !composerOpen,
     canPlay: !!version?.preview,
@@ -181,6 +188,7 @@ function Review({
     total: draft ? edlDuration(draft) : 0,
     onSeek: seek,
     onSplit: splitHere,
+    onMark: addNote,
     onDelete: selection && selection.kind !== "title" ? removeSelection : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
@@ -319,7 +327,15 @@ function Review({
                             <button onClick={() => seek(m.t)} className="tabular shrink-0 font-mono text-[11px] text-ink-3 hover:text-accent">
                               {fmtSec(m.t)}
                             </button>
-                            <span className="min-w-0 flex-1 truncate">{m.text || "Dessin sans texte"}</span>
+                            <input
+                              value={m.text}
+                              onChange={(e) => setMarks((x) => x.map((y) => (y.id === m.id ? { ...y, text: e.target.value } : y)))}
+                              autoFocus={!m.text && !m.image}
+                              maxLength={1000}
+                              placeholder={m.image ? "Dessin sans texte" : "Ta note à cet endroit"}
+                              aria-label={`Note à ${fmtSec(m.t)}`}
+                              className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-line-strong focus:border-accent/60 focus:bg-surface"
+                            />
                             <button onClick={() => setMarks((x) => x.filter((y) => y.id !== m.id))} aria-label="Retirer la note" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink">
                               <X className="size-3.5" />
                             </button>
@@ -375,7 +391,7 @@ function Review({
                   {dirty && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">Modifications pas encore rendues : la vidéo montre encore la version {version.n}. Clique sur « Voir l&apos;aperçu » pour que le Mac la refasse.</p>}
 
                   {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={setEdl} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
-                  {tab === "settings" && <SettingsPanel edl={draft} onChange={setEdl} />}
+                  {tab === "settings" && <SettingsPanel edl={draft} onChange={setEdl} tracks={worker?.tracks} />}
                   {tab === "text" && (
                   <>
                   <p className="text-[12px] text-ink-3">
@@ -457,6 +473,7 @@ function Review({
               undo={history}
               zoomRef={zoomRef}
               onRemove={removeSelection}
+              onMark={canDraw ? addNote : undefined}
             />
           )}
         </div>

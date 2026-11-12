@@ -51,7 +51,7 @@ export type AudioSettings = {
   /** Silences between words: keep, shorten, or remove. */
   silences: "keep" | "tight" | "cut";
   /** Background music that ducks under the voice. `track`: file name in the Mac music folder, empty = Claude picks. */
-  music: { on: boolean; track?: string; volume: number; duck: boolean };
+  music: { on: boolean; track?: string; volume: number; duck: boolean } & MusicCue;
 };
 
 /** Illustration shot over the speaker (the voice keeps going). Times are timeline seconds. */
@@ -111,6 +111,10 @@ export type Edl = {
 };
 
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };
+/** Where the music starts in its file, and its fades (seconds). Left out: from the start, short fades. */
+export type MusicCue = { start?: number; fadeIn?: number; fadeOut?: number };
+export const MUSIC_FADE = { in: 0.5, out: 1.5, maxIn: 5, maxOut: 8, maxStart: 600 };
+
 export const DEFAULT_AUDIO: AudioSettings = { denoise: true, silences: "tight", music: { on: false, volume: 0.15, duck: true } };
 
 /** Animation settings of a reel scene (picked by Claude from a direction, or the standard ones). */
@@ -149,6 +153,10 @@ export type ReelPlan = {
   music: boolean;
   /** Music volume, 0 to 1. */
   volume?: number;
+  /** File of the Mac's music folder; left out, the first one. */
+  track?: string;
+  /** Where the music starts in its file, and its fades. */
+  cue?: MusicCue;
   pace: "calm" | "normal" | "fast";
   direction?: string;
   /** Length of the rendered video, in seconds. */

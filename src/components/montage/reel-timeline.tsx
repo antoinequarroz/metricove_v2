@@ -1,6 +1,6 @@
 "use client";
 
-import { Keyboard, Maximize2, Minus, Pause, PenLine, Play, Plus, Redo2, Scissors, Sparkles, Trash2, Undo2 } from "lucide-react";
+import { Keyboard, MapPin, Maximize2, Minus, Pause, PenLine, Play, Plus, Redo2, Scissors, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { reelTimeline, type MontageMark } from "@/lib/montage";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,7 @@ export function ReelTimeline({
   onReorder,
   onTrimHere,
   onCut,
+  onMark,
   undo,
   zoomRef,
   stale,
@@ -61,6 +62,8 @@ export function ReelTimeline({
   onTrimHere?: () => void;
   /** Takes the chosen scene out of the reel. */
   onCut?: () => void;
+  /** Puts a note for Claude at the playhead. */
+  onMark?: () => void;
   undo: { undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean };
   /** Lets the keyboard of the screen zoom this timeline (+, −, 0). */
   zoomRef?: React.RefObject<((dir: 1 | -1 | 0) => void) | null>;
@@ -209,6 +212,9 @@ export function ReelTimeline({
         </button>
         <button onClick={onCut} disabled={!onCut || !chosen || placed.length < 2} title="Retirer la scène choisie du reel (Suppr)" className={cn(tool, "gap-1.5 px-2 font-medium")}>
           <Trash2 className="size-3.5" /> <span className="max-xl:hidden">Retirer</span>
+        </button>
+        <button onClick={onMark} disabled={!onMark || stale} title="Poser un repère avec une note pour Claude, à la tête de lecture (M)" className={cn(tool, "gap-1.5 px-2 font-medium")}>
+          <MapPin className="size-3.5" /> <span className="max-xl:hidden">Repère</span>
         </button>
         <span className="mx-0.5 h-4 w-px bg-line-strong" />
         <button onClick={() => setZoom((z) => z / 1.5)} disabled={fitted} aria-label="Dézoomer la timeline" title="Dézoomer (−)" className={tool}>

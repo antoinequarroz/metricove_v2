@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, type AudioSettings, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
+import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, MUSIC_FADE, type AudioSettings, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
 import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db } from "./db";
 
@@ -318,17 +318,21 @@ export function dropPreviews(jobId: string) {
 
 /* ---------- Worker presence ---------- */
 
-export function workerSeen(info: { worker?: string; version?: string }) {
-  init()
+/** The Mac says it is there; with `tracks` (its music files) when it sends them, else the last list is kept. */
+export function workerSeen(info: { worker?: string; version?: string; tracks?: string[] }) {
+  const conn = init();
+  const before = conn.prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
+  const tracks = info.tracks ?? (before ? (JSON.parse(before.value) as { tracks?: string[] }).tracks : undefined);
+  conn
     .prepare("insert into kv (key, value) values ('worker', @v) on conflict(key) do update set value = excluded.value")
-    .run({ v: JSON.stringify({ ...info, at: Date.now() }) });
+    .run({ v: JSON.stringify({ worker: info.worker, version: info.version, ...(tracks ? { tracks } : {}), at: Date.now() }) });
 }
 
 export function workerStatus() {
   const r = init().prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
   if (!r) return { online: false as const };
-  const w = JSON.parse(r.value) as { worker?: string; version?: string; at: number };
-  return { online: Date.now() - w.at < 30_000, lastSeen: new Date(w.at).toISOString(), name: w.worker, version: w.version };
+  const w = JSON.parse(r.value) as { worker?: string; version?: string; tracks?: string[]; at: number };
+  return { online: Date.now() - w.at < 30_000, lastSeen: new Date(w.at).toISOString(), name: w.worker, version: w.version, tracks: w.tracks };
 }
 
 /* ---------- Validation of what the worker or the page sends ---------- */
@@ -429,6 +433,14 @@ export function cleanCaptions(raw: unknown): CaptionStyle {
   };
 }
 
+/** Where the music starts and its fades, kept only when set. */
+export function cleanCue(raw: unknown): MusicCue {
+  const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const pick = (v: unknown, max: number) => (num(v) !== undefined && num(v)! >= 0 ? Math.round(Math.min(max, num(v)!) * 10) / 10 : undefined);
+  const [start, fadeIn, fadeOut] = [pick(m.start, MUSIC_FADE.maxStart), pick(m.fadeIn, MUSIC_FADE.maxIn), pick(m.fadeOut, MUSIC_FADE.maxOut)];
+  return { ...(start ? { start } : {}), ...(fadeIn !== undefined ? { fadeIn } : {}), ...(fadeOut !== undefined ? { fadeOut } : {}) };
+}
+
 export function cleanAudio(raw: unknown): AudioSettings {
   const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const m = (a.music && typeof a.music === "object" ? a.music : {}) as Record<string, unknown>;
@@ -441,6 +453,7 @@ export function cleanAudio(raw: unknown): AudioSettings {
       track: str(m.track, 200)?.trim() || undefined,
       volume: Math.min(1, Math.max(0, num(m.volume) ?? d.music.volume)),
       duck: m.duck !== false,
+      ...cleanCue(m),
     },
   };
 }
@@ -532,12 +545,16 @@ export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan |
   if (scenes.filter((s) => !s.cut).length > 8) return "8 scènes au plus";
   const volume = num(r.volume);
   const duration = num(r.duration);
+  const track = str(r.track, 200)?.replace(/[\/\\\0]/g, "").trim();
+  const cue = cleanCue(r.cue);
   return {
     scenes,
     look,
     logo: r.logo !== false,
     music: r.music !== false,
     volume: volume === undefined ? (base?.volume ?? 0.7) : Math.min(1, Math.max(0, volume)),
+    ...(track ? { track } : {}),
+    ...(Object.keys(cue).length ? { cue } : {}),
     pace: PACES.find((p) => p === r.pace) ?? base?.pace ?? "normal",
     ...(base?.direction ? { direction: base.direction } : str(r.direction, 1000)?.trim() ? { direction: str(r.direction, 1000)!.trim() } : {}),
     ...(!base && duration !== undefined && duration > 0 ? { duration } : {}),

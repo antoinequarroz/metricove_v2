@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowLeft, ArrowUp, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, Music, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, Image as ImageIcon, ArrowUp, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, Music, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { Button } from "../ui";
 import { Annotator } from "./annotator";
 import { Segmented } from "./controls";
 import { inputClass, Toggle } from "./look-parts";
+import { MusicFields } from "./music-fields";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { ReelTimeline } from "./reel-timeline";
 import { Compare, Preview, VersionChip } from "./review-page";
@@ -28,7 +29,7 @@ const atLeast = (version: string | undefined, min: number[]) => {
 const MIN_SCENE = 1.5;
 const MAX_SCENE = 15;
 const fmtT = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
-const sameScenes = (a: ReelPlan, b: ReelPlan) => JSON.stringify([a.scenes, a.music, a.volume, a.pace]) === JSON.stringify([b.scenes, b.music, b.volume, b.pace]);
+const sameScenes = (a: ReelPlan, b: ReelPlan) => JSON.stringify([a.scenes, a.music, a.volume, a.pace, a.track ?? "", a.cue ?? {}]) === JSON.stringify([b.scenes, b.music, b.volume, b.pace, b.track ?? "", b.cue ?? {}]);
 
 type Tab = "claude" | "scenes" | "sound";
 
@@ -179,9 +180,47 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
       setMarks([]);
     }
   };
+  /** The image of the video chosen as cover: sent with the reel when it is validated. */
+  const [cover, setCover] = useState<{ url: string; blob: Blob; t: number; version: number } | null>(null);
+  const takeCover = () => {
+    const v = player.current;
+    if (!v || !version || !v.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = v.videoWidth;
+    canvas.height = v.videoHeight;
+    canvas.getContext("2d")?.drawImage(v, 0, 0);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return void toast.error("Image impossible à prendre");
+        setCover((old) => {
+          if (old) URL.revokeObjectURL(old.url);
+          return { url: URL.createObjectURL(blob), blob, t: v.currentTime, version: version.n };
+        });
+        toast.success("Image de couverture choisie", { description: "Elle partira avec le reel quand tu le valideras." });
+      },
+      "image/jpeg",
+      0.9,
+    );
+  };
   const approve = async () => {
     if (!version) return;
-    if (await call({ approve: version.n }, "Reel validé : il est dans ta bibliothèque")) useStore.getState().load().catch(() => {});
+    setBusy(true);
+    try {
+      const r = await montageApi<{ job: MontageJob }>(`/api/montage/jobs/${job.id}`, { method: "PATCH", body: JSON.stringify({ approve: version.n }) });
+      let note = "";
+      if (cover && cover.version === version.n && r.job.mediaId) {
+        const put = await fetch(`/api/media/${r.job.mediaId}/cover`, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: cover.blob }).catch(() => null);
+        note = put?.ok ? " avec sa couverture" : "";
+        if (!put?.ok) toast.warning("La couverture n'a pas pu être enregistrée", { description: "Tu peux la choisir dans la bibliothèque." });
+      }
+      toast.success(`Reel validé${note} : il est dans ta bibliothèque`);
+      await refresh();
+      useStore.getState().load().catch(() => {});
+    } catch (e) {
+      toast.error("Action impossible", { description: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const editScene = (id: string, patch: Partial<ReelScene>) => edit((d) => (d ? { ...d, scenes: d.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)) } : d));
@@ -231,6 +270,14 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     editScene(selected, { cut: true });
     setSelected(null);
   };
+  /** Puts a note at the playhead (M): a place in the video and a few words for Claude, without drawing. */
+  const addNote = () => {
+    if (!version || !canDraw) return;
+    if (marks.length >= 8) return void toast.message("8 notes au plus par demande");
+    player.current?.pause();
+    setMarks((x) => [...x, { id: crypto.randomUUID(), version: version.n, t: Math.round((player.current?.currentTime ?? time) * 100) / 100, text: "" }]);
+    setTab("claude");
+  };
   useTimelineKeys({
     enabled: job.status !== "done" && compareWith === null && !(drawing && canDraw) && !composerOpen && !!draft,
     canPlay: !dirty && !!version?.preview,
@@ -238,6 +285,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     total,
     onSeek: seek,
     onSplit: trimHere,
+    onMark: addNote,
     onDelete: selected ? cutSelected : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
@@ -349,6 +397,23 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                   <Columns2 className="size-3.5" /> Avant / après
                 </button>
               )}
+              {canDraw && (
+                <button onClick={takeCover} title="Prend l'image affichée comme couverture du reel (envoyée à la validation)" className="press ml-auto inline-flex h-7 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2.5 text-[12px] font-medium">
+                  <ImageIcon className="size-3.5" /> Couverture : cette image
+                </button>
+              )}
+              {cover && cover.version === version.n && (
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-accent bg-accent-soft pr-1 pl-0.5 text-[12px] font-medium">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={cover.url} alt="" className="h-6 w-auto rounded-md" />
+                  <button onClick={() => seek(cover.t)} className="tabular font-mono hover:text-accent" title="Aller à cette image">
+                    {fmtSec(cover.t)}
+                  </button>
+                  <button onClick={() => (URL.revokeObjectURL(cover.url), setCover(null))} aria-label="Retirer la couverture" className="press grid size-5 place-items-center rounded-md text-ink-3 hover:text-ink">
+                    <X className="size-3" />
+                  </button>
+                </span>
+              )}
             </div>
             <div ref={stage} className="grid min-h-0 flex-1 gap-4 px-6 py-3 max-md:px-4 lg:grid-cols-[auto_minmax(0,1fr)]">
               {/* ---------- Video: as tall as the window allows, never under the timeline ---------- */}
@@ -448,7 +513,15 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                             <button onClick={() => seek(m.t)} className="tabular shrink-0 font-mono text-[11px] text-ink-3 hover:text-accent">
                               {fmtSec(m.t)}
                             </button>
-                            <span className="min-w-0 flex-1 truncate">{m.text || "Dessin sans texte"}</span>
+                            <input
+                              value={m.text}
+                              onChange={(e) => setMarks((x) => x.map((y) => (y.id === m.id ? { ...y, text: e.target.value } : y)))}
+                              autoFocus={!m.text && !m.image}
+                              maxLength={1000}
+                              placeholder={m.image ? "Dessin sans texte" : "Ta note à cet endroit"}
+                              aria-label={`Note à ${fmtSec(m.t)}`}
+                              className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-line-strong focus:border-accent/60 focus:bg-surface"
+                            />
                             <button onClick={() => setMarks((x) => x.filter((y) => y.id !== m.id))} aria-label="Retirer la note" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink">
                               <X className="size-3.5" />
                             </button>
@@ -555,7 +628,17 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                       <input type="range" min={0} max={1} step={0.05} value={draft.volume ?? 0.7} disabled={!draft.music} onChange={(e) => edit({ ...draft, volume: Number(e.target.value) })} aria-label="Volume de la musique" className="min-w-0 flex-1 accent-[var(--accent)]" />
                       <span className="tabular w-10 text-right font-mono text-[11.5px]">{Math.round((draft.volume ?? 0.7) * 100)} %</span>
                     </label>
-                    <p className="text-[12px] text-ink-3">{"Le Mac prend un morceau du dossier Musique de Metricove. S'il est vide, le reel sort sans son."}</p>
+                    <MusicFields
+                      value={{ track: draft.track, ...draft.cue }}
+                      onChange={(patch) => {
+                        const { track, ...cue } = patch;
+                        edit({ ...draft, ...("track" in patch ? { track } : {}), cue: { ...draft.cue, ...cue } });
+                      }}
+                      tracks={worker.tracks}
+                      disabled={!draft.music}
+                      auto="Le premier du dossier"
+                    />
+                    <p className="text-[12px] text-ink-3">{"Les morceaux sont ceux du dossier Musique de ton Mac. S'il est vide, le reel sort sans son."}</p>
                     <label className="flex items-center gap-2 border-t border-line pt-3 text-[12px] text-ink-2">
                       <span className="w-14 shrink-0">Rythme</span>
                       <select aria-label="Rythme" value={draft.pace} onChange={(e) => edit({ ...draft, pace: e.target.value as ReelPlan["pace"] })} className={cn(inputClass, "h-8")}>
@@ -590,6 +673,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                 onReorder={reorder}
                 onTrimHere={trimHere}
                 onCut={cutSelected}
+                onMark={canDraw ? addNote : undefined}
                 undo={history}
                 zoomRef={zoomRef}
                 stale={dirty}

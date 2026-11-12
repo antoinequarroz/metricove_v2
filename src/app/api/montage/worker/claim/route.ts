@@ -10,8 +10,10 @@ export const dynamic = "force-dynamic";
  * Otherwise: the job, what to do, and its rushes (with a download URL when the file waits on the server).
  */
 export async function POST(req: Request) {
-  const b = (await req.json().catch(() => ({}))) as { worker?: string; version?: string };
-  workerSeen({ worker: b.worker?.slice(0, 40), version: b.version?.slice(0, 20) });
+  const b = (await req.json().catch(() => ({}))) as { worker?: string; version?: string; tracks?: unknown };
+  // The files of the Mac's music folder (worker 0.10.0), so that the page can offer them by name.
+  const tracks = Array.isArray(b.tracks) ? b.tracks.filter((t): t is string => typeof t === "string" && t.length > 0 && t.length <= 200).slice(0, 200) : undefined;
+  workerSeen({ worker: b.worker?.slice(0, 40), version: b.version?.slice(0, 20), tracks });
   const claimed = claimJob();
   if (!claimed) return new Response(null, { status: 204 });
   // An edit lives for days (versions, feedback, final render): it gets the project's profile as it is now,

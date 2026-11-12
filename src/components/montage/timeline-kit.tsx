@@ -214,6 +214,8 @@ export type TimelineKeys = {
   total: number;
   onSeek: (t: number) => void;
   onSplit?: () => void;
+  /** Puts a note at the playhead. */
+  onMark?: () => void;
   onDelete?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
@@ -226,6 +228,7 @@ export const SHORTCUTS: [string, string][] = [
   ["← →", "une image en arrière ou en avant (avec Maj : une seconde)"],
   ["J · K · L", "reculer de 2 s · pause · lire (L encore : plus vite)"],
   ["S", "couper à la tête de lecture"],
+  ["M", "poser un repère avec une note pour Claude"],
   ["Suppr", "retirer l'élément choisi"],
   ["⌘Z · ⇧⌘Z", "annuler · rétablir"],
   ["+ · − · 0", "zoomer · dézoomer · tout voir"],
@@ -265,6 +268,7 @@ export function useTimelineKeys(keys: TimelineKeys) {
         return;
       }
       if (key === "s" && k.onSplit) return void (done(), k.onSplit());
+      if (key === "m" && k.onMark) return void (done(), k.onMark());
       if (key === "+" || key === "=") return void (done(), k.onZoom?.(1));
       if (key === "-") return void (done(), k.onZoom?.(-1));
       if (key === "0") return void (done(), k.onZoom?.(0));

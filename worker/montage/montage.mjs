@@ -13,8 +13,9 @@ import { loadConfig, log, sleep, run, freeGb, ensureDir } from "./lib/util.mjs";
 import { Api } from "./lib/api.mjs";
 import { scan } from "./lib/rushes.mjs";
 import { handle } from "./lib/jobs.mjs";
+import { listTracks } from "./lib/audio.mjs";
 
-const VERSION = "0.9.0";
+const VERSION = "0.10.0";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 
@@ -48,6 +49,7 @@ async function loop() {
   const api = new Api(cfg, { dryRun: argv.has("--dry-run") });
   log(`worker de montage ${VERSION} → ${cfg.metricoveUrl}${api.dryRun ? " (essai à blanc)" : ""}`);
   let lastScan = 0;
+  let sentTracks = null, sentAt = 0;
   for (;;) {
     try {
       if (Date.now() - lastScan > cfg.scanSeconds * 1000) {
@@ -55,7 +57,11 @@ async function loop() {
         const list = await scan(api, cfg).catch((e) => { log("inventaire des rushes :", e.message); return []; });
         if (list.length) log(`${list.length} rush(es) dans ${cfg.rushesDir}`);
       }
-      const claimed = await api.claim(VERSION);
+      // La liste des morceaux part avec la demande quand elle a changé (et une fois au démarrage) : la page les propose par nom.
+      let tracks;
+      try { const now = listTracks(cfg).slice(0, 200); if (now.join("\n") !== sentTracks || Date.now() - sentAt > 600_000) tracks = now; } catch { /* dossier illisible : la page garde sa liste */ }
+      const claimed = await api.claim(VERSION, tracks);
+      if (tracks) { sentTracks = tracks.join("\n"); sentAt = Date.now(); }
       if (claimed?.job) {
         log(`tâche « ${claimed.job.title} » → ${claimed.action}`);
         await handle(api, cfg, claimed);

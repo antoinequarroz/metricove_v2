@@ -4,9 +4,10 @@ import { Clapperboard, Crop, Megaphone, Music, MonitorSmartphone } from "lucide-
 import { DEFAULT_AUDIO, FORMATS, type AudioSettings, type Edl } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Row, Section, Segmented, Switch } from "./controls";
+import { MusicFields } from "./music-fields";
 
 /** Hook, end card, sound, extra formats and framing of a version. */
-export function SettingsPanel({ edl, onChange }: { edl: Edl; onChange: (next: Edl) => void }) {
+export function SettingsPanel({ edl, onChange, tracks }: { edl: Edl; onChange: (next: Edl) => void; tracks?: string[] }) {
   const set = (patch: Partial<Edl>) => onChange({ ...structuredClone(edl), ...patch });
   const audio = edl.audio ?? DEFAULT_AUDIO;
   const setAudio = (patch: Partial<AudioSettings>) => set({ audio: { ...audio, ...patch } });
@@ -66,12 +67,9 @@ export function SettingsPanel({ edl, onChange }: { edl: Edl; onChange: (next: Ed
         </Row>
         {audio.music.on && (
           <>
-            <Field
-              label="Morceau"
-              hint="Nom du fichier dans le dossier Musique du Mac, vide = Claude choisit"
-              value={audio.music.track ?? ""}
-              onChange={(t) => setMusic({ track: t || undefined })}
-            />
+            <div className="py-2">
+              <MusicFields value={audio.music} onChange={setMusic} tracks={tracks} auto="Claude choisit" />
+            </div>
             <Row label="Volume de la musique">
               <input
                 type="range"

@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Keyboard, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn } from "lucide-react";
+import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn } from "lucide-react";
 import { useMemo, useState } from "react";
 import { edlDuration, reorderKept, splitAt, timeline, type Edl, type MontageMark, type Rush } from "@/lib/montage";
 import { cn } from "@/lib/utils";
@@ -60,6 +60,7 @@ export function Timeline({
   undo,
   zoomRef,
   onRemove,
+  onMark,
 }: {
   edl: Edl;
   onChange: (next: Edl) => void;
@@ -79,6 +80,8 @@ export function Timeline({
   zoomRef?: React.RefObject<((dir: 1 | -1 | 0) => void) | null>;
   /** Removes what is selected (the Delete key does the same). */
   onRemove?: () => void;
+  /** Puts a note for Claude at the playhead (the M key does the same). */
+  onMark?: () => void;
 }) {
   const [moving, setMoving] = useState<{ id: string; dx: number } | null>(null);
   const placed = useMemo(() => timeline(edl), [edl]);
@@ -232,6 +235,11 @@ export function Timeline({
           <Button size="sm" onClick={split} disabled={!placed.some((s) => time > s.start + 0.15 && time < s.end - 0.15)} title="Coupe le plan sous le curseur en deux (S)">
             <Scissors className="size-3.5" /> Couper au curseur
           </Button>
+          {onMark && (
+            <Button size="sm" variant="ghost" onClick={onMark} title="Poser un repère avec une note pour Claude, à la tête de lecture (M)">
+              <MapPin className="size-3.5" /> Repère
+            </Button>
+          )}
           {onRemove && (
             <Button size="sm" variant="ghost" onClick={onRemove} disabled={!selection || selection.kind === "title"} title="Retirer l'élément choisi (Suppr)">
               <Trash2 className="size-3.5" /> Retirer

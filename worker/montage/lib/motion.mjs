@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { ensureDir, home, run, log } from "./util.mjs";
 import { googleFaces } from "./fonts.mjs";
-import { pickTrack } from "./audio.mjs";
+import { pickTrack, musicCue } from "./audio.mjs";
 import { writeArts, checkArt } from "./motion-art.mjs";
 
 const W = 1080, H = 1920, FPS = 30;
@@ -113,7 +113,9 @@ export function cleanMotion(m = {}) {
     music: m.music !== false,
     // Volume de la musique (0 à 1) et morceau choisi dans le dossier du Mac.
     volume: Number.isFinite(Number(m.volume)) && m.volume !== null && m.volume !== undefined ? Math.min(1, Math.max(0, Number(m.volume))) : 0.7,
-    track: String(m.track || "").replace(/[\/\\\0]/g, "").slice(0, 120),
+    track: String(m.track || "").replace(/[\/\\\0]/g, "").slice(0, 200),
+    // Départ dans le morceau et fondus, quand Antoine les a réglés.
+    ...(m.cue && typeof m.cue === "object" ? { cue: { start: m.cue.start, fadeIn: m.cue.fadeIn, fadeOut: m.cue.fadeOut } } : {}),
     pace: Object.hasOwn(PACE, m.pace) ? m.pace : "normal",
     // Un rythme choisi par Antoine : Claude ne le change pas.
     paceSet: Object.hasOwn(PACE, m.pace),
@@ -543,9 +545,9 @@ export async function renderPlan(cfg, plan, dir, step = async () => {}, notes = 
   await step("Son et finition…", 0.85);
   const out = join(dir, "reel.mp4");
   const track = plan.music ? pickTrack(cfg, plan.track || "", notes) : null;
-  const fade = Math.max(0, duration - 1.2);
+  const cue = musicCue(plan.cue, duration, { in: 0.4, out: 1.2 });
   const audio = track
-    ? ["-stream_loop", "-1", "-i", track, "-filter_complex", `[1:a]atrim=0:${f(duration)},volume=${f(plan.volume ?? 0.7)},afade=t=in:d=0.4,afade=t=out:st=${f(fade)}:d=1.2[a]`, "-map", "0:v", "-map", "[a]"]
+    ? ["-stream_loop", "-1", ...cue.seek, "-i", track, "-filter_complex", `[1:a]atrim=0:${f(duration)},asetpts=N/SR/TB,volume=${f(plan.volume ?? 0.7)}${cue.fades ? `,${cue.fades}` : ""}[a]`, "-map", "0:v", "-map", "[a]"]
     : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v", "-map", "1:a"];
   await run("ffmpeg", ["-v", "error", "-y", "-i", silent, ...audio, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", String(FPS),
     "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f(duration), "-movflags", "+faststart", out]);
