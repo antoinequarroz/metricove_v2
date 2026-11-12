@@ -31,7 +31,7 @@ export function CaptionsEditor({
   onSaveStyle?: (s: CaptionStyle) => void;
 }) {
   const style = edl.captions ?? fallback ?? DEFAULT_CAPTIONS;
-  const blocks = useMemo(() => captionBlocks(edl), [edl]);
+  const blocks = useMemo(() => captionBlocks(edl, style), [edl, style]);
   const [pick, setPick] = useState<Pick>(null);
   const setStyle = (patch: Partial<CaptionStyle>) => onChange({ ...structuredClone(edl), captions: { ...style, ...patch } });
   const hl = style.highlight || "var(--accent)";

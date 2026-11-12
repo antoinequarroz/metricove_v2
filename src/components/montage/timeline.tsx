@@ -2,15 +2,16 @@
 
 import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn, Gauge, Crop } from "lucide-react";
 import { useMemo, useState } from "react";
-import { edlDuration, reorderKept, splitAt, SPEEDS, timeline, type Edl, type MontageMark, type Rush } from "@/lib/montage";
+import { edlDuration, reorderKept, splitAt, SPEEDS, timeline, type CaptionStyle, type Edl, type MontageMark, type Rush } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
 import { Button } from "../ui";
+import { CaptionBlocks, CaptionInspector, type CaptionPick } from "./caption-track";
 import { TextBlocks } from "./free-texts";
 import { fmtSec } from "./parts";
 import { Filmstrip, SHORTCUTS, snap, useFilmstrip, useFollowPlayhead, useTimelineZoom, useWaveform, Waveform } from "./timeline-kit";
 
-export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "title" } | null;
+export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "title" } | ({ kind: "cap" } & CaptionPick) | null;
 
 const TRACK = "relative h-11 border-b border-line";
 const LABEL_W = 64;
@@ -63,6 +64,7 @@ export function Timeline({
   textSel,
   onTextSel,
   workerVersion,
+  captionStyle,
   onRemove,
   onMark,
 }: {
@@ -88,6 +90,8 @@ export function Timeline({
   onTextSel?: (id: string) => void;
   /** Version of the Mac program: speed and still reframing need 0.12.0. */
   workerVersion?: string;
+  /** Style of the subtitles (this version's, else the project's): how the blocks are cut. */
+  captionStyle?: CaptionStyle;
   /** Removes what is selected (the Delete key does the same). */
   onRemove?: () => void;
   /** Puts a note for Claude at the playhead (the M key does the same). */
@@ -244,6 +248,8 @@ export function Timeline({
   const wv = (workerVersion ?? "").split(".").map((x) => parseInt(x, 10) || 0);
   /** An older Mac would render the shot at normal speed and the reframing as a moving zoom. */
   const oldMac = !!workerVersion && (wv[0] ?? 0) === 0 && (wv[1] ?? 0) < 12;
+  /** An older Mac cuts the subtitles on its own and ignores the block limits set by hand. */
+  const oldCaptions = !!workerVersion && (wv[0] ?? 0) === 0 && (wv[1] ?? 0) < 13;
   const selSeg = selection?.kind === "seg" ? edl.segments.find((s) => s.id === selection.id) : undefined;
   const selZoom = selection?.kind === "zoom" ? zooms[selection.i] : undefined;
   const selBroll = selection?.kind === "broll" ? broll[selection.i] : undefined;
@@ -423,6 +429,20 @@ export function Timeline({
             })}
           </Track>
 
+          {(edl.captions ?? captionStyle)?.on !== false && edl.segments.some((s) => s.words?.length) && (
+            <Track label="Sous-titres">
+              <CaptionBlocks
+                edl={edl}
+                style={edl.captions ?? captionStyle}
+                pps={pps}
+                pick={selection?.kind === "cap" ? selection : null}
+                onPick={(p) => onSelect(p ? { kind: "cap", ...p } : null)}
+                onChange={onChange}
+                onSeek={onSeek}
+              />
+            </Track>
+          )}
+
           <Track label="Texte">
             {edl.title && (
               <div
@@ -593,6 +613,11 @@ export function Timeline({
             >
               <Trash2 className="size-3.5" /> Supprimer le zoom
             </Button>
+          </>
+        ) : selection?.kind === "cap" ? (
+          <>
+            <CaptionInspector edl={edl} style={edl.captions ?? captionStyle} pick={selection} onPick={(p) => onSelect(p ? { kind: "cap", ...p } : null)} onChange={onChange} />
+            {oldCaptions && <span className="text-[12px] text-warn">Mets à jour le programme du Mac (version 0.13.0) pour que les coupes et fusions de blocs passent dans la vidéo.</span>}
           </>
         ) : selBroll ? (
           <>

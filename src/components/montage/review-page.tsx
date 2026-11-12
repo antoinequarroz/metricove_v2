@@ -128,7 +128,7 @@ function Review({
   }, [playing]);
   /** Removes what is selected on the timeline: a shot, a zoom or a B-roll shot. */
   const removeSelection = () => {
-    if (!draft || !selection || selection.kind === "title") return;
+    if (!draft || !selection || selection.kind === "title" || selection.kind === "cap") return;
     const next = structuredClone(draft);
     if (selection.kind === "seg") {
       const s = next.segments.find((x) => x.id === selection.id);
@@ -211,7 +211,7 @@ function Review({
     onSeek: seek,
     onSplit: splitHere,
     onMark: addNote,
-    onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : selection && selection.kind !== "title" ? removeSelection : undefined,
+    onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : selection && selection.kind !== "title" && selection.kind !== "cap" ? removeSelection : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
     onZoom: (dir) => zoomRef.current?.(dir),
@@ -497,6 +497,7 @@ function Review({
               textSel={textSel}
               onTextSel={setTextSel}
               workerVersion={worker?.version}
+              captionStyle={job.style}
               src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
               stale={dirty}
               playing={playing}

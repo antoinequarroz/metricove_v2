@@ -360,7 +360,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
             const t1 = num(w.t1);
             const text = str(w.w, 80);
             if (t0 === undefined || t1 === undefined || text === undefined) return [];
-            return [{ t0, t1, w: text, cut: w.cut === true || undefined, hl: w.hl === true || undefined, emoji: str(w.emoji, 16) || undefined }];
+            return [{ t0, t1, w: text, cut: w.cut === true || undefined, hl: w.hl === true || undefined, emoji: str(w.emoji, 16) || undefined, brk: w.brk === true || undefined, glue: w.glue === true || undefined }];
           })
       : undefined;
     segments.push({

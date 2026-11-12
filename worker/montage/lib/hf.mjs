@@ -28,15 +28,17 @@ function chunksOf(words, maxc) {
   for (const w of words) {
     if (cur.length) {
       const p = cur[cur.length - 1];
-      if (linesOf([...cur, w], maxc).length > 2 || w.s - p.e > 0.35 || w.seg !== p.seg
-          || (/[.?!,]$/.test(p.w) && cur.map((x) => x.w).join(" ").length >= 8)) { chunks.push(cur); cur = []; }
+      // Limites posées à la main dans Metricove : `brk` = un bloc commence ici, `glue` = pas de coupe avant ce mot (3 lignes au plus).
+      const auto = linesOf([...cur, w], maxc).length > 2 || w.s - p.e > 0.35
+          || (/[.?!,]$/.test(p.w) && cur.map((x) => x.w).join(" ").length >= 8);
+      if (w.seg !== p.seg || w.brk || (w.glue ? linesOf([...cur, w], maxc).length > 3 : auto)) { chunks.push(cur); cur = []; }
     }
     cur.push(w);
   }
   if (cur.length) chunks.push(cur);
   for (let k = 1; k < chunks.length; ) {
     const a = chunks[k - 1], b = chunks[k];
-    if (b.length === 1 && b[0].s - a[a.length - 1].e < 0.35 && b[0].seg === a[a.length - 1].seg && linesOf([...a, ...b], maxc).length <= 2) { a.push(...chunks.splice(k, 1)[0]); continue; }
+    if (b.length === 1 && !b[0].brk && b[0].s - a[a.length - 1].e < 0.35 && b[0].seg === a[a.length - 1].seg && linesOf([...a, ...b], maxc).length <= 2) { a.push(...chunks.splice(k, 1)[0]); continue; }
     k++;
   }
   return chunks;

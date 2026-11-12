@@ -139,7 +139,7 @@ export function outputWords(plan) {
       const [a, b] = inside(w, s);
       const S = round(s.map(a)), E = round(s.map(b));
       if (E - S < 0.02) continue;
-      out.push({ w: w.w, s: S, e: E, seg: s.i, ...(w.hl ? { hl: true } : {}), ...(w.emoji ? { emoji: w.emoji } : {}) });
+      out.push({ w: w.w, s: S, e: E, seg: s.i, ...(w.hl ? { hl: true } : {}), ...(w.emoji ? { emoji: w.emoji } : {}), ...(w.brk ? { brk: true } : {}), ...(w.glue ? { glue: true } : {}) });
     }
   }
   return out;

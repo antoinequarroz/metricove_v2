@@ -27,7 +27,10 @@ export type EdlWord = {
   /** Keyword: shown in the highlight color. */
   hl?: boolean;
   /** Emoji shown next to the subtitle while this word is spoken. */
-  emoji?: string;
+  emoji?: string;  /** A new subtitle block starts at this word (set by hand on the timeline). */
+  brk?: boolean;
+  /** Stays in the same subtitle block as the word before (set by hand: merged blocks, moved limit). */
+  glue?: boolean;
 };
 
 export type CaptionPosition = "auto" | "top" | "middle" | "bottom";
@@ -366,27 +369,60 @@ export function toTimeline(s: Placed, rushT: number) {
   return s.start + (r - s.in - goneBefore(s.gone, r)) / speedOf(s);
 }
 
-/** Subtitle blocks as the editor shows them: up to ~6 words, split on punctuation and pauses. */
-export function captionBlocks(edl: Edl) {
+/** Characters per subtitle line by format, at size M. Same as the Mac (worker config captionsMaxChars). */
+export const CAPTION_CHARS: Record<MontageFormat, number> = { "9:16": 18, "4:5": 22, "1:1": 22, "16:9": 38 };
+const CAPTION_SIZE = { s: 0.8, m: 1, l: 1.2 } as const;
+
+type LiveWord = { i: number; w: string; s: number; e: number; brk?: boolean; glue?: boolean };
+const linesOf = (ws: LiveWord[], maxc: number) => {
+  let n = 0;
+  let cur: LiveWord[] = [];
+  for (const w of ws) {
+    if (cur.length && [...cur, w].map((x) => x.w).join(" ").length > maxc) {
+      n++;
+      cur = [];
+    }
+    cur.push(w);
+  }
+  return n + (cur.length ? 1 : 0);
+};
+
+/**
+ * Subtitle blocks exactly as the Mac cuts them (worker/montage/lib/hf.mjs chunksOf): two lines at most, cut on
+ * punctuation, pauses over 0.35 s and shots, plus the limits set by hand (`brk`: a block starts here, `glue`: no cut
+ * before this word, up to three lines). Times are timeline seconds; `from` and `to` index the words of the shot.
+ */
+export function captionBlocks(edl: Edl, style?: CaptionStyle) {
+  const maxc = Math.round(CAPTION_CHARS[edl.format] / (CAPTION_SIZE[(style ?? edl.captions ?? DEFAULT_CAPTIONS).size] ?? 1));
   const out: { seg: number; from: number; to: number; start: number; end: number }[] = [];
   for (const s of timeline(edl)) {
     const seg = edl.segments.findIndex((x) => x.id === s.id);
-    const ws = s.words ?? [];
-    let from = -1;
-    const flush = (to: number) => {
-      if (from < 0) return;
-      const live = ws.slice(from, to + 1).filter((w) => !w.cut);
-      if (live.length) out.push({ seg, from, to, start: toTimeline(s, live[0].t0), end: toTimeline(s, live.at(-1)!.t1) });
-      from = -1;
-    };
-    ws.forEach((w, i) => {
-      if (from < 0) from = i;
-      const next = ws[i + 1];
-      const n = i - from + 1;
-      // Never leave one short word alone at the end of a sentence.
-      const lastOfTwo = !!next && i + 2 === ws.length && next.w.length <= 4;
-      if (!next || (n >= 6 && !lastOfTwo) || /[.?!,;:]$/.test(w.w) || next.t0 - w.t1 > 0.35) flush(i);
-    });
+    const live: LiveWord[] = (s.words ?? []).flatMap((w, i) => (w.cut || w.t1 <= s.in || w.t0 >= s.out ? [] : [{ i, w: w.w, s: toTimeline(s, w.t0), e: toTimeline(s, w.t1), brk: w.brk, glue: w.glue }]));
+    const chunks: LiveWord[][] = [];
+    let cur: LiveWord[] = [];
+    for (const w of live) {
+      if (cur.length) {
+        const p = cur[cur.length - 1];
+        const auto = linesOf([...cur, w], maxc) > 2 || w.s - p.e > 0.35 || (/[.?!,]$/.test(p.w) && cur.map((x) => x.w).join(" ").length >= 8);
+        if (w.brk || (w.glue ? linesOf([...cur, w], maxc) > 3 : auto)) {
+          chunks.push(cur);
+          cur = [];
+        }
+      }
+      cur.push(w);
+    }
+    if (cur.length) chunks.push(cur);
+    // A single word left alone after a short pause joins the block before, unless a limit was set by hand.
+    for (let k = 1; k < chunks.length; ) {
+      const a = chunks[k - 1];
+      const b = chunks[k];
+      if (b.length === 1 && !b[0].brk && b[0].s - a[a.length - 1].e < 0.35 && linesOf([...a, ...b], maxc) <= 2) {
+        a.push(...chunks.splice(k, 1)[0]);
+        continue;
+      }
+      k++;
+    }
+    for (const c of chunks) out.push({ seg, from: c[0].i, to: c[c.length - 1].i, start: c[0].s, end: c[c.length - 1].e });
   }
   return out;
 }
@@ -431,3 +467,95 @@ export function reorderKept(edl: Edl, ids: string[]): Edl {
 
 /** Fillers that can be cut word by word. */
 export const FILLER = /^(e+u+h+|h+e+u+h*|h+u+m+|h+m+|bah|ben)[.,!?…]*$/i;
+
+/* ---------- Subtitles edited on the timeline ---------- */
+
+export type CaptionBlock = ReturnType<typeof captionBlocks>[number];
+
+const liveIn = (s: EdlSegment, from: number, to: number) => (s.words ?? []).map((w, i) => ({ w, i })).filter((x) => x.i >= from && x.i <= to && !x.w.cut);
+const retext = (s: EdlSegment) => (s.text = (s.words ?? []).filter((w) => !w.cut).map((w) => w.w).join(" "));
+
+/**
+ * Pins the blocks of shot `seg` as they are shown now (each block's first word starts a block, the others stay with the
+ * previous word), so that a hand change to one block never makes the blocks after it flow again.
+ */
+function freeze(edl: Edl, seg: number, style?: CaptionStyle) {
+  const words = edl.segments[seg]?.words;
+  if (!words) return;
+  for (const b of captionBlocks(edl, style).filter((x) => x.seg === seg))
+    for (const x of liveIn(edl.segments[seg], b.from, b.to)) {
+      delete x.w.brk;
+      delete x.w.glue;
+      if (x.i === b.from) x.w.brk = true;
+      else x.w.glue = true;
+    }
+}
+
+/**
+ * New text for a subtitle block. Same number of words: each word keeps its timing, colour and emoji. Otherwise the new
+ * words share the time of the block in proportion to their length. Only the subtitles change, never the sound.
+ */
+export function retextBlock(edl: Edl, b: CaptionBlock, text: string, style?: CaptionStyle): Edl {
+  const tokens = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).slice(0, 60);
+  const next = structuredClone(edl);
+  freeze(next, b.seg, style);
+  const s = next.segments[b.seg];
+  const live = liveIn(s, b.from, b.to);
+  if (!s.words || !live.length || !tokens.length) return edl;
+  if (tokens.length === live.length) live.forEach((x, k) => (s.words![x.i].w = tokens[k].slice(0, 80)));
+  else {
+    const t0 = live[0].w.t0;
+    const t1 = live[live.length - 1].w.t1;
+    const total = tokens.reduce((n, t) => n + t.length + 1, 0);
+    let at = t0;
+    const words: EdlWord[] = tokens.map((t, k) => {
+      const d = ((t1 - t0) * (t.length + 1)) / total;
+      const w: EdlWord = { t0: Math.round(at * 1000) / 1000, t1: Math.round((at + d) * 1000) / 1000, w: t.slice(0, 80), ...(k === 0 ? { brk: true } : { glue: true }) };
+      at += d;
+      return w;
+    });
+    const drop = new Set(live.map((x) => x.i));
+    const rest = s.words.filter((_, i) => !drop.has(i));
+    rest.splice(rest.filter((w) => w.t0 < t0).length, 0, ...words);
+    s.words = rest;
+  }
+  retext(s);
+  return next;
+}
+
+/** A new block starts at word `i` of shot `seg`. */
+export function splitBlock(edl: Edl, seg: number, i: number, style?: CaptionStyle): Edl {
+  const next = structuredClone(edl);
+  freeze(next, seg, style);
+  const w = next.segments[seg]?.words?.[i];
+  if (!w) return edl;
+  w.brk = true;
+  delete w.glue;
+  return next;
+}
+
+/** Block `b` and the block right after it (same shot) become one. */
+export function mergeBlocks(edl: Edl, a: CaptionBlock, b: CaptionBlock, style?: CaptionStyle): Edl {
+  if (a.seg !== b.seg) return edl;
+  const next = structuredClone(edl);
+  freeze(next, a.seg, style);
+  for (const x of liveIn(next.segments[a.seg], a.from + 1, b.to)) {
+    delete x.w.brk;
+    x.w.glue = true;
+  }
+  return next;
+}
+
+/** Moves the limit between two blocks of the same shot: the second one now starts at word `first`. */
+export function moveBlockLimit(edl: Edl, a: CaptionBlock, b: CaptionBlock, first: number, style?: CaptionStyle): Edl {
+  if (a.seg !== b.seg || first <= a.from || first > b.to) return edl;
+  const next = structuredClone(edl);
+  freeze(next, a.seg, style);
+  for (const x of liveIn(next.segments[a.seg], a.from + 1, b.to)) {
+    delete x.w.brk;
+    delete x.w.glue;
+    if (x.i === first) x.w.brk = true;
+    else x.w.glue = true;
+  }
+  return next;
+}
