@@ -33,16 +33,17 @@ export function cleanTexts(raw) {
  * Le calque des textes libres pour une page HyperFrames : { els, js, css }.
  * W, H : taille de l'image ; total : durée de la vidéo ; ink / accent / onAccent : couleurs ; family : police (CSS).
  */
-export function textLayer(texts, { W, H, total, accent = "#ff5a1f", onAccent = "#ffffff", family = "inherit", track = 40, inkAt = null }) {
+// Un texte simple est toujours blanc avec une ombre : lisible sur toutes les scènes qu'il traverse, et pareil que
+// l'aperçu qu'on fait glisser dans Metricove. Un bandeau prend la couleur de marque.
+export function textLayer(texts, { W, H, total, accent = "#ff5a1f", onAccent = "#ffffff", family = "inherit", track = 40 }) {
   const k = Math.min(W, H) / 1080;
   const els = [], js = [];
   cleanTexts(texts).forEach((t, i) => {
-    const a = Math.min(t.start, Math.max(0, total - 0.4)), b = Math.min(t.end, total);
-    if (b - a < 0.3) return;
+    // Un texte placé après la fin (la vidéo a raccourci depuis) n'est pas dessiné.
+    if (t.start > total - 0.3) return;
+    const a = t.start, b = Math.min(t.end, total);
     const px = Math.round(SIZE[t.size] * k);
-    // Sur une vidéo filmée : blanc avec une ombre. Sur un fond de couleur (reel) : la couleur du texte de la scène.
-    const ink = t.style !== "band" && inkAt ? inkAt(a) : "";
-    els.push(`<div id="ft${i}" class="clip ft" data-start="${f(a)}" data-duration="${f(b - a)}" data-track-index="${track + i}" style="left:${Math.round(t.x * W)}px;top:${Math.round(t.y * H)}px"><span class="fti ${t.style === "band" ? "ftb" : ink ? "" : "ftp"}" style="font-size:${px}px${ink ? `;color:${ink}` : ""}">${E(t.text).replace(/\n/g, "<br>")}</span></div>`);
+    els.push(`<div id="ft${i}" class="clip ft" data-start="${f(a)}" data-duration="${f(b - a)}" data-track-index="${track + i}" style="left:${Math.round(t.x * W)}px;top:${Math.round(t.y * H)}px"><span class="fti ${t.style === "band" ? "ftb" : "ftp"}" style="font-size:${px}px">${E(t.text).replace(/\n/g, "<br>")}</span></div>`);
     js.unshift(`gsap.set("#ft${i} .fti",{opacity:0,scale:0.92});`);
     js.push(`tl.to("#ft${i} .fti",{opacity:1,scale:1,duration:0.25,ease:"back.out(2)"},${f(a)});`);
     // Un texte qui va jusqu'à la fin de la vidéo reste à l'écran.

@@ -21,6 +21,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const edl = reel ? EMPTY_EDL : cleanEdl(b.edl, job.rushIds);
   if (typeof edl === "string") return NextResponse.json({ error: edl }, { status: 400 });
+  // Texts put by hand stay from one version to the next: a Mac older than 0.11.0 sends none back (no `texts` key).
+  const from = job.versions.find((v) => v.n === job.base) ?? job.versions.at(-1);
+  if (reel && !("texts" in ((b.reel as object) ?? {})) && from?.reel?.texts?.length) reel.texts = from.reel.texts;
+  if (!reel && !("texts" in ((b.edl as object) ?? {})) && from?.edl.texts?.length) edl.texts = from.edl.texts;
   try {
     const v = addVersion(job, edl, "claude", typeof b.notes === "string" ? b.notes : undefined, reel);
     if (b.upload) {

@@ -9,6 +9,13 @@ import { inputClass } from "./look-parts";
 import { fmtSec } from "./parts";
 
 const MIN = 0.5;
+/** Same rule as the Mac (worker/montage/lib/motion.mjs isDark): white text on a dark colour, near black on a light one. */
+const darkColour = (h: string) => {
+  const m = /^#([0-9a-f]{6})$/i.exec(h);
+  if (!m) return true;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b < 165;
+};
 const round = (v: number) => Math.round(v * 100) / 100;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -205,7 +212,7 @@ export function TextGhost({ text, onMove, aspect = 9 / 16, accent }: { text: Fre
             "pointer-events-auto max-w-[90%] cursor-move touch-none rounded-[0.18em] text-center leading-[1.12] font-extrabold whitespace-pre-line outline-2 outline-offset-4 outline-accent outline-dashed select-none",
             text.style === "band" ? "bg-accent px-[0.5em] py-[0.22em] text-white" : "text-white [text-shadow:0_0_3px_rgba(0,0,0,0.7),0_2px_12px_rgba(0,0,0,0.6)]",
           )}
-          style={{ fontSize: `${(TEXT_SIZE[text.size] / 1080) * Math.min(1, 1 / aspect) * 100}cqw`, ...(text.style === "band" && accent ? { background: accent } : {}) }}
+          style={{ fontSize: `${(TEXT_SIZE[text.size] / 1080) * Math.min(1, 1 / aspect) * 100}cqw`, ...(text.style === "band" && accent ? { background: accent, color: darkColour(accent) ? "#ffffff" : "#171716" } : {}) }}
         >
           {text.text}
         </span>

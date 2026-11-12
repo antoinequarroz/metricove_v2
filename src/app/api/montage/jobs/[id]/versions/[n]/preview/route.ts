@@ -25,7 +25,8 @@ export async function POST(req: Request, { params }: Ctx) {
     // An animated reel: the plan as the Mac rendered it (lengths on screen, code it had to drop) and what it has to say.
     if (v.reel && b.reel) {
       const reel = cleanReel(b.reel, v.reel.look);
-      if (typeof reel !== "string") v.reel = reel;
+      // The Mac never changes the texts put by hand: an older one does not know them and would erase them.
+      if (typeof reel !== "string") v.reel = { ...reel, ...(v.reel.texts?.length ? { texts: v.reel.texts } : {}) };
     }
     if (v.reel && typeof b.notes === "string" && b.notes.trim()) v.notes = b.notes.trim().slice(0, 2000);
     return NextResponse.json({ job: release(job, "review") });

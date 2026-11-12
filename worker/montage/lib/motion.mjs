@@ -343,8 +343,7 @@ ${sig}</div>`);
   });
 
   // Textes libres posés à la main, au-dessus de toutes les scènes.
-  const sceneAt = (t) => Math.max(0, starts.findLastIndex((s) => s <= t + 0.01));
-  const free = textLayer(motion.texts, { W, H, total, accent: look.accent, onAccent: isDark(look.accent) ? "#ffffff" : "#171716", family: `"${F.display.family}",${FALLBACK[look.font]}`, track: 40, inkAt: (t) => colors(look, sceneAt(t)).ink });
+  const free = textLayer(motion.texts, { W, H, total, accent: look.accent, onAccent: isDark(look.accent) ? "#ffffff" : "#171716", family: `"${F.display.family}",${FALLBACK[look.font]}`, track: 40 });
   els.push(...free.els); js.unshift(...free.js.filter((x) => x.startsWith("gsap.set"))); js.push(...free.js.filter((x) => !x.startsWith("gsap.set")));
 
   const css = `${face(F.display.family, fonts.display)}
