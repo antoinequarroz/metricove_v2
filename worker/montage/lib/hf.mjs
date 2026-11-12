@@ -5,7 +5,7 @@
 // masques avec marge (accents et jambages jamais coupés) ; rendu --workers 1 (sinon ~30 Go d'images sur le disque).
 import { writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
-import { run, ensureDir } from "./util.mjs";
+import { run, ensureDir, home } from "./util.mjs";
 import { fontFaceCss, fontPaths } from "./fonts.mjs";
 import { textLayer } from "./texts.mjs";
 
@@ -184,6 +184,11 @@ export async function renderOverlay(cfg, dir, html, out, { fps, theme }) {
   for (const p of fontPaths(theme)) if (existsSync(p)) copyFileSync(p, join(dir, "assets", basename(p)));
   writeFileSync(join(dir, "hyperframes.json"), JSON.stringify({ paths: { assets: "assets" }, media: { autoProxy: true } }));
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "metricove-montage", private: true, type: "module" }));
+  // `gsapFile` (config) : une copie de gsap.min.js sur le Mac, pour rendre sans réseau (comme pour un reel).
+  if (cfg.gsapFile && existsSync(home(cfg.gsapFile))) {
+    copyFileSync(home(cfg.gsapFile), join(dir, "assets", "gsap.min.js"));
+    html = html.replace(/https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@[^"]+/, "assets/gsap.min.js");
+  }
   writeFileSync(join(dir, "index.html"), html);
   await run("npx", ["--yes", cfg.hyperframes, "render", "--format", "mov", "--fps", String(fps), "--workers", "1", "-o", out, "--quiet", "."], { cwd: dir });
   return out;

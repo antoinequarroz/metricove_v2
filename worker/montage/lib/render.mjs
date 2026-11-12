@@ -13,6 +13,9 @@ import { buildAudio } from "./audio.mjs";
 import { brollFile } from "./broll.mjs";
 import { cleanTexts } from "./texts.mjs";
 
+// Encodeur vidéo : celui du Mac. MONTAGE_ENCODER=libx264 pour essayer le rendu sur une autre machine.
+const ENCODER = process.env.MONTAGE_ENCODER || "h264_videotoolbox";
+
 export { timeline } from "./edl.mjs";
 
 const FPS = 30;
@@ -132,7 +135,7 @@ async function renderPart(s, rush, src, vf, vbit, out) {
   if (src.hasAudio) args.push("-ss", String(s.in), "-t", String(round(len + 0.05)), "-i", rush);
   else args.push("-f", "lavfi", "-t", String(s.oDur), "-i", "anullsrc=r=48000:cl=stereo");
   args.push("-filter_complex", fc.join(";"), "-map", "[v]", "-map", src.hasAudio ? "[ca]" : "1:a:0");
-  await run("ffmpeg", [...args, "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-shortest", out]);
+  await run("ffmpeg", [...args, "-c:v", ENCODER, "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-shortest", out]);
 }
 
 /**
@@ -190,7 +193,7 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
     const p = join(dir, "part999.mov");
     await run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `color=c=${theme.dark.replace("#", "0x")}:s=${W}x${H}:r=${FPS}:d=${endSec}`,
       "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", String(endSec), "-vf", "format=yuv420p,setsar=1",
-      "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", p]);
+      "-c:v", ENCODER, "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", p]);
     parts.push(p);
   }
   writeFileSync(join(dir, "parts.txt"), parts.map((p) => `file '${p}'`).join("\n"));
@@ -205,7 +208,9 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   const titleUntil = edl.title?.text ? Math.min(toOutput(plan, edl.title.until || 2.8), speechEnd) : Math.min(2.8, speechEnd);
   let overlay = null;
   const showWords = captions.on !== false && words.length;
-  const texts = cleanTexts(edl.texts);
+  // Textes libres : posés en secondes de la timeline de l'éditeur, comme l'accroche et les zooms.
+  const texts = cleanTexts(edl.texts).filter((t) => t.start < plan[plan.length - 1].start + plan[plan.length - 1].dur - 0.2)
+    .map((t) => ({ ...t, start: toOutput(plan, t.start), end: Math.max(toOutput(plan, t.start) + 0.3, toOutput(plan, t.end)) }));
   if (showWords || edl.title?.text || endSec || texts.length) {
     const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces, texts });
     overlay = await renderOverlay(cfg, ensureDir(join(dir, "hf")), html, join(dir, "overlay.mov"), { fps: FPS, theme });
@@ -237,7 +242,7 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   chain.push(overlay ? `[${cur}][2:v]overlay=0:0:format=auto,format=yuv420p[v]` : `[${cur}]format=yuv420p[v]`);
   const fc = chain.join(";");
   await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", "1:a",
-    "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);
+    "-c:v", ENCODER, "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);
   const cover = join(dir, final ? "couverture.jpg" : "apercu.jpg");
   await run("ffmpeg", ["-v", "error", "-y", "-ss", String(Math.min(titleUntil * 0.6, total / 2)), "-i", out, "-frames:v", "1", "-q:v", "3", cover]).catch(() => {});
   writeFileSync(join(dir, "sous-titres.srt"), srt(words));
