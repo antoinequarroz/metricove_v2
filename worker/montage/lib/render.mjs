@@ -126,8 +126,10 @@ async function renderPart(s, rush, src, vf, vbit, out) {
   const fc = [`[0:v]setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${(len + off + 1).toFixed(2)},split=${n}${s.pieces.map((_, k) => `[vi${k}]`).join("")}`];
   if (src.hasAudio) fc.push(`[1:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,asplit=${n}${s.pieces.map((_, k) => `[ai${k}]`).join("")}`);
   s.pieces.forEach(([a, b], k) => {
-    fc.push(`[vi${k}]trim=start=${rv(a)}:end=${rv(b)},setpts=PTS-STARTPTS[v${k}]`);
-    if (src.hasAudio) fc.push(`[ai${k}]atrim=start=${ra(a)}:end=${ra(b)},asetpts=PTS-STARTPTS,afade=t=in:d=0.012,afade=t=out:st=${Math.max(0, b - a - 0.015).toFixed(3)}:d=0.015[a${k}]`);
+    // Vitesse du plan : image accélérée ou ralentie, son au même tempo (sans changer la hauteur de la voix).
+    const sp = s.speed || 1;
+    fc.push(`[vi${k}]trim=start=${rv(a)}:end=${rv(b)},setpts=${sp === 1 ? "PTS-STARTPTS" : `(PTS-STARTPTS)/${sp}`}[v${k}]`);
+    if (src.hasAudio) fc.push(`[ai${k}]atrim=start=${ra(a)}:end=${ra(b)},asetpts=PTS-STARTPTS,${sp === 1 ? "" : `atempo=${sp},`}afade=t=in:d=0.012,afade=t=out:st=${Math.max(0, (b - a) / sp - 0.015).toFixed(3)}:d=0.015[a${k}]`);
   });
   const ins = s.pieces.map((_, k) => (src.hasAudio ? `[v${k}][a${k}]` : `[v${k}]`)).join("");
   fc.push(`${ins}concat=n=${n}:v=1:a=${src.hasAudio ? 1 : 0}[cv]${src.hasAudio ? "[ca]" : ""}`, `[cv]${vf}[v]`);
@@ -218,10 +220,15 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
 
   // Zooms (temps de la timeline de l'éditeur → temps rendu) : pairs = zoom avant, impairs = zoom arrière.
   const terms = [];
-  [...(edl.zooms || [])].sort((a, b) => a.at - b.at).forEach((z, k) => {
+  // Les plans serrés fixes ne comptent pas dans l'alternance avant / arrière des zooms qui bougent.
+  let k = -1;
+  [...(edl.zooms || [])].sort((a, b) => a.at - b.at).forEach((z) => {
     const a = toOutput(plan, z.at), b = toOutput(plan, z.at + z.dur);
-    const S = Math.min(1.4, Math.max(1.02, Number(z.scale) || 1.1));
+    const S = Math.min(z.hold ? 2 : 1.4, Math.max(1.02, Number(z.scale) || 1.1));
     if (b - a < 0.2) return;
+    // Plan serré fixe (recadrage) : le même grossissement tout le passage, sans mouvement.
+    if (z.hold) return void terms.push(`between(t,${a.toFixed(3)},${b.toFixed(3)})*${(S - 1).toFixed(3)}`);
+    k++;
     const p = `(t-${a.toFixed(3)})/${(b - a).toFixed(3)}`;
     terms.push(`between(t,${a.toFixed(3)},${b.toFixed(3)})*${(S - 1).toFixed(3)}*${k % 2 ? `(1-${p})` : p}`);
   });

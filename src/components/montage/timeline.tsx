@@ -1,8 +1,8 @@
 "use client";
 
-import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn } from "lucide-react";
+import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn, Gauge, Crop } from "lucide-react";
 import { useMemo, useState } from "react";
-import { edlDuration, reorderKept, splitAt, timeline, type Edl, type MontageMark, type Rush } from "@/lib/montage";
+import { edlDuration, reorderKept, splitAt, SPEEDS, timeline, type Edl, type MontageMark, type Rush } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
 import { Button } from "../ui";
@@ -129,7 +129,8 @@ export function Timeline({
       (dx) => {
         const next = structuredClone(base);
         const s = next.segments.find((x) => x.id === id)!;
-        const d = dx / pps;
+        // A shot played faster takes less room: one pixel is more seconds of the rush.
+        const d = (dx / pps) * (s0.speed ?? 1);
         if (edge === "in") s.in = clamp(s0.in + d, 0, s0.out - 0.2);
         else s.out = clamp(s0.out + d, s0.in + 0.2, rushDur(id) ?? rushDur(s0.rush) ?? s0.out + 30);
         onChange(next);
@@ -349,6 +350,7 @@ export function Timeline({
                 >
                   <span className="pointer-events-none block truncate px-2 leading-8">
                     <span className="mr-1 font-mono text-ink-3">{k + 1}</span>
+                    {s.speed && s.speed !== 1 && <span className="mr-1 rounded bg-accent/15 px-1 font-mono text-[10px] text-accent">×{s.speed}</span>}
                     {s.text}
                   </span>
                   {/* On a very short shot the two handles would cover it all: zoom in to trim it. */}
@@ -379,7 +381,7 @@ export function Timeline({
                   style={{ left: z.at * pps, width: Math.max(8, z.dur * pps) }}
                 >
                   <span className="pointer-events-none flex items-center gap-1 truncate px-1.5 leading-6 text-ink-2">
-                    <ZoomIn className="size-3 shrink-0" />×{z.scale.toFixed(2)}
+                    {z.hold ? <Crop className="size-3 shrink-0" /> : <ZoomIn className="size-3 shrink-0" />}×{z.scale.toFixed(2)}
                   </span>
                   <Handle side="left" onPointerDown={(e) => moveZoom(e, i, "start")} label="Début du zoom" />
                   <Handle side="right" onPointerDown={(e) => moveZoom(e, i, "end")} label="Fin du zoom" />
@@ -506,18 +508,59 @@ export function Timeline({
             >
               <Trash2 className="size-3.5" /> Retirer le plan
             </Button>
+            <label className="flex items-center gap-1.5" title="Vitesse de lecture de ce plan. Pour un passage seulement : coupe-le d'abord avec S.">
+              <Gauge className="size-3.5 text-ink-3" />
+              Vitesse
+              <select
+                aria-label="Vitesse du plan"
+                value={selSeg.speed ?? 1}
+                onChange={(e) => {
+                  const next = structuredClone(edl);
+                  const s = next.segments.find((x) => x.id === selSeg.id)!;
+                  const v = Number(e.target.value);
+                  if (v === 1) delete s.speed;
+                  else s.speed = v;
+                  onChange(next);
+                }}
+                className="h-7 rounded-md border border-line-strong bg-surface px-1.5 text-[12px]"
+              >
+                {SPEEDS.map((v) => (
+                  <option key={v} value={v}>
+                    {v === 1 ? "Normale" : `×${String(v).replace(".", ",")}`}
+                  </option>
+                ))}
+              </select>
+            </label>
           </>
         ) : selZoom ? (
           <>
             <span className="text-ink-2">
-              Zoom à {fmtSec(selZoom.at)} pendant {selZoom.dur.toFixed(1)} s
+              {selZoom.hold ? "Recadrage" : "Zoom"} à {fmtSec(selZoom.at)} pendant {selZoom.dur.toFixed(1)} s
             </span>
+            <label className="flex items-center gap-1.5" title="Plan serré fixe : l'image reste agrandie tout le passage, sans mouvement">
+              <input
+                type="checkbox"
+                checked={!!selZoom.hold}
+                onChange={(e) => {
+                  const next = structuredClone(edl);
+                  const z = next.zooms![(selection as { i: number }).i];
+                  if (e.target.checked) z.hold = true;
+                  else {
+                    delete z.hold;
+                    z.scale = Math.min(1.4, z.scale);
+                  }
+                  onChange(next);
+                }}
+                className="size-4 accent-[var(--accent)]"
+              />
+              Plan serré fixe
+            </label>
             <label className="flex items-center gap-2">
               Force
               <input
                 type="range"
                 min={1.02}
-                max={1.4}
+                max={selZoom.hold ? 2 : 1.4}
                 step={0.01}
                 value={selZoom.scale}
                 onChange={(e) => {

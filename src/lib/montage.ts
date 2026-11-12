@@ -90,14 +90,20 @@ export type EdlSegment = {
   kept: boolean;
   reason?: string;
   words?: EdlWord[];
+  /** Playback speed of the shot (0.5 to 2; left out: 1). Its length on the timeline is divided by it. */
+  speed?: number;
 };
+
+export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const speedOf = (s: { speed?: number }) => (s.speed && s.speed >= 0.5 && s.speed <= 2 ? s.speed : 1);
 
 export type Edl = {
   format: MontageFormat;
   segments: EdlSegment[];
   title?: { text: string; until: number } | null;
   endCard?: { text: string } | null;
-  zooms?: { at: number; dur: number; scale: number }[];
+  /** Zooms in timeline seconds. `hold`: a still, tighter frame for the whole span (a reframing), not a move. */
+  zooms?: { at: number; dur: number; scale: number; hold?: boolean }[];
   crop?: "face" | "center";
   /** Other hooks Claude proposed. `title.text` is the one used. */
   hooks?: string[];
@@ -349,7 +355,7 @@ export function timeline(edl: Edl): Placed[] {
     .map((s) => {
       const gone = removedSpans(s, silences);
       const start = t;
-      t += Math.max(0, s.out - s.in - goneBefore(gone, s.out));
+      t += Math.max(0, s.out - s.in - goneBefore(gone, s.out)) / speedOf(s);
       return { ...s, start, end: t, gone };
     });
 }
@@ -357,7 +363,7 @@ export function timeline(edl: Edl): Placed[] {
 /** Timeline second of a rush second inside a placed segment. */
 export function toTimeline(s: Placed, rushT: number) {
   const r = Math.min(Math.max(rushT, s.in), s.out);
-  return s.start + (r - s.in) - goneBefore(s.gone, r);
+  return s.start + (r - s.in - goneBefore(s.gone, r)) / speedOf(s);
 }
 
 /** Subtitle blocks as the editor shows them: up to ~6 words, split on punctuation and pauses. */
@@ -389,7 +395,7 @@ export const edlDuration = (edl: Edl) => timeline(edl).at(-1)?.end ?? 0;
 
 /** Rush second of a timeline second inside a placed segment (inverse of toTimeline). */
 export function toRush(s: Placed, t: number) {
-  let r = s.in + Math.max(0, t - s.start);
+  let r = s.in + Math.max(0, t - s.start) * speedOf(s);
   for (const [a, b] of s.gone) if (a <= r) r += Math.min(b, s.out) - a;
   return Math.min(r, s.out);
 }

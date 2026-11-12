@@ -372,6 +372,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
       kept: s.kept !== false,
       reason: str(s.reason, 120),
       words,
+      ...((sp) => (sp !== undefined && sp >= 0.5 && sp <= 2 && sp !== 1 ? { speed: Math.round(sp * 100) / 100 } : {}))(num(s.speed)),
     });
   }
   const t = e.title as Record<string, unknown> | null | undefined;
@@ -383,7 +384,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
     endCard: end && str(end.text, 200) ? { text: str(end.text, 200)! } : null,
     zooms: Array.isArray(e.zooms)
       ? (e.zooms as Record<string, unknown>[])
-          .map((z) => ({ at: num(z.at)!, dur: num(z.dur)!, scale: num(z.scale)! }))
+          .map((z) => ({ at: num(z.at)!, dur: num(z.dur)!, scale: num(z.scale)!, ...(z.hold === true ? { hold: true } : {}) }))
           .filter((z) => z.at !== undefined && z.dur !== undefined && z.scale !== undefined)
       : [],
     crop: e.crop === "center" ? "center" : "face",

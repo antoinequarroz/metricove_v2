@@ -452,7 +452,7 @@ function Review({
                               ) : (
                                 <span className="rounded bg-ink/5 px-1.5 py-px font-medium">Coupé{s.reason ? ` · ${s.reason}` : ""}</span>
                               )}
-                              <span className="tabular font-mono">{(s.out - s.in).toFixed(1)} s</span>
+                              <span className="tabular font-mono">{((s.out - s.in) / (s.speed ?? 1)).toFixed(1)} s</span>
                             </div>
                             <p className={cn("text-[13.5px] leading-relaxed", !s.kept && "text-ink-3 line-through decoration-ink-3/60")}>
                               {s.words?.length
