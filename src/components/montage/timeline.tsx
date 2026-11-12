@@ -1,8 +1,8 @@
 "use client";
 
-import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn, Gauge, Crop, Images, PictureInPicture2, Sparkles, Volume2 } from "lucide-react";
+import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn, Gauge, Crop, Images, Layers, PictureInPicture2, Sparkles, Volume2 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { edlDuration, reorderKept, splitAt, SPEEDS, timeline, type CaptionStyle, type Edl, type MontageMark, type Rush } from "@/lib/montage";
+import { edlDuration, otherTakes, reorderKept, splitAt, SPEEDS, swapTake, timeline, type CaptionStyle, type Edl, type MontageMark, type Rush } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
 import { Button } from "../ui";
@@ -120,6 +120,8 @@ export function Timeline({
   const near = (t: number) => snap(t, edges, 8 / pps);
 
   const rushDur = (id: string) => rushes.find((r) => r.id === id)?.duration;
+  /** Name of a rush in a list of takes, when the edit has several. */
+  const rushName = (id: string) => (rushes.length > 1 ? `${(rushes.find((r) => r.id === id)?.name ?? "rush").replace(/\.[a-z0-9]+$/i, "")} · ` : "");
   const secAt = (clientX: number) => {
     const el = scroller.current;
     if (!el) return 0;
@@ -567,6 +569,32 @@ export function Timeline({
             >
               <Trash2 className="size-3.5" /> Retirer le plan
             </Button>
+            {(() => {
+              const takes = otherTakes(edl, selSeg.id);
+              if (!takes.length) return null;
+              return (
+                <label className="flex items-center gap-1.5" title="Les autres prises de cette phrase, parmi les passages coupés : celle choisie prend la place de ce plan">
+                  <Layers className="size-3.5 text-ink-3" />
+                  <select
+                    aria-label="Remplacer par une autre prise"
+                    value=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      onChange(swapTake(edl, selSeg.id, e.target.value));
+                      onSelect({ kind: "seg", id: e.target.value });
+                    }}
+                    className="h-7 max-w-64 rounded-md border border-line-strong bg-surface px-1.5 text-[12.5px] outline-none"
+                  >
+                    <option value="">Autre prise ({takes.length})…</option>
+                    {takes.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {`${(t.out - t.in).toFixed(1).replace(".", ",")} s · ${rushName(t.rush)}${fmtSec(t.in)} · « ${t.text.slice(0, 50)}${t.text.length > 50 ? "…" : ""} »`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            })()}
             <label className={cn("flex items-center gap-1.5", oldMac && "opacity-50")} title={oldMac ? "Mets à jour le programme du Mac (version 0.12.0) pour changer la vitesse" : "Vitesse de lecture de ce plan. Pour un passage seulement : coupe-le d'abord avec S."}>
               <Gauge className="size-3.5 text-ink-3" />
               Vitesse

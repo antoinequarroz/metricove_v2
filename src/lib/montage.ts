@@ -567,3 +567,49 @@ export function moveBlockLimit(edl: Edl, a: CaptionBlock, b: CaptionBlock, first
   }
   return next;
 }
+
+const takeWords = (t: string) =>
+  new Set(
+    t
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 3),
+  );
+
+/** Other takes of what shot `id` says, among the shots left out of the edit: the closest wording first. */
+export function otherTakes(edl: Edl, id: string, max = 6) {
+  const s = edl.segments.find((x) => x.id === id);
+  if (!s) return [];
+  const a = takeWords(s.text);
+  return edl.segments
+    .filter((x) => !x.kept && x.id !== id && x.out - x.in >= 0.3)
+    .map((x) => {
+      const b = takeWords(x.text);
+      const common = [...a].filter((w) => b.has(w)).length;
+      return { seg: x, score: a.size + b.size ? common / Math.max(1, Math.min(a.size, b.size)) : 0 };
+    })
+    .filter((x) => x.score >= 0.4)
+    .sort((p, q) => q.score - p.score)
+    .slice(0, max)
+    .map((x) => x.seg);
+}
+
+/** Puts take `other` (a shot left out) in place of shot `id`, which is left out in its turn. Speed goes with the place. */
+export function swapTake(edl: Edl, id: string, other: string): Edl {
+  const next = structuredClone(edl);
+  const cur = next.segments.find((x) => x.id === id);
+  const alt = next.segments.find((x) => x.id === other);
+  if (!cur || !alt || !cur.kept || alt.kept) return edl;
+  next.segments = next.segments.filter((x) => x !== alt);
+  next.segments.splice(next.segments.indexOf(cur), 0, alt);
+  alt.kept = true;
+  delete alt.reason;
+  if (cur.speed) alt.speed = cur.speed;
+  else delete alt.speed;
+  cur.kept = false;
+  cur.reason = "autre prise";
+  delete cur.speed;
+  return next;
+}
