@@ -76,6 +76,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
       job.base = base?.n;
       return NextResponse.json({ job: pageJob(queue(job, "motion")) });
     }
+    // A note left empty is not a request: Claude would start again from nothing.
+    if (job.versions.length && !job.feedback && !job.marks && typeof b.revise === "string" && Array.isArray(b.marks) && b.marks.length) return NextResponse.json({ error: "Écris ta demande ou une note" }, { status: 400 });
     return NextResponse.json({ job: queue(job, "propose") });
   }
   if (b.edl !== undefined) {

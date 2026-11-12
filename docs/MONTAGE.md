@@ -291,3 +291,19 @@ Un reel généré n'arrive plus directement dans la bibliothèque : il devient l
 - **Échec d'une retouche** : si le reel a déjà une version avec vidéo, la tâche revient à `review` avec `error` (affichée dans la page) ; les versions retouchées à la main restées sans vidéo sont retirées, le texte de la demande est gardé pour être reformulé. Sans aucune version, la tâche passe à `failed` (bouton « Réessayer »).
 - **Reprendre une demande** : `PATCH /jobs/:id { withdraw: true }` tant que le Mac n'a pas commencé (`status: "queued"`).
 - **Ce que la page reçoit** : `pageJob` (`src/server/montage.ts`) retire le code de Claude et remplace les dessins par un lien ; seul `worker/claim` donne la tâche entière.
+
+### Timelines et outils (worker 0.10.0)
+
+Les deux écrans de montage (face caméra : `timeline.tsx` + `review-page.tsx` ; reel animé : `reel-timeline.tsx` + `reel-review.tsx`) partagent `src/components/montage/timeline-kit.tsx` :
+
+- **Zoom** : 1 = toute la vidéo dans la largeur. Boutons, touches `+` `−` `0`, ⌘ ou Ctrl + molette (autour du pointeur). La vue suit la tête de lecture pendant la lecture.
+- **Pistes** : images de la vidéo (extraites dans le navigateur depuis l'aperçu), plans ou scènes, son (forme d'onde décodée dans le navigateur ; abandonnée au-delà de 60 Mo).
+- **Aimantation** aux débuts et fins de plans et à la tête de lecture (8 px).
+- **Raccourcis** : Espace, ← → (une image, Maj : une seconde), J K L, S (couper à la tête de lecture), M (repère), Suppr (retirer), ⌘Z / ⇧⌘Z, Début / Fin. Jamais pris dans un champ de texte.
+- **Annuler / rétablir** : pile locale à l'écran (80 pas), vidée quand une version arrive ou quand les modifications sont envoyées.
+
+**Musique** — `MusicCue { start?, fadeIn?, fadeOut? }` (secondes) : `edl.audio.music.{track, start, fadeIn, fadeOut}` pour un montage, `reel.track` + `reel.cue` pour un reel. Le Mac annonce les fichiers de son dossier Musique dans `POST /worker/claim` (`tracks: string[]`, renvoyé à la page dans `worker.tracks`). Un morceau introuvable : le Mac prend le premier du dossier et le dit dans les notes de la version.
+
+**Repères** — une note posée à la tête de lecture (touche M) est un `MontageMark` sans image (`{ id, version, t, text }`), envoyé avec `revise` comme les notes dessinées.
+
+**Couverture d'un reel** — l'image affichée est prise dans le navigateur et envoyée après la validation par `PUT /api/media/:id/cover` (JPEG).

@@ -462,7 +462,8 @@ export function cleanAudio(raw: unknown): AudioSettings {
 export function cleanMarks(raw: unknown): MontageMark[] | string {
   if (!Array.isArray(raw)) return [];
   const marks: MontageMark[] = [];
-  for (const [i, m] of (raw as Record<string, unknown>[]).slice(0, 8).entries()) {
+  for (const [i, m] of (raw as Record<string, unknown>[]).slice(0, 40).entries()) {
+    if (marks.length >= 8) break;
     const t = num(m.t);
     const version = num(m.version);
     const text = str(m.text, 1000)?.trim() ?? "";
@@ -545,7 +546,8 @@ export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan |
   if (scenes.filter((s) => !s.cut).length > 8) return "8 scènes au plus";
   const volume = num(r.volume);
   const duration = num(r.duration);
-  const track = str(r.track, 200)?.replace(/[\/\\\0]/g, "").trim();
+  // Only compared with the names of the Mac's folder, never joined to a path: kept as it is.
+  const track = str(r.track, 200)?.trim();
   const cue = cleanCue(r.cue);
   return {
     scenes,

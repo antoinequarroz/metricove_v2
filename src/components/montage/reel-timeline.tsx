@@ -337,7 +337,7 @@ export function ReelTimeline({
                 <Waveform wave={wave} pps={pps} height={28} dim={stale} />
               </div>
             ) : (
-              <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">{!src ? "" : wave ? "Sans musique" : "Son de la vidéo…"}</span>
+              <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">{!src ? "" : wave ? (wave.unavailable ? "Son non affiché" : "Sans musique") : "Son de la vidéo…"}</span>
             )}
           </Row>
 

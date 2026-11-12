@@ -171,10 +171,12 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
     else v.pause();
   };
 
+  /** Notes that say something: one left empty is not sent. */
+  const filled = marks.filter((m) => m.text.trim() || m.image);
   const revise = async () => {
     if (!version) return;
-    const what = range ? `Demande envoyée à Claude pour le passage ${fmtT(range[0])} – ${fmtT(range[1])}` : marks.length ? `Demande et ${marks.length} note${marks.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude";
-    if (await call({ revise: feedback, marks: marks.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n }, what)) {
+    const what = range ? `Demande envoyée à Claude pour le passage ${fmtT(range[0])} – ${fmtT(range[1])}` : filled.length ? `Demande et ${filled.length} note${filled.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude";
+    if (await call({ revise: feedback, marks: filled.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n }, what)) {
       setFeedback("");
       setMarks([]);
       setRange(null);
@@ -431,7 +433,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                 {compareWith !== null ? (
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
-                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => (setMarks((x) => [...x, m]), setTab("claude"))} onClose={() => setDrawing(false)}>
+                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => (setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m])), setTab("claude"))} onClose={() => setDrawing(false)}>
                     <div onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
                       <Preview job={job} v={version} ref={player} onTime={setTime} />
                     </div>
@@ -553,7 +555,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                       <span className="min-w-0 flex-1 text-[11.5px] text-ink-3">
                         {dirty ? "Applique ou annule d'abord tes modifications à la main." : range || marks.length ? "Le reste de la vidéo ne bouge pas." : "Sans passage choisi, Claude modifie les scènes dont tu parles."}
                       </span>
-                      <Button size="sm" variant="primary" onClick={revise} disabled={busy || !canAsk || old || (!feedback.trim() && !marks.length)}>
+                      <Button size="sm" variant="primary" onClick={revise} disabled={busy || !canAsk || old || (!feedback.trim() && !filled.length)}>
                         <Wand2 className="size-3.5" /> Nouvelle version
                       </Button>
                     </div>

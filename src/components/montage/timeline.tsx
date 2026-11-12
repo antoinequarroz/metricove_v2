@@ -63,7 +63,8 @@ export function Timeline({
   onMark,
 }: {
   edl: Edl;
-  onChange: (next: Edl) => void;
+  /** `key` names a control whose changes in a row make one step to undo. */
+  onChange: (next: Edl, key?: string) => void;
   time: number;
   onSeek: (t: number) => void;
   marks: MontageMark[];
@@ -89,6 +90,7 @@ export function Timeline({
   const tail = (edl.endCard ? END_CARD : 0) + 0.5;
   // While an edge of a shot is pulled the scale stays still: otherwise the whole timeline would slide under the pointer.
   const [held, setHeld] = useState<number | null>(null);
+  const [trimming, setTrimming] = useState<string | null>(null);
   const { scroller, pps, setZoom, fitted } = useTimelineZoom(held ?? dur, LABEL_W, tail, time);
   const width = (dur + tail) * pps;
   const strip = useFilmstrip(src);
@@ -112,8 +114,10 @@ export function Timeline({
   const trim = (e: React.PointerEvent, id: string, edge: "in" | "out") => {
     const base = edl;
     const s0 = base.segments.find((s) => s.id === id)!;
+    if (e.button !== 0) return;
     onSelect({ kind: "seg", id });
     setHeld(dur);
+    setTrimming(id);
     drag(
       e,
       (dx) => {
@@ -124,7 +128,7 @@ export function Timeline({
         else s.out = clamp(s0.out + d, s0.in + 0.2, rushDur(id) ?? rushDur(s0.rush) ?? s0.out + 30);
         onChange(next);
       },
-      () => setHeld(null),
+      () => (setHeld(null), setTrimming(null)),
     );
   };
 
@@ -342,7 +346,7 @@ export function Timeline({
                     {s.text}
                   </span>
                   {/* On a very short shot the two handles would cover it all: zoom in to trim it. */}
-                  {(s.end - s.start) * pps >= 24 && (
+                  {((s.end - s.start) * pps >= 24 || trimming === s.id) && (
                     <>
                       <Handle side="left" onPointerDown={(e) => trim(e, s.id, "in")} label="Raccourcir le début" />
                       <Handle side="right" onPointerDown={(e) => trim(e, s.id, "out")} label="Raccourcir la fin" />
@@ -425,7 +429,7 @@ export function Timeline({
                   <Waveform wave={wave} pps={pps} height={43} dim={stale} />
                 </div>
               ) : (
-                <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">{wave ? "Sans son" : "Son de la vidéo…"}</span>
+                <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">{wave ? (wave.unavailable ? "Son non affiché" : "Sans son") : "Son de la vidéo…"}</span>
               )}
             </Track>
           )}
@@ -465,7 +469,7 @@ export function Timeline({
                 const next = structuredClone(edl);
                 const s = next.segments.find((x) => x.id === selSeg.id)!;
                 s.in = clamp(v, 0, s.out - 0.2);
-                onChange(next);
+                onChange(next, "inspector");
               }}
             />
             <Nudge
@@ -475,7 +479,7 @@ export function Timeline({
                 const next = structuredClone(edl);
                 const s = next.segments.find((x) => x.id === selSeg.id)!;
                 s.out = clamp(v, s.in + 0.2, rushDur(s.rush) ?? v);
-                onChange(next);
+                onChange(next, "inspector");
               }}
             />
             <Button
@@ -484,7 +488,7 @@ export function Timeline({
               onClick={() => {
                 const next = structuredClone(edl);
                 next.segments.find((x) => x.id === selSeg.id)!.kept = false;
-                onChange(next);
+                onChange(next, "inspector");
                 onSelect(null);
               }}
             >
@@ -507,7 +511,7 @@ export function Timeline({
                 onChange={(e) => {
                   const next = structuredClone(edl);
                   next.zooms![(selection as { i: number }).i].scale = Number(e.target.value);
-                  onChange(next);
+                  onChange(next, "inspector");
                 }}
                 className="w-28 accent-[var(--accent)]"
               />
@@ -520,7 +524,7 @@ export function Timeline({
               onClick={() => {
                 const next = structuredClone(edl);
                 next.zooms!.splice((selection as { i: number }).i, 1);
-                onChange(next);
+                onChange(next, "inspector");
                 onSelect(null);
               }}
             >
@@ -560,7 +564,7 @@ export function Timeline({
               onClick={() => {
                 const next = structuredClone(edl);
                 next.broll!.splice((selection as { i: number }).i, 1);
-                onChange(next);
+                onChange(next, "inspector");
                 onSelect(null);
               }}
             >

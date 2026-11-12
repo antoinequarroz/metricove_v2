@@ -113,7 +113,7 @@ export function cleanMotion(m = {}) {
     music: m.music !== false,
     // Volume de la musique (0 à 1) et morceau choisi dans le dossier du Mac.
     volume: Number.isFinite(Number(m.volume)) && m.volume !== null && m.volume !== undefined ? Math.min(1, Math.max(0, Number(m.volume))) : 0.7,
-    track: String(m.track || "").replace(/[\/\\\0]/g, "").slice(0, 200),
+    track: String(m.track || "").slice(0, 200),
     // Départ dans le morceau et fondus, quand Antoine les a réglés.
     ...(m.cue && typeof m.cue === "object" ? { cue: { start: m.cue.start, fadeIn: m.cue.fadeIn, fadeOut: m.cue.fadeOut } } : {}),
     pace: Object.hasOwn(PACE, m.pace) ? m.pace : "normal",
@@ -545,7 +545,7 @@ export async function renderPlan(cfg, plan, dir, step = async () => {}, notes = 
   await step("Son et finition…", 0.85);
   const out = join(dir, "reel.mp4");
   const track = plan.music ? pickTrack(cfg, plan.track || "", notes) : null;
-  const cue = musicCue(plan.cue, duration, { in: 0.4, out: 1.2 });
+  const cue = musicCue(plan.cue, duration);
   const audio = track
     ? ["-stream_loop", "-1", ...cue.seek, "-i", track, "-filter_complex", `[1:a]atrim=0:${f(duration)},asetpts=N/SR/TB,volume=${f(plan.volume ?? 0.7)}${cue.fades ? `,${cue.fades}` : ""}[a]`, "-map", "0:v", "-map", "[a]"]
     : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v", "-map", "1:a"];

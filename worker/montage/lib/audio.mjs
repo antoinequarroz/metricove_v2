@@ -106,7 +106,7 @@ export async function buildAudio(cfg, { base, dir, audio, final, total, notes })
   const tail = final ? "" : `,loudnorm=${LN}`; // aperçu : une seule passe
   if (track) {
     const vol = Math.min(1, Math.max(0, Number(audio.music.volume ?? 0.15)));
-    const cue = musicCue(audio.music, total, { in: 0.6, out: 1.5 });
+    const cue = musicCue(audio.music, total);
     const m = `[1:a]aresample=48000,aformat=channel_layouts=stereo,atrim=0:${total.toFixed(3)},asetpts=N/SR/TB,volume=${vol}${cue.fades ? `,${cue.fades}` : ""}[m]`;
     // La voix est d'abord mise à niveau pour que la baisse de la musique réagisse pareil d'une vidéo à l'autre.
     const vo = `[0:a]aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo`;

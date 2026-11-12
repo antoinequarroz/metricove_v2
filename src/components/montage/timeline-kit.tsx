@@ -90,8 +90,8 @@ export function Filmstrip({ strip, pps, height, dim }: { strip: Strip; pps: numb
   );
 }
 
-export type Wave = { peaks: Float32Array; rate: number; duration: number; silent: boolean };
-const NO_WAVE: Wave = { peaks: new Float32Array(0), rate: 50, duration: 0, silent: true };
+export type Wave = { peaks: Float32Array; rate: number; duration: number; silent: boolean; /** Too heavy or unreadable: not drawn, which does not mean silent. */ unavailable?: boolean };
+const NO_WAVE: Wave = { peaks: new Float32Array(0), rate: 50, duration: 0, silent: true, unavailable: true };
 
 /** The shape of the sound of a video (loudest point of every 20 ms), decoded in the browser. Null until known or when too heavy. */
 export function useWaveform(src: string | undefined): Wave | null {

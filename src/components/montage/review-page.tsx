@@ -161,8 +161,10 @@ function Review({
     setDirty(false);
     history.reset();
   };
+  /** Notes that say something: one left empty is not sent. */
+  const filled = marks.filter((m) => m.text.trim() || m.image);
   const revise = async () => {
-    if (await call({ revise: feedback, marks }, marks.length ? `Demande et ${marks.length} note${marks.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude")) {
+    if (await call({ revise: feedback, marks: filled }, filled.length ? `Demande et ${filled.length} note${filled.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude")) {
       setFeedback("");
       setMarks([]);
     }
@@ -305,7 +307,7 @@ function Review({
                 {compareWith !== null ? (
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
-                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => [...x, m])} onClose={() => setDrawing(false)}>
+                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m]))} onClose={() => setDrawing(false)}>
                     <div onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
                       <Preview job={job} v={version} ref={player} onTime={setTime} />
                     </div>
@@ -364,7 +366,7 @@ function Review({
                       className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60"
                     />
                     <div className="mt-2 flex justify-end">
-                      <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !marks.length)}>
+                      <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !filled.length)}>
                         <Wand2 className="size-3.5" /> Nouvelle version
                       </Button>
                     </div>
