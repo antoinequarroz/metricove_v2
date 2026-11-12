@@ -1,12 +1,13 @@
 "use client";
 
-import { Clapperboard, Minus, Plus, Scissors, Trash2, ZoomIn } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Clapperboard, Keyboard, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn } from "lucide-react";
+import { useMemo, useState } from "react";
 import { edlDuration, reorderKept, splitAt, timeline, type Edl, type MontageMark, type Rush } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
 import { Button } from "../ui";
 import { fmtSec } from "./parts";
+import { Filmstrip, SHORTCUTS, snap, useFilmstrip, useFollowPlayhead, useTimelineZoom, useWaveform, Waveform } from "./timeline-kit";
 
 export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "title" } | null;
 
@@ -53,6 +54,12 @@ export function Timeline({
   rushes,
   selection,
   onSelect,
+  src,
+  stale,
+  playing,
+  undo,
+  zoomRef,
+  onRemove,
 }: {
   edl: Edl;
   onChange: (next: Edl) => void;
@@ -62,13 +69,31 @@ export function Timeline({
   rushes: Rush[];
   selection: Selection;
   onSelect: (s: Selection) => void;
+  /** The preview on screen: its pictures and its sound are drawn in the tracks. */
+  src?: string;
+  /** Edits wait for a new preview: the pictures and the sound are those of the old one. */
+  stale?: boolean;
+  playing?: boolean;
+  undo?: { undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean };
+  /** Lets the keyboard of the screen zoom this timeline (+, −, 0). */
+  zoomRef?: React.RefObject<((dir: 1 | -1 | 0) => void) | null>;
+  /** Removes what is selected (the Delete key does the same). */
+  onRemove?: () => void;
 }) {
-  const [pps, setPps] = useState(48);
   const [moving, setMoving] = useState<{ id: string; dx: number } | null>(null);
   const placed = useMemo(() => timeline(edl), [edl]);
   const dur = edlDuration(edl);
-  const width = (dur + (edl.endCard ? END_CARD : 0) + 1.5) * pps;
-  const scroller = useRef<HTMLDivElement>(null);
+  const tail = (edl.endCard ? END_CARD : 0) + 0.5;
+  const { scroller, pps, setZoom, fitted } = useTimelineZoom(dur, LABEL_W, tail);
+  const width = (dur + tail) * pps;
+  const strip = useFilmstrip(src);
+  const wave = useWaveform(src);
+  const [help, setHelp] = useState(false);
+  if (zoomRef) zoomRef.current = (dir) => setZoom((z) => (dir === 0 ? 1 : dir > 0 ? z * 1.5 : z / 1.5));
+  useFollowPlayhead(scroller, time * pps, !!playing, LABEL_W);
+  // Edges that pull what is dragged: the cuts between shots and the playhead.
+  const edges = useMemo(() => [0, ...placed.map((s) => s.end), time], [placed, time]);
+  const near = (t: number) => snap(t, edges, 8 / pps);
 
   const rushDur = (id: string) => rushes.find((r) => r.id === id)?.duration;
   const secAt = (clientX: number) => {
@@ -126,12 +151,16 @@ export function Timeline({
       const next = structuredClone(base);
       const z = next[key]![i];
       const d = dx / pps;
-      if (mode === "move") z.at = clamp(z0.at + d, 0, Math.max(0, dur - z0.dur));
-      else if (mode === "start") {
-        const at = clamp(z0.at + d, 0, z0.at + z0.dur - 0.3);
+      if (mode === "move") {
+        // The start snaps first, else the end.
+        const at = near(z0.at + d);
+        const end = near(z0.at + d + z0.dur);
+        z.at = clamp(at !== z0.at + d ? at : end - z0.dur, 0, Math.max(0, dur - z0.dur));
+      } else if (mode === "start") {
+        const at = clamp(near(z0.at + d), 0, z0.at + z0.dur - 0.3);
         z.dur = z0.dur + (z0.at - at);
         z.at = at;
-      } else z.dur = clamp(z0.dur + d, 0.3, dur - z0.at);
+      } else z.dur = clamp(near(z0.at + z0.dur + d) - z0.at, 0.3, dur - z0.at);
       onChange(next);
     });
   };
@@ -171,7 +200,7 @@ export function Timeline({
     onSelect({ kind: "title" });
     drag(e, (dx) => {
       const next = structuredClone(base);
-      next.title!.until = clamp(base.title!.until + dx / pps, 0.5, Math.min(10, dur));
+      next.title!.until = clamp(near(base.title!.until + dx / pps), 0.5, Math.min(10, dur));
       onChange(next);
     });
   };
@@ -182,7 +211,7 @@ export function Timeline({
   };
 
   const ticks = useMemo(() => {
-    const step = pps >= 60 ? 1 : pps >= 25 ? 2 : 5;
+    const step = [0.5, 1, 2, 5, 10, 30, 60].find((x) => x * pps >= 56) ?? 120;
     const out = [];
     for (let t = 0; t <= dur + END_CARD; t += step) out.push(t);
     return out;
@@ -200,15 +229,51 @@ export function Timeline({
           {fmtSec(time)} / {fmtSec(dur)}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
-          <Button size="sm" onClick={split} disabled={!placed.some((s) => time > s.start + 0.15 && time < s.end - 0.15)} title="Coupe le plan sous le curseur en deux">
+          <Button size="sm" onClick={split} disabled={!placed.some((s) => time > s.start + 0.15 && time < s.end - 0.15)} title="Coupe le plan sous le curseur en deux (S)">
             <Scissors className="size-3.5" /> Couper au curseur
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPps((p) => Math.max(10, p / 1.4))} aria-label="Dézoomer la timeline">
+          {onRemove && (
+            <Button size="sm" variant="ghost" onClick={onRemove} disabled={!selection || selection.kind === "title"} title="Retirer l'élément choisi (Suppr)">
+              <Trash2 className="size-3.5" /> Retirer
+            </Button>
+          )}
+          {undo && (
+            <>
+              <Button size="sm" variant="ghost" onClick={undo.undo} disabled={!undo.canUndo} aria-label="Annuler" title="Annuler (⌘Z)">
+                <Undo2 className="size-3.5" />
+              </Button>
+              <Button size="sm" variant="ghost" onClick={undo.redo} disabled={!undo.canRedo} aria-label="Rétablir" title="Rétablir (⇧⌘Z)">
+                <Redo2 className="size-3.5" />
+              </Button>
+            </>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setZoom((z) => z / 1.5)} disabled={fitted} aria-label="Dézoomer la timeline" title="Dézoomer (−)">
             <Minus className="size-3.5" />
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPps((p) => Math.min(240, p * 1.4))} aria-label="Zoomer la timeline">
+          <Button size="sm" variant="ghost" onClick={() => setZoom((z) => z * 1.5)} aria-label="Zoomer la timeline" title="Zoomer (+, ou ⌘ + molette)">
             <Plus className="size-3.5" />
           </Button>
+          <Button size="sm" variant="ghost" onClick={() => setZoom(1)} disabled={fitted} aria-label="Voir toute la vidéo" title="Voir toute la vidéo (0)">
+            <Maximize2 className="size-3.5" />
+          </Button>
+          <div className="relative">
+            <Button size="sm" variant="ghost" onClick={() => setHelp((h) => !h)} aria-expanded={help} aria-label="Raccourcis clavier" title="Raccourcis clavier">
+              <Keyboard className="size-3.5" />
+            </Button>
+            {help && (
+              <div className="absolute top-9 right-0 z-40 w-[330px] rounded-xl border border-line bg-surface p-3 text-[12px] shadow-card">
+                <p className="mb-1.5 font-medium text-ink">Raccourcis clavier</p>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                  {SHORTCUTS.map(([k, what]) => (
+                    <div key={k} className="contents">
+                      <dt className="tabular font-mono text-ink">{k}</dt>
+                      <dd className="text-ink-2">{what}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -231,6 +296,15 @@ export function Timeline({
               ))}
             </div>
           </div>
+
+          {src && (
+            <Track label="Vidéo" hint={stale ? "avant retouche" : undefined}>
+              <div className="absolute inset-0 cursor-pointer" onPointerDown={(e) => onSeek(secAt(e.clientX))}>
+                <Filmstrip strip={strip} pps={pps} height={44} dim={stale} />
+                {!strip.frames.length && <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">Images de la vidéo…</span>}
+              </div>
+            </Track>
+          )}
 
           <Track label="Plans">
             {placed.map((s, k) => {
@@ -323,6 +397,18 @@ export function Timeline({
               </div>
             )}
           </Track>
+
+          {src && (
+            <Track label="Son" hint={stale ? "avant retouche" : undefined}>
+              {wave && !wave.silent ? (
+                <div className="absolute inset-0 text-accent/70">
+                  <Waveform wave={wave} pps={pps} height={43} dim={stale} />
+                </div>
+              ) : (
+                <span className="absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3">{wave ? "Sans son" : "Son de la vidéo…"}</span>
+              )}
+            </Track>
+          )}
 
           {marks.length > 0 && (
             <Track label="Notes">

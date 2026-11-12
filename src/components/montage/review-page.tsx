@@ -4,7 +4,7 @@ import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, Message
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { edlDuration, timeline, type CaptionStyle, type Edl, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { edlDuration, splitAt, timeline, type CaptionStyle, type Edl, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
@@ -15,6 +15,7 @@ import { Segmented } from "./controls";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
+import { useTimelineKeys, useUndo } from "./timeline-kit";
 import { montageApi, useMontage } from "./use-montage";
 
 const ASPECT: Record<Edl["format"], string> = { "9:16": "9 / 16", "4:5": "4 / 5", "1:1": "1 / 1", "16:9": "16 / 9" };
@@ -71,6 +72,7 @@ function Review({
   // A new version arrived: show it, unless the user is editing.
   useEffect(() => {
     if (!dirty && latest) {
+      history.reset();
       setShown(latest.n);
       setDraft(latest.edl);
     }
@@ -82,15 +84,53 @@ function Review({
     setShown(n);
     setDraft(v?.edl);
     setDirty(false);
+    history.reset();
   };
 
+  const history = useUndo<Edl>(draft, (edl) => {
+    setDraft(edl);
+    setDirty(true);
+  });
   const edit = (fn: (e: Edl) => Edl) => {
+    history.record(draft);
     setDraft((d) => (d ? fn(structuredClone(d)) : d));
     setDirty(true);
   };
   const setEdl = (next: Edl) => {
+    history.record(draft);
     setDraft(next);
     setDirty(true);
+  };
+  const [playing, setPlaying] = useState(false);
+  const composerOpen = useStore((s) => s.composer.open);
+  const zoomRef = useRef<((dir: 1 | -1 | 0) => void) | null>(null);
+  // While it plays, the playhead follows the video frame by frame.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      if (player.current) setTime(player.current.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+  /** Removes what is selected on the timeline: a shot, a zoom or a B-roll shot. */
+  const removeSelection = () => {
+    if (!draft || !selection || selection.kind === "title") return;
+    const next = structuredClone(draft);
+    if (selection.kind === "seg") {
+      const s = next.segments.find((x) => x.id === selection.id);
+      if (!s || next.segments.filter((x) => x.kept).length < 2) return;
+      s.kept = false;
+    } else if (selection.kind === "zoom") next.zooms?.splice(selection.i, 1);
+    else next.broll?.splice(selection.i, 1);
+    setEdl(next);
+    setSelection(null);
+  };
+  const splitHere = () => {
+    const next = draft && splitAt(draft, time);
+    if (next) setEdl(next);
   };
 
   const call = async (body: object, ok: string) => {
@@ -134,6 +174,20 @@ function Review({
   };
   const sentMarks = (job.marks ?? []).filter((m) => m.version === version?.n);
   const canDraw = job.status === "review" && !!version?.preview && compareWith === null;
+  useTimelineKeys({
+    enabled: !!draft && compareWith === null && !(drawing && canDraw) && !composerOpen,
+    canPlay: !!version?.preview,
+    video: () => player.current,
+    total: draft ? edlDuration(draft) : 0,
+    onSeek: seek,
+    onSplit: splitHere,
+    onDelete: selection && selection.kind !== "title" ? removeSelection : undefined,
+    onUndo: history.undo,
+    onRedo: history.redo,
+    onZoom: (dir) => zoomRef.current?.(dir),
+  });
+  // Another video on screen: nothing plays yet.
+  useEffect(() => setPlaying(false), [version?.n, version?.preview, compareWith]);
 
   return (
     <>
@@ -232,7 +286,9 @@ function Review({
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
                   <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => [...x, m])} onClose={() => setDrawing(false)}>
-                    <Preview job={job} v={version} ref={player} onTime={setTime} />
+                    <div onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
+                      <Preview job={job} v={version} ref={player} onTime={setTime} />
+                    </div>
                   </Annotator>
                 )}
                 {version.notes && (
@@ -395,6 +451,12 @@ function Review({
               rushes={rushes}
               selection={selection}
               onSelect={setSelection}
+              src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
+              stale={dirty}
+              playing={playing}
+              undo={history}
+              zoomRef={zoomRef}
+              onRemove={removeSelection}
             />
           )}
         </div>

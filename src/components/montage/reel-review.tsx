@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowLeft, ArrowUp, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, Music, Pause, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, Music, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -12,7 +12,9 @@ import { Annotator } from "./annotator";
 import { Segmented } from "./controls";
 import { inputClass, Toggle } from "./look-parts";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
+import { ReelTimeline } from "./reel-timeline";
 import { Compare, Preview, VersionChip } from "./review-page";
+import { useTimelineKeys, useUndo } from "./timeline-kit";
 import { montageApi, type WorkerStatus } from "./use-montage";
 
 /** Oldest Mac program that knows the editing screen of a reel (versions, requests on a passage, edits by hand). */
@@ -40,14 +42,22 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   // Only edits made by hand count: the Mac also rewrites a version (the lengths on screen) when its preview is ready.
   const [touched, setTouched] = useState(false);
   const dirty = touched && !!draft && !!version?.reel && !sameScenes(draft, version.reel);
+  const history = useUndo<ReelPlan>(draft, (plan) => {
+    setTouched(true);
+    setDraft(plan);
+  });
   const edit = (next: ReelPlan | undefined | ((d: ReelPlan | undefined) => ReelPlan | undefined)) => {
+    history.record(draft);
     setTouched(true);
     setDraft(next);
   };
   const follow = (plan: ReelPlan | undefined) => {
+    history.reset();
     setTouched(false);
     setDraft(plan);
   };
+  /** The scene chosen on the timeline (Delete takes it out, the Scenes tab shows it). */
+  const [selected, setSelected] = useState<string | null>(null);
   const [compareWith, setCompareWith] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -59,6 +69,8 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   const [playing, setPlaying] = useState(false);
   const player = useRef<HTMLVideoElement>(null);
   const openComposer = useStore((s) => s.openComposer);
+  const composerOpen = useStore((s) => s.composer.open);
+  const zoomRef = useRef<((dir: 1 | -1 | 0) => void) | null>(null);
   // Once validated the previews are gone: the video on show is the one in the library.
   const final = useStore((s) => (job.status === "done" && job.mediaId ? s.media.find((m) => m.id === job.mediaId) : undefined));
   const working = job.action !== null;
@@ -184,12 +196,53 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
       return { ...d, scenes };
     });
 
+  /** Moves a scene to place `index` among the scenes that play; the scenes taken out keep their slot. */
+  const reorder = (id: string, index: number) =>
+    edit((d) => {
+      if (!d) return d;
+      const kept = d.scenes.filter((s) => !s.cut);
+      const me = kept.find((s) => s.id === id);
+      if (!me) return d;
+      const order = kept.filter((s) => s.id !== id);
+      order.splice(Math.min(Math.max(0, index), order.length), 0, me);
+      let k = 0;
+      return { ...d, scenes: d.scenes.map((s) => (s.cut ? s : order[k++])) };
+    });
+
   // The video on screen is the version as the Mac rendered it; with edits waiting, the timeline shows what they will give.
   const placed = useMemo(() => (draft ? reelTimeline(draft, !dirty) : []), [draft, dirty]);
   const total = placed.at(-1)?.end ?? 0;
   const current = placed.find((p) => time >= p.start && time < p.end) ?? placed.at(-1);
   const canAsk = job.status === "review" && !!version?.preview && !dirty && !working;
   const canDraw = canAsk && compareWith === null;
+  const keptCount = draft ? draft.scenes.filter((s) => !s.cut).length : 0;
+  /** Ends the scene under the playhead at the playhead (S). */
+  const trimHere = () => {
+    if (dirty || !current) return;
+    const seconds = Math.round((time - current.start) * 10) / 10;
+    if (seconds < MIN_SCENE || current.end - time < 0.2) return void toast.message("Place la tête de lecture dans une scène, au moins 1,5 s après son début");
+    editScene(current.scene.id, { seconds: Math.min(MAX_SCENE, seconds) });
+    setSelected(current.scene.id);
+    setTab("scenes");
+  };
+  /** Takes the chosen scene out of the reel (Delete). */
+  const cutSelected = () => {
+    if (!selected || keptCount < 2) return;
+    editScene(selected, { cut: true });
+    setSelected(null);
+  };
+  useTimelineKeys({
+    enabled: job.status !== "done" && compareWith === null && !(drawing && canDraw) && !composerOpen && !!draft,
+    canPlay: !dirty && !!version?.preview,
+    video: () => player.current,
+    total,
+    onSeek: seek,
+    onSplit: trimHere,
+    onDelete: selected ? cutSelected : undefined,
+    onUndo: history.undo,
+    onRedo: history.redo,
+    onZoom: (dir) => zoomRef.current?.(dir),
+  });
   const sentMarks = (job.marks ?? []).filter((m) => m.version === version?.n);
   const allMarks = [...sentMarks, ...marks.filter((m) => m.version === version?.n)];
 
@@ -313,7 +366,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
 
               {/* ---------- Tools ---------- */}
               <div className="scroll-thin flex min-h-0 min-w-0 flex-col gap-3 lg:overflow-y-auto lg:pr-1">
-                <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 bg-bg-2/85 pb-1 backdrop-blur">
+                <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 rounded-xl px-1 py-1 backdrop-blur-md">
                   <Segmented
                     label="Outil"
                     value={tab}
@@ -431,7 +484,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                       const was = version.reel?.scenes.find((x) => x.id === s.id);
                       const retexted = !!was && (was.title !== s.title || was.body !== s.body);
                       return (
-                        <li key={s.id} className={cn("rounded-xl border px-3 py-2.5", s.cut ? "border-dashed border-line bg-transparent" : at && current?.scene.id === s.id ? "border-accent/60 bg-surface" : "border-line bg-surface")}>
+                        <li key={s.id} className={cn("rounded-xl border px-3 py-2.5", s.cut ? "border-dashed border-line bg-transparent" : selected === s.id ? "border-accent bg-surface" : at && current?.scene.id === s.id ? "border-accent/60 bg-surface" : "border-line bg-surface")}>
                           <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-ink-3">
                             <button onClick={() => editScene(s.id, { cut: !s.cut })} aria-label={s.cut ? "Remettre cette scène" : "Couper cette scène"} title={s.cut ? "Remettre cette scène" : "Couper cette scène"} className="press grid size-6 place-items-center rounded-md text-ink-2 hover:bg-surface-2">
                               {s.cut ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -521,6 +574,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
 {/* Drawing happens on one frame, and its tools take the room of the timeline on a small screen. */}
             {!(drawing && canDraw && compareWith === null) && (
               <ReelTimeline
+                src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
                 placed={placed}
                 total={total}
                 time={dirty ? -1 : time}
@@ -530,7 +584,14 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                 range={dirty ? null : range}
                 onRange={canAsk ? (r) => (setRange(r), r && setTab("claude")) : undefined}
                 marks={allMarks}
-                onResize={(id, seconds) => (editScene(id, { seconds }), setTab("scenes"))}
+                selected={selected}
+                onSelect={setSelected}
+                onResize={(id, seconds) => (editScene(id, { seconds }), setSelected(id), setTab("scenes"))}
+                onReorder={reorder}
+                onTrimHere={trimHere}
+                onCut={cutSelected}
+                undo={history}
+                zoomRef={zoomRef}
                 stale={dirty}
               />
             )}
@@ -538,172 +599,5 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
         )}
       </div>
     </>
-  );
-}
-
-type Placed = ReturnType<typeof reelTimeline>;
-
-/**
- * The timeline of the whole reel: a ruler, one block per scene, the playhead, the drawn notes.
- * Click to move in the video, drag to pick a passage for Claude, pull the right edge of a block to make its scene longer or shorter.
- */
-function ReelTimeline({
-  placed,
-  total,
-  time,
-  playing,
-  onToggle,
-  onSeek,
-  range,
-  onRange,
-  marks,
-  onResize,
-  stale,
-}: {
-  placed: Placed;
-  total: number;
-  time: number;
-  playing: boolean;
-  onToggle: () => void;
-  onSeek: (t: number) => void;
-  range: [number, number] | null;
-  onRange?: (r: [number, number] | null) => void;
-  marks: MontageMark[];
-  onResize: (id: string, seconds: number) => void;
-  stale: boolean;
-}) {
-  const track = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
-  const [resize, setResize] = useState<{ id: string; start: number; seconds: number; was: number } | null>(null);
-  const pct = (t: number) => `${total ? (Math.min(Math.max(t, 0), total) / total) * 100 : 0}%`;
-  const at = (clientX: number) => {
-    const r = track.current?.getBoundingClientRect();
-    return r && r.width ? Math.min(total, Math.max(0, ((clientX - r.left) / r.width) * total)) : 0;
-  };
-
-  const down = (e: React.PointerEvent) => {
-    if (e.button !== 0 || stale) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const t = at(e.clientX);
-    setDrag({ from: t, to: t });
-  };
-  const move = (e: React.PointerEvent) => {
-    if (drag) setDrag({ from: drag.from, to: at(e.clientX) });
-  };
-  const up = () => {
-    if (!drag) return;
-    const [a, b] = [Math.min(drag.from, drag.to), Math.max(drag.from, drag.to)];
-    setDrag(null);
-    // A short move is a click: go there. A longer one picks the passage.
-    if (b - a < 0.25 || !onRange) {
-      if (b - a < 0.25) onRange?.(null);
-      onSeek(drag.from);
-    } else {
-      onRange([Math.round(a * 10) / 10, Math.round(b * 10) / 10]);
-      onSeek(a);
-    }
-  };
-
-  const grab = (e: React.PointerEvent, id: string, start: number, seconds: number) => {
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setResize({ id, start, seconds, was: seconds });
-  };
-  const pull = (e: React.PointerEvent) => {
-    if (!resize) return;
-    e.stopPropagation();
-    setResize({ ...resize, seconds: Math.round(Math.min(MAX_SCENE, Math.max(MIN_SCENE, at(e.clientX) - resize.start)) * 10) / 10 });
-  };
-  const drop = (e: React.PointerEvent) => {
-    if (!resize) return;
-    e.stopPropagation();
-    // A click on the edge without pulling is a click on the timeline, not a new length.
-    if (Math.abs(resize.seconds - resize.was) < 0.1) onSeek(at(e.clientX));
-    else onResize(resize.id, resize.seconds);
-    setResize(null);
-  };
-
-  const sel = drag && Math.abs(drag.to - drag.from) >= 0.25 ? ([Math.min(drag.from, drag.to), Math.max(drag.from, drag.to)] as const) : range;
-  const ticks = useMemo(() => {
-    const step = total > 40 ? 5 : total > 16 ? 2 : 1;
-    return Array.from({ length: Math.floor(total / step) + 1 }, (_, i) => i * step);
-  }, [total]);
-
-  return (
-    <div className="shrink-0 border-t border-line bg-surface/60 px-6 pt-2 pb-3 max-md:px-4">
-      <div className="mb-1.5 flex items-center gap-3 text-[12px] text-ink-3">
-        <button onClick={onToggle} disabled={stale} aria-label={playing ? "Pause" : "Lire"} className="press grid size-7 place-items-center rounded-lg border border-line-strong bg-surface text-ink disabled:opacity-40">
-          {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-        </button>
-        <span className="tabular font-mono text-ink">
-          {time >= 0 ? fmtT(time) : "–"} / {fmtT(total)}
-        </span>
-        <span className="min-w-0 truncate">
-          {stale
-            ? "Durées estimées de tes modifications. La vidéo sera refaite avec « Voir l'aperçu »."
-            : sel
-              ? `Passage choisi : ${fmtT(sel[0])} – ${fmtT(sel[1])}`
-              : "Clique pour te placer, fais glisser pour choisir un passage, tire le bord d'une scène pour changer sa durée."}
-        </span>
-      </div>
-      <div ref={track} className={cn("relative h-[74px] touch-none select-none", !stale && "cursor-text")} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => setDrag(null)}>
-        {/* Ruler */}
-        <div className="absolute inset-x-0 top-0 h-4">
-          {ticks.map((t) => (
-            <span key={t} className="tabular absolute top-0 border-l border-line-strong pl-1 font-mono text-[10px] leading-4 text-ink-3" style={{ left: pct(t) }}>
-              {t}s
-            </span>
-          ))}
-        </div>
-        {/* Scenes */}
-        <div className="absolute inset-x-0 top-5 bottom-0">
-          {placed.map((p) => {
-            const live = resize?.id === p.scene.id;
-            const width = live ? resize.seconds : p.end - p.start;
-            return (
-              <div
-                key={p.scene.id}
-                className={cn("absolute inset-y-0 overflow-hidden rounded-lg border bg-surface px-2 py-1.5", time >= p.start && time < p.end ? "border-accent/70" : "border-line-strong", live && "z-10 border-accent shadow-card")}
-                style={{ left: pct(p.start), width: `calc(${total ? (width / total) * 100 : 0}% - 2px)` }}
-                title={`Scène ${p.index + 1} · ${(p.end - p.start).toFixed(1)} s`}
-              >
-                <p className="flex items-center gap-1 text-[10.5px] font-medium text-ink-3">
-                  <span className="tabular font-mono">{p.index + 1}</span>
-                  {p.scene.custom && <Sparkles className="size-2.5 text-accent" />}
-                  <span className="tabular ml-auto font-mono">{width.toFixed(1)} s</span>
-                </p>
-                <p className="truncate text-[12px] leading-tight font-medium">{p.scene.title || p.scene.body}</p>
-                <p className="truncate text-[10.5px] leading-tight text-ink-3">{p.scene.title ? p.scene.body : ""}</p>
-                <span
-                  onPointerDown={(e) => grab(e, p.scene.id, p.start, p.end - p.start)}
-                  onPointerMove={pull}
-                  onPointerUp={drop}
-                  onPointerCancel={() => setResize(null)}
-                  aria-hidden
-                  title="Tire pour changer la durée de la scène"
-                  className="absolute inset-y-0 right-0 w-2 cursor-ew-resize touch-none rounded-r-lg bg-line-strong/0 hover:bg-accent/50"
-                />
-              </div>
-            );
-          })}
-          {sel && <div className="pointer-events-none absolute inset-y-0 rounded-md border border-accent bg-accent/15" style={{ left: pct(sel[0]), width: `${total ? ((sel[1] - sel[0]) / total) * 100 : 0}%` }} />}
-          {marks.map((m) => (
-            <button
-              key={m.id}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => onSeek(m.t)}
-              title={m.text || "Note dessinée"}
-              aria-label={`Note à ${fmtSec(m.t)}`}
-              className="absolute -top-1 z-10 grid size-4 -translate-x-1/2 place-items-center rounded-full bg-accent text-white shadow-card"
-              style={{ left: pct(m.t) }}
-            >
-              <PenLine className="size-2.5" />
-            </button>
-          ))}
-        </div>
-        {/* Playhead */}
-        {time >= 0 && <div className="pointer-events-none absolute top-0 bottom-0 z-20 w-0.5 -translate-x-1/2 rounded-full bg-accent" style={{ left: pct(time) }} />}
-      </div>
-    </div>
   );
 }
