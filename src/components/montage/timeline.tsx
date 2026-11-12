@@ -62,6 +62,7 @@ export function Timeline({
   zoomRef,
   textSel,
   onTextSel,
+  workerVersion,
   onRemove,
   onMark,
 }: {
@@ -85,6 +86,8 @@ export function Timeline({
   /** The free text chosen (texts put on the video by hand have their own track). */
   textSel?: string | null;
   onTextSel?: (id: string) => void;
+  /** Version of the Mac program: speed and still reframing need 0.12.0. */
+  workerVersion?: string;
   /** Removes what is selected (the Delete key does the same). */
   onRemove?: () => void;
   /** Puts a note for Claude at the playhead (the M key does the same). */
@@ -238,6 +241,9 @@ export function Timeline({
     return out;
   }, [dur, tail, pps]);
 
+  const wv = (workerVersion ?? "").split(".").map((x) => parseInt(x, 10) || 0);
+  /** An older Mac would render the shot at normal speed and the reframing as a moving zoom. */
+  const oldMac = !!workerVersion && (wv[0] ?? 0) === 0 && (wv[1] ?? 0) < 12;
   const selSeg = selection?.kind === "seg" ? edl.segments.find((s) => s.id === selection.id) : undefined;
   const selZoom = selection?.kind === "zoom" ? zooms[selection.i] : undefined;
   const selBroll = selection?.kind === "broll" ? broll[selection.i] : undefined;
@@ -508,11 +514,12 @@ export function Timeline({
             >
               <Trash2 className="size-3.5" /> Retirer le plan
             </Button>
-            <label className="flex items-center gap-1.5" title="Vitesse de lecture de ce plan. Pour un passage seulement : coupe-le d'abord avec S.">
+            <label className={cn("flex items-center gap-1.5", oldMac && "opacity-50")} title={oldMac ? "Mets à jour le programme du Mac (version 0.12.0) pour changer la vitesse" : "Vitesse de lecture de ce plan. Pour un passage seulement : coupe-le d'abord avec S."}>
               <Gauge className="size-3.5 text-ink-3" />
               Vitesse
               <select
                 aria-label="Vitesse du plan"
+                disabled={oldMac}
                 value={selSeg.speed ?? 1}
                 onChange={(e) => {
                   const next = structuredClone(edl);
@@ -537,9 +544,10 @@ export function Timeline({
             <span className="text-ink-2">
               {selZoom.hold ? "Recadrage" : "Zoom"} à {fmtSec(selZoom.at)} pendant {selZoom.dur.toFixed(1)} s
             </span>
-            <label className="flex items-center gap-1.5" title="Plan serré fixe : l'image reste agrandie tout le passage, sans mouvement">
+            <label className={cn("flex items-center gap-1.5", oldMac && "opacity-50")} title={oldMac ? "Mets à jour le programme du Mac (version 0.12.0) pour le plan serré fixe" : "Plan serré fixe : l'image reste agrandie tout le passage, sans mouvement"}>
               <input
                 type="checkbox"
+                disabled={oldMac && !selZoom.hold}
                 checked={!!selZoom.hold}
                 onChange={(e) => {
                   const next = structuredClone(edl);

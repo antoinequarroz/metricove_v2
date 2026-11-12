@@ -496,6 +496,7 @@ function Review({
               onSelect={setSelection}
               textSel={textSel}
               onTextSel={setTextSel}
+              workerVersion={worker?.version}
               src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
               stale={dirty}
               playing={playing}
