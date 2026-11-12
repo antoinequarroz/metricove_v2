@@ -28,7 +28,9 @@ export async function POST(req: Request, { params }: Ctx) {
       // The Mac never changes the texts put by hand: an older one does not know them and would erase them.
       if (typeof reel !== "string") v.reel = { ...reel, ...(v.reel.texts?.length ? { texts: v.reel.texts } : {}) };
     }
-    if (v.reel && typeof b.notes === "string" && b.notes.trim()) v.notes = b.notes.trim().slice(0, 2000);
+    // What the Mac has to say: a reel's fallbacks, or the B-roll Claude placed on a passage.
+    if (typeof b.notes === "string" && b.notes.trim()) v.notes = b.notes.trim().slice(0, 2000);
+    job.brollAsk = undefined;
     return NextResponse.json({ job: release(job, "review") });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: e instanceof UploadError ? e.status : 500 });

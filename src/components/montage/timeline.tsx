@@ -1,17 +1,18 @@
 "use client";
 
-import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn, Gauge, Crop } from "lucide-react";
+import { Clapperboard, Keyboard, MapPin, Maximize2, Minus, Plus, Redo2, Scissors, Trash2, Undo2, ZoomIn, Gauge, Crop, Images, PictureInPicture2, Sparkles, Volume2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { edlDuration, reorderKept, splitAt, SPEEDS, timeline, type CaptionStyle, type Edl, type MontageMark, type Rush } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./controls";
 import { Button } from "../ui";
+import { BrollPicker } from "./broll-picker";
 import { CaptionBlocks, CaptionInspector, type CaptionPick } from "./caption-track";
 import { TextBlocks } from "./free-texts";
 import { fmtSec } from "./parts";
 import { Filmstrip, SHORTCUTS, snap, useFilmstrip, useFollowPlayhead, useTimelineZoom, useWaveform, Waveform } from "./timeline-kit";
 
-export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "title" } | ({ kind: "cap" } & CaptionPick) | null;
+export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "title" } | ({ kind: "cap" } & CaptionPick) | { kind: "brange"; a: number; b: number } | null;
 
 const TRACK = "relative h-11 border-b border-line";
 const LABEL_W = 64;
@@ -67,6 +68,7 @@ export function Timeline({
   captionStyle,
   onRemove,
   onMark,
+  onBrollAsk,
 }: {
   edl: Edl;
   /** `key` names a control whose changes in a row make one step to undo. */
@@ -96,6 +98,8 @@ export function Timeline({
   onRemove?: () => void;
   /** Puts a note for Claude at the playhead (the M key does the same). */
   onMark?: () => void;
+  /** Asks Claude for B-roll on a passage of the timeline (seconds), with an optional note. */
+  onBrollAsk?: (range: [number, number], note: string) => void;
 }) {
   const [moving, setMoving] = useState<{ id: string; dx: number } | null>(null);
   const placed = useMemo(() => timeline(edl), [edl]);
@@ -196,22 +200,41 @@ export function Timeline({
 
   /* ---- B-roll ---- */
   const broll = edl.broll ?? [];
-  const addBroll = (e: React.MouseEvent) => {
-    if (e.target !== e.currentTarget) return;
-    const at = clamp(secAt(e.clientX), 0, Math.max(0, dur - 1));
+  const addBroll = (at: number, len = 2) => {
+    at = clamp(at, 0, Math.max(0, dur - 1));
     const next = structuredClone(edl);
-    next.broll = [...(next.broll ?? []), { at, dur: Math.min(2, dur - at), query: "illustration", mode: "full" as const }].sort((a, b) => a.at - b.at);
+    next.broll = [...(next.broll ?? []), { at, dur: Math.max(0.5, Math.min(len, dur - at)), query: "illustration", mode: "full" as const }].sort((a, b) => a.at - b.at);
     onChange(next);
     onSelect({ kind: "broll", i: next.broll.findIndex((b) => b.at === at) });
   };
-  const editBroll = (i: number, patch: Partial<NonNullable<Edl["broll"]>[number]>) => {
+  /** On the empty B-roll track: a click adds a shot, a drag picks a passage (to ask Claude or to fill with one shot). */
+  const brollDown = (e: React.PointerEvent) => {
+    if (e.target !== e.currentTarget || e.button !== 0) return;
+    const t0 = secAt(e.clientX);
+    const x0 = e.clientX;
+    drag(
+      e,
+      (dx) => {
+        const t1 = clamp(secAt(x0 + dx), 0, dur);
+        onSelect({ kind: "brange", a: Math.min(t0, t1), b: Math.max(t0, t1) });
+      },
+      (_dx, moved) => {
+        if (!moved) addBroll(t0);
+      },
+    );
+  };
+  const editBroll = (i: number, patch: Partial<NonNullable<Edl["broll"]>[number]>, key?: string) => {
     const next = structuredClone(edl);
     const b = next.broll![i];
+    // A new description typed by hand means a new search on the Mac; a shot picked in the list comes with its source.
+    if (patch.query !== undefined && patch.source === undefined) Object.assign(b, { source: undefined, ref: undefined, thumb: undefined, url: undefined, from: undefined });
+    if (patch.source !== undefined) Object.assign(b, { url: undefined, from: undefined });
     Object.assign(b, patch);
-    // A new description means a new search on the Mac.
-    if (patch.query !== undefined) Object.assign(b, { source: undefined, ref: undefined, thumb: undefined });
-    onChange(next);
+    for (const k of Object.keys(b) as (keyof typeof b)[]) if (b[k] === undefined) delete b[k];
+    onChange(next, key);
   };
+  const [picking, setPicking] = useState(false);
+  const [askNote, setAskNote] = useState("");
 
   const addZoom = (e: React.MouseEvent) => {
     if (e.target !== e.currentTarget) return;
@@ -250,6 +273,9 @@ export function Timeline({
   const oldMac = !!workerVersion && (wv[0] ?? 0) === 0 && (wv[1] ?? 0) < 12;
   /** An older Mac cuts the subtitles on its own and ignores the block limits set by hand. */
   const oldCaptions = !!workerVersion && (wv[0] ?? 0) === 0 && (wv[1] ?? 0) < 13;
+  /** Picking a shot, its sound and its start, and asking Claude for B-roll need the Mac 0.13.0. */
+  const oldBroll = oldCaptions;
+  const brange = selection?.kind === "brange" ? selection : undefined;
   const selSeg = selection?.kind === "seg" ? edl.segments.find((s) => s.id === selection.id) : undefined;
   const selZoom = selection?.kind === "zoom" ? zooms[selection.i] : undefined;
   const selBroll = selection?.kind === "broll" ? broll[selection.i] : undefined;
@@ -402,7 +428,10 @@ export function Timeline({
             })}
           </Track>
 
-          <Track label="B-roll" onClick={addBroll}>
+          <Track label="B-roll" onPointerDown={brollDown}>
+            {brange && (
+              <div className="pointer-events-none absolute top-1 bottom-1 z-10 rounded-md border border-dashed border-accent bg-accent/10" style={{ left: brange.a * pps, width: Math.max(2, (brange.b - brange.a) * pps) }} />
+            )}
             {broll.map((b, i) => {
               const on = selection?.kind === "broll" && selection.i === i;
               return (
@@ -421,6 +450,10 @@ export function Timeline({
                       <Clapperboard className="size-3 shrink-0" />
                     )}
                     <span className="truncate">{b.query}</span>
+                  </span>
+                  <span className="pointer-events-none absolute top-0.5 right-2 flex items-center gap-0.5 rounded bg-surface/85 px-0.5 text-ink-2">
+                    {b.mode === "pip" ? <PictureInPicture2 className="size-3" aria-label="Incrusté" /> : <Maximize2 className="size-3" aria-label="Plein écran" />}
+                    {!!b.sound && <Volume2 className="size-3" aria-label="Avec son" />}
                   </span>
                   <Handle side="left" onPointerDown={(e) => moveSpan(e, "broll", i, "start")} label="Début du plan" />
                   <Handle side="right" onPointerDown={(e) => moveSpan(e, "broll", i, "end")} label="Fin du plan" />
@@ -636,7 +669,49 @@ export function Timeline({
                 className="h-7 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-[12.5px] outline-none focus:border-accent/60"
               />
             </label>
-            <span className="text-ink-3">{selBroll.source === "mine" ? "Ton plan" : selBroll.source === "pexels" ? "Pexels" : "Le Mac cherchera"}</span>
+            <Button size="sm" onClick={() => setPicking(true)} disabled={oldBroll} title={oldBroll ? "Mets à jour le programme du Mac (version 0.13.0) pour choisir le plan" : "Choisir dans ton dossier du Mac, la bibliothèque ou Pexels"}>
+              <Images className="size-3.5" /> {selBroll.source ? "Changer le plan" : "Choisir le plan"}
+            </Button>
+            <span className="text-ink-3">{selBroll.source === "mine" ? "Ton plan" : selBroll.source === "pexels" ? "Pexels" : selBroll.source === "library" ? "Bibliothèque" : "Le Mac cherchera"}</span>
+            <BrollPicker
+              open={picking}
+              onOpenChange={setPicking}
+              format={edl.format}
+              query={selBroll.query}
+              onPick={(p) => editBroll((selection as { i: number }).i, { ...p, query: p.query || selBroll.query })}
+            />
+            <label className={cn("flex items-center gap-1.5", oldBroll && "opacity-50")} title="Son du plan, sous ta voix">
+              <Volume2 className="size-3.5 text-ink-3" />
+              <select
+                value={String(selBroll.sound ?? 0)}
+                disabled={oldBroll}
+                onChange={(e) => editBroll((selection as { i: number }).i, { sound: Number(e.target.value) || undefined })}
+                className="h-7 rounded-md border border-line-strong bg-surface px-1.5 text-[12.5px] outline-none"
+                aria-label="Son du plan"
+              >
+                <option value="0">Muet</option>
+                <option value="0.2">Discret</option>
+                <option value="0.5">Moyen</option>
+                <option value="1">Fort</option>
+              </select>
+            </label>
+            {selBroll.source && (
+              <label className={cn("flex items-center gap-1.5", oldBroll && "opacity-50")} title="Seconde du plan où il commence (pour en montrer un autre moment)">
+                <span className="text-ink-3">Début du plan</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={600}
+                  step={0.5}
+                  disabled={oldBroll}
+                  value={selBroll.from ?? 0}
+                  onChange={(e) => editBroll((selection as { i: number }).i, { from: Math.max(0, Number(e.target.value) || 0) || undefined }, "broll-from")}
+                  className="h-7 w-16 rounded-md border border-line-strong bg-surface px-1.5 text-[12.5px] outline-none"
+                  aria-label="Début dans le plan (secondes)"
+                />
+                <span className="text-ink-3">s</span>
+              </label>
+            )}
             <Segmented
               label="Affichage"
               value={selBroll.mode}
@@ -659,24 +734,61 @@ export function Timeline({
               <Trash2 className="size-3.5" /> Retirer
             </Button>
           </>
+        ) : brange ? (
+          <>
+            <span className="tabular font-mono text-ink-3">
+              Passage {fmtSec(brange.a)} → {fmtSec(brange.b)}
+            </span>
+            {onBrollAsk && (
+              <>
+                <input
+                  value={askNote}
+                  onChange={(e) => setAskNote(e.target.value)}
+                  maxLength={500}
+                  placeholder="Consigne pour Claude (facultatif), par ex. des livres, pas de personnes"
+                  aria-label="Consigne pour Claude"
+                  className="h-7 min-w-48 flex-1 rounded-md border border-line-strong bg-surface px-2 text-[12.5px] outline-none focus:border-accent/60"
+                />
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={oldBroll || brange.b - brange.a < 0.8}
+                  title={oldBroll ? "Mets à jour le programme du Mac (version 0.13.0)" : brange.b - brange.a < 0.8 ? "Choisis un passage d'au moins une seconde" : "Claude place 1 à 3 plans dans ce passage, le reste ne bouge pas"}
+                  onClick={() => {
+                    onBrollAsk([brange.a, brange.b], askNote.trim());
+                    setAskNote("");
+                    onSelect(null);
+                  }}
+                >
+                  <Sparkles className="size-3.5" /> Claude, propose du B-roll ici
+                </Button>
+              </>
+            )}
+            <Button size="sm" variant="ghost" disabled={brange.b - brange.a < 0.5} onClick={() => addBroll(brange.a, brange.b - brange.a)}>
+              <Plus className="size-3.5" /> Un plan sur tout le passage
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onSelect(null)}>
+              Annuler
+            </Button>
+          </>
         ) : selection?.kind === "title" && edl.title ? (
           <span className="text-ink-2">Accroche affichée pendant {edl.title.until.toFixed(1)} s. Tire le bord droit pour changer la durée, et modifie le texte dans Réglages.</span>
         ) : (
-          <span className="text-ink-3">Glisse un plan pour le déplacer, tire ses bords pour le raccourcir. Clique sur la piste Zooms ou B-roll pour en ajouter un.</span>
+          <span className="text-ink-3">Glisse un plan pour le déplacer, tire ses bords pour le raccourcir. Clique sur la piste Zooms ou B-roll pour en ajouter un. Glisse sur la piste B-roll pour choisir un passage et demander du B-roll à Claude.</span>
         )}
       </div>
     </div>
   );
 }
 
-function Track({ label, hint, children, onClick }: { label: string; hint?: string; children: React.ReactNode; onClick?: (e: React.MouseEvent) => void }) {
+function Track({ label, hint, children, onClick, onPointerDown }: { label: string; hint?: string; children: React.ReactNode; onClick?: (e: React.MouseEvent) => void; onPointerDown?: (e: React.PointerEvent) => void }) {
   return (
     <div className={cn(TRACK, "flex")}>
       <div className="sticky left-0 z-20 flex shrink-0 flex-col justify-center border-r border-line bg-surface px-2" style={{ width: LABEL_W }}>
         <span className="text-[11px] font-medium text-ink-2">{label}</span>
         {hint && <span className="text-[9.5px] leading-tight text-ink-3">{hint}</span>}
       </div>
-      <div className={cn("relative flex-1", onClick && "cursor-copy")} onClick={onClick}>
+      <div className={cn("relative flex-1", (onClick || onPointerDown) && "cursor-copy")} onClick={onClick} onPointerDown={onPointerDown}>
         {children}
       </div>
     </div>

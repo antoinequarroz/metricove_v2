@@ -328,6 +328,23 @@ export function workerSeen(info: { worker?: string; version?: string; tracks?: s
     .run({ v: JSON.stringify({ worker: info.worker, version: info.version, ...(tracks ? { tracks } : {}), at: Date.now() }) });
 }
 
+/** One shot of the Mac B-roll folder, as the page lists it. */
+export type MacBroll = { name: string; thumb?: string; dur?: number };
+
+/** The files of the Mac B-roll folder (worker 0.13.0), kept apart from the presence record that is read every few seconds. */
+export function saveMacBroll(list: MacBroll[]) {
+  init()
+    .prepare("insert into kv (key, value) values ('worker-broll', @v) on conflict(key) do update set value = excluded.value")
+    .run({ v: JSON.stringify({ list, at: Date.now() }) });
+}
+
+export function macBroll(): { list: MacBroll[]; at?: string } {
+  const r = init().prepare("select value from kv where key = 'worker-broll'").get() as { value: string } | undefined;
+  if (!r) return { list: [] };
+  const v = JSON.parse(r.value) as { list: MacBroll[]; at: number };
+  return { list: v.list, at: new Date(v.at).toISOString() };
+}
+
 export function workerStatus() {
   const r = init().prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
   if (!r) return { online: false as const };
@@ -407,15 +424,22 @@ export function cleanBroll(raw: unknown[]): Broll[] {
     const dur = num(b.dur);
     const query = str(b.query, 120)?.trim();
     if (at === undefined || dur === undefined || dur <= 0 || !query) continue;
-    const thumb = typeof b.thumb === "string" && b.thumb.startsWith("data:image/") && b.thumb.length < 60_000 ? b.thumb : undefined;
+    // A small picture made by the Mac, or the one shown in the picker (Pexels still, cover of a library video).
+    const thumb =
+      typeof b.thumb === "string" && ((b.thumb.startsWith("data:image/") && b.thumb.length < 60_000) || /^https:\/\/images\.pexels\.com\/[^\s"'<>]{1,500}$/.test(b.thumb) || /^\/api\/media\/[\w-]{1,80}\/cover$/.test(b.thumb))
+        ? b.thumb
+        : undefined;
     out.push({
       at: Math.max(0, at),
       dur: Math.min(30, dur),
       query,
-      source: b.source === "mine" || b.source === "pexels" ? b.source : undefined,
+      source: b.source === "mine" || b.source === "pexels" || b.source === "library" ? b.source : undefined,
       ref: str(b.ref, 300) || undefined,
       thumb,
       mode: b.mode === "pip" ? "pip" : "full",
+      ...(b.source === "pexels" && typeof b.url === "string" && /^https:\/\/videos\.pexels\.com\/[^\s"'<>]{1,400}$/.test(b.url) ? { url: b.url } : {}),
+      ...(num(b.from)! > 0 ? { from: Math.min(3600, Math.round(num(b.from)! * 100) / 100) } : {}),
+      ...(num(b.sound)! > 0 ? { sound: Math.min(1, Math.round(num(b.sound)! * 100) / 100) } : {}),
     });
   }
   return out.sort((a, b) => a.at - b.at);

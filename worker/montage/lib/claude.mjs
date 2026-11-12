@@ -123,3 +123,46 @@ N'invente aucun fait (lieu, métier, chiffre, nom, expérience) qui n'est pas da
 S'il manque une information indispensable, mets au plus deux trous à compléter, sous la forme [à compléter : …]. Rends uniquement le texte.`;
   return ask(cfg, prompt, null, cwd);
 }
+
+const BROLL_SCHEMA = {
+  type: "object",
+  required: ["shots", "notes"],
+  properties: {
+    shots: {
+      type: "array",
+      description: "1 à 3 plans d'illustration dans le passage.",
+      items: {
+        type: "object", required: ["at", "dur", "query", "mode"],
+        properties: {
+          at: { type: "number", description: "seconde de la timeline où le plan commence (dans le passage)" },
+          dur: { type: "number", description: "1,2 à 4 s" },
+          query: { type: "string", description: "ce que le plan montre, en français, 2 à 5 mots concrets (sert à chercher)" },
+          mode: { type: "string", enum: ["full", "pip"] },
+          file: { type: "string", description: "fichier choisi dans la liste des plans d'Antoine, sinon vide" },
+        },
+      },
+    },
+    notes: { type: "string", description: "1 ou 2 phrases en français pour Antoine : ce que montrent les plans et pourquoi." },
+  },
+};
+
+/**
+ * B-roll pour un seul passage de la vidéo montée (« Claude, propose du B-roll ici »).
+ * `words` : [{ t, w }] mots dits dans le passage, en secondes de la timeline ; `mine` : fichiers du dossier B-roll.
+ */
+export async function proposeBroll(cfg, { job, range, words, mine = [], note, cwd }) {
+  const [a, b] = range;
+  const project = job.voice?.tone || job.voice?.skill ? `\nPROFIL DU PROJET (pour le choix des images) :\n${voiceRules(job, "", { examples: false })}\n` : "";
+  const prompt = `Tu es monteur vidéo pour les réseaux sociaux. Dans une vidéo face caméra déjà montée (format ${job.brief?.format || "9:16"}), Antoine a choisi le passage de ${a.toFixed(1)} s à ${b.toFixed(1)} s et veut du B-roll (plans d'illustration posés par-dessus lui, sa voix continue).
+${note ? `\nSA DEMANDE (prioritaire) : ${note}\n` : ""}
+CE QUI EST DIT DANS LE PASSAGE (seconde de la timeline : mot) :
+${words.map((x) => `${x.t.toFixed(2)} ${x.w}`).join("\n") || "(pas de parole : illustre le sujet de la vidéo)"}
+${mine.length ? `\nPLANS D'ANTOINE (à préférer s'ils collent, mets le nom exact dans file) : ${mine.join(", ")}\n` : "\nAntoine n'a pas de plans à lui : laisse file vide, ils seront cherchés sur Pexels.\n"}${project}
+RÈGLES
+- 1 à 3 plans, entièrement dans le passage (at ≥ ${a.toFixed(1)}, at + dur ≤ ${b.toFixed(1)}), sans chevauchement, qui commencent sur le mot qu'ils illustrent.
+- query : ce qu'on voit, en mots concrets et filmables (objet, lieu, geste), pas une idée abstraite.
+- mode full par défaut ; pip quand le visage ou l'émotion d'Antoine compte à ce moment.
+Réponds uniquement avec le JSON demandé.`;
+  log("B-roll d'un passage demandé à Claude");
+  return ask(cfg, prompt, BROLL_SCHEMA, cwd);
+}

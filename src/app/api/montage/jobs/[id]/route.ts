@@ -17,6 +17,8 @@ type Body = {
   revise?: string;
   marks?: unknown;
   edl?: unknown;
+  /** Face-cam edit: Claude proposes B-roll for this passage only, { range: [from, to], note? } (sent with the edl on screen). */
+  brollAsk?: { range?: unknown; note?: unknown };
   /** Animated reel: the passage (seconds) a request is about, the version a request or an edit starts from, the edited plan. */
   range?: unknown;
   from?: unknown;
@@ -79,6 +81,20 @@ export async function PATCH(req: Request, { params }: Ctx) {
     // A note left empty is not a request: Claude would start again from nothing.
     if (job.versions.length && !job.feedback && !job.marks && typeof b.revise === "string" && Array.isArray(b.marks) && b.marks.length) return NextResponse.json({ error: "Écris ta demande ou une note" }, { status: 400 });
     return NextResponse.json({ job: queue(job, "propose") });
+  }
+  if (b.brollAsk !== undefined) {
+    if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });
+    if (job.kind !== "montage") return NextResponse.json({ error: "Seulement pour une vidéo face caméra" }, { status: 400 });
+    const [a, z] = Array.isArray(b.brollAsk.range) ? (b.brollAsk.range as unknown[]).map(Number) : [];
+    if (!Number.isFinite(a) || !Number.isFinite(z) || a < 0 || z - a < 0.8 || z - a > 120) return NextResponse.json({ error: "Choisis un passage de 1 s à 2 min" }, { status: 400 });
+    // The edit on screen becomes the version Claude adds B-roll to (unsaved changes included).
+    const edl = b.edl !== undefined ? cleanEdl(b.edl, job.rushIds) : job.versions.at(-1)?.edl;
+    if (typeof edl === "string") return NextResponse.json({ error: edl }, { status: 400 });
+    if (!edl) return NextResponse.json({ error: "Pas encore de montage" }, { status: 400 });
+    addVersion(job, structuredClone(edl), "edit");
+    const note = typeof b.brollAsk.note === "string" ? b.brollAsk.note.trim().slice(0, 500) : "";
+    job.brollAsk = { range: [Math.round(a * 100) / 100, Math.round(z * 100) / 100], ...(note ? { note } : {}) };
+    return NextResponse.json({ job: queue(job, "broll") });
   }
   if (b.edl !== undefined) {
     if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });

@@ -14,6 +14,7 @@ type Overview = {
   publisher: { name: string; label: string; ready: boolean; detail?: string };
   teams: string[];
   apiToken: boolean;
+  pexels?: boolean;
   publicUrl: string | null;
 };
 
@@ -78,6 +79,7 @@ export function SettingsPage() {
               <StyleProfiles />
             </Section>
           </div>
+          {overview && <PexelsSection on={!!overview.pexels} onChanged={load} />}
           {overview?.publisher.name === "treg" && <FacebookSection />}
           <InfoSection overview={overview} />
         </div>
@@ -177,6 +179,56 @@ function PasswordSection({ overview, onChanged }: { overview: Overview; onChange
             </Button>
           )}
         </div>
+      </form>
+    </Section>
+  );
+}
+
+function PexelsSection({ on, onChanged }: { on: boolean; onChanged: () => void }) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (value: string) => {
+    setBusy(true);
+    try {
+      await json(await fetch("/api/settings/pexels", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: value }) }));
+      toast.success(value ? "Clé Pexels enregistrée" : "Clé Pexels retirée");
+      setKey("");
+      onChanged();
+    } catch (err) {
+      toast.error("Clé Pexels inchangée", { description: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section
+      title="B-roll Pexels"
+      hint={
+        <>
+          Pour chercher des plans d&apos;illustration gratuits depuis la timeline. Clé gratuite sur{" "}
+          <a href="https://www.pexels.com/api/" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+            pexels.com/api
+          </a>
+          . {on ? "Une clé est enregistrée." : "Aucune clé pour l'instant."}
+        </>
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (key.trim()) save(key.trim());
+        }}
+        className="flex flex-wrap items-center gap-2 p-4"
+      >
+        <input type="password" autoComplete="off" maxLength={200} value={key} onChange={(e) => setKey(e.target.value)} placeholder={on ? "Nouvelle clé pour remplacer l'actuelle" : "Colle ta clé Pexels"} aria-label="Clé Pexels" className={cn(inputClass, "min-w-0 flex-1")} />
+        <Button variant="primary" disabled={busy || !key.trim()}>
+          <Check className="size-4" /> Enregistrer
+        </Button>
+        {on && (
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => save("")}>
+            Retirer
+          </Button>
+        )}
       </form>
     </Section>
   );

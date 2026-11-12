@@ -63,10 +63,16 @@ export type Broll = {
   dur: number;
   /** What the shot should show, in a few words (used to search). */
   query: string;
-  /** Where the shot comes from, once the Mac found it. */
-  source?: "mine" | "pexels";
-  /** File name in the Mac B-roll folder, or Pexels video id. */
+  /** Where the shot comes from: the Mac B-roll folder, Pexels, or a video of the Metricove library. Absent = the Mac searches. */
+  source?: "mine" | "pexels" | "library";
+  /** File name in the Mac B-roll folder, Pexels video id, or library media id. */
   ref?: string;
+  /** Pexels: link of the video file picked in the page, so the Mac can fetch it without a Pexels key of its own. */
+  url?: string;
+  /** Second of the clip where the shot starts (absent = its start). */
+  from?: number;
+  /** Volume of the clip's own sound, under the voice (0 to 1; absent = muted). */
+  sound?: number;
   /** Small JPEG data URL of the shot. */
   thumb?: string;
   /** full: replaces the picture; pip: small window, the speaker stays visible. */
@@ -211,7 +217,7 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll";
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -286,6 +292,8 @@ export type MontageJob = {
   /** kind "motion": the passage of the video (seconds) the last request is about, and the version it starts from. */
   range?: [number, number];
   base?: number;
+  /** Face-cam edit: B-roll asked to Claude for one passage (timeline seconds) of the last version (action "broll", worker 0.13.0). */
+  brollAsk?: { range: [number, number]; note?: string };
   /** Voice of the project (style profile): Claude writes with it. Copied when the job was made; refreshed for edits and covers when the Mac takes the job. */
   voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[] };
   /** Colors and font of the project (style profile) for the video overlays: added when the Mac takes the job. */

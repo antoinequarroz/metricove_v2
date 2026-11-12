@@ -14,6 +14,7 @@ import { Api } from "./lib/api.mjs";
 import { scan } from "./lib/rushes.mjs";
 import { handle } from "./lib/jobs.mjs";
 import { listTracks } from "./lib/audio.mjs";
+import { macBrollList, setBrollApi } from "./lib/broll.mjs";
 
 const VERSION = "0.13.0";
 const argv = new Set(process.argv.slice(2));
@@ -50,6 +51,8 @@ async function loop() {
   log(`worker de montage ${VERSION} → ${cfg.metricoveUrl}${api.dryRun ? " (essai à blanc)" : ""}`);
   let lastScan = 0;
   let sentTracks = null, sentAt = 0;
+  let sentBroll = null, brollAt = 0;
+  setBrollApi(api);
   for (;;) {
     try {
       if (Date.now() - lastScan > cfg.scanSeconds * 1000) {
@@ -60,8 +63,16 @@ async function loop() {
       // La liste des morceaux part avec la demande quand elle a changé (et une fois au démarrage) : la page les propose par nom.
       let tracks;
       try { const now = listTracks(cfg).slice(0, 200); if (now.join("\n") !== sentTracks || Date.now() - sentAt > 600_000) tracks = now; } catch { /* dossier illisible : la page garde sa liste */ }
-      const claimed = await api.claim(VERSION, tracks);
+      // Les plans du dossier B-roll (avec une petite image) partent de même quand ils ont changé : la page les propose.
+      let brolls, brollKey;
+      try {
+        const { list } = await macBrollList(cfg);
+        brollKey = JSON.stringify(list.map((x) => [x.name, !!x.thumb, x.dur]));
+        if (brollKey !== sentBroll || Date.now() - brollAt > 600_000) brolls = list;
+      } catch { /* dossier illisible : la page garde sa liste */ }
+      const claimed = await api.claim(VERSION, tracks, brolls);
       if (tracks) { sentTracks = tracks.join("\n"); sentAt = Date.now(); }
+      if (brolls) { sentBroll = brollKey; brollAt = Date.now(); }
       if (claimed?.job) {
         log(`tâche « ${claimed.job.title} » → ${claimed.action}`);
         await handle(api, cfg, claimed);

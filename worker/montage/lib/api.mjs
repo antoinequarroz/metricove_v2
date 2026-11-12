@@ -31,7 +31,7 @@ export class Api {
     return text ? JSON.parse(text) : null;
   }
 
-  claim(version, tracks) { return this.req("POST", "/api/montage/worker/claim", { json: { worker: "mac", version, ...(tracks ? { tracks } : {}) } }); }
+  claim(version, tracks, brolls) { return this.req("POST", "/api/montage/worker/claim", { json: { worker: "mac", version, ...(tracks ? { tracks } : {}), ...(brolls ? { brolls } : {}) } }); }
   patch(id, data) { return this.req("PATCH", `/api/montage/jobs/${id}`, { json: data }); }
   step(id, step, progress) { return this.patch(id, { step, progress }).catch((e) => log("étape non envoyée :", e.message)); }
   fail(id, error) { return this.patch(id, { status: "failed", error: String(error).slice(0, 2000) }); }

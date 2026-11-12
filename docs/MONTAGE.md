@@ -114,9 +114,12 @@ type Edl = {
   broll?: {                        // plans d'illustration par-dessus Antoine (sa voix continue), temps de timeline
     at: number; dur: number;
     query: string;                 // ce que le plan montre, en quelques mots (sert à chercher)
-    source?: "mine" | "pexels";    // rempli par le worker une fois le plan trouvé ; absent = à chercher
-    ref?: string;                  // nom du fichier dans ~/Movies/Metricove/broll, ou id de la vidéo Pexels
-    thumb?: string;                // petite image JPEG en data URL (≤ 40 Ko)
+    source?: "mine" | "pexels" | "library"; // choisi dans la page ou rempli par le worker une fois le plan trouvé ; absent = à chercher
+    ref?: string;                  // nom du fichier dans ~/Movies/Metricove/broll, id de la vidéo Pexels, ou id du média de la bibliothèque
+    url?: string;                  // Pexels choisi dans la page : lien du fichier (https://videos.pexels.com/…), le Mac le prend sans clé
+    from?: number;                 // seconde du plan où il commence (worker 0.13.0)
+    sound?: number;                // volume du son du plan sous la voix, 0 à 1 ; absent = muet (worker 0.13.0)
+    thumb?: string;                // petite image : data URL JPEG (≤ 40 Ko), image Pexels, ou /api/media/<id>/cover
     mode: "full" | "pip";          // plein écran, ou petite fenêtre (Antoine reste visible)
   }[];
 };
@@ -313,3 +316,7 @@ Les deux écrans de montage (face caméra : `timeline.tsx` + `review-page.tsx` ;
 **Vitesse d'un plan et recadrage (worker 0.12.0)** — `segment.speed` (0,5 à 2, absent = 1) : la durée du plan sur la timeline est divisée par la vitesse, dans `src/lib/montage.ts` comme dans `worker/montage/lib/edl.mjs` (`timeline`, `toTimeline`, `toRush`, `renderPlan`). Le rendu ralentit ou accélère l'image (`setpts`) et le son (`atempo`, sans changer la hauteur de la voix). Pour un passage seulement : le couper d'abord avec S. `zoom.hold: true` : plan serré fixe (recadrage), le même grossissement (jusqu'à ×2) tout le passage, sans mouvement ; il ne compte pas dans l'alternance avant / arrière des autres zooms.
 
 **Piste Sous-titres (worker 0.13.0)** — les blocs de sous-titres sont calculés de la même façon dans l'éditeur (`captionBlocks` dans `src/lib/montage.ts`) et sur le Mac (`chunksOf` dans `worker/montage/lib/hf.mjs`) : 2 lignes au plus, coupe sur la ponctuation, les silences de plus de 0,35 s et les changements de plan. Deux marques posées à la main sur les mots (`EdlWord`) : `brk` (un bloc commence à ce mot) et `glue` (pas de coupe avant ce mot, 3 lignes au plus). Dans la piste (`caption-track.tsx`) : double-clic pour corriger le texte d'un bloc (même nombre de mots : chaque mot garde son temps ; sinon les nouveaux mots se partagent le temps du bloc ; le son ne change pas), tirer la limite entre deux blocs, couper un bloc à un mot, fusionner avec le suivant, mettre un mot en couleur ou lui ajouter un emoji. Chaque changement fige d'abord les blocs du plan tels qu'ils sont affichés, pour que les blocs suivants ne bougent pas.
+
+**B-roll choisi à la main (worker 0.13.0)** — dans l'inspecteur d'un plan de B-roll, « Choisir le plan » ouvre `broll-picker.tsx` : les plans du dossier B-roll du Mac (le worker envoie `brolls: [{ name, thumb, dur }]` avec sa demande de travail quand le dossier change ; vignettes gardées dans `broll-cache/vignettes.json` ; `GET /api/broll`), les vidéos de la bibliothèque (le Mac les télécharge par `/api/media/:id/file` dans `broll-cache`), ou une recherche Pexels faite par le serveur (`GET /api/broll/pexels?q=&format=` ; clé dans Réglages → B-roll Pexels, ou `PEXELS_KEY` dans le .env). Réglages du plan : son (Muet, Discret 20 %, Moyen 50 %, Fort 100 %, mélangé sous la voix) et début dans le plan. Les blocs de la piste montrent la vignette, le mode (plein écran ou incrusté) et une icône quand le son est gardé.
+
+**« Claude, propose du B-roll ici » (worker 0.13.0)** — glisser sur la piste B-roll choisit un passage (un clic seul ajoute un plan de 2 s). `PATCH /api/montage/jobs/:id` `{ brollAsk: { range: [de, à], note? }, edl }` : l'EDL à l'écran devient une version « edit », `job.brollAsk` est gardé et l'action `broll` part au Mac. Le worker donne à Claude les mots dits dans le passage (temps de timeline) et les fichiers du dossier B-roll (`proposeBroll`), garde 1 à 3 plans entièrement dans le passage, remplace ceux qui y étaient, cherche les fichiers, rend l'aperçu et l'envoie avec `POST …/versions/:n/preview` `{ upload, broll, notes }`. Si Claude échoue, l'aperçu part quand même avec une note, sans changement dans le passage.

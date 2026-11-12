@@ -128,7 +128,7 @@ function Review({
   }, [playing]);
   /** Removes what is selected on the timeline: a shot, a zoom or a B-roll shot. */
   const removeSelection = () => {
-    if (!draft || !selection || selection.kind === "title" || selection.kind === "cap") return;
+    if (!draft || !selection || selection.kind === "title" || selection.kind === "cap" || selection.kind === "brange") return;
     const next = structuredClone(draft);
     if (selection.kind === "seg") {
       const s = next.segments.find((x) => x.id === selection.id);
@@ -166,6 +166,12 @@ function Review({
 
   const apply = async () => {
     if (!draft || !(await call({ edl: draft }, "Modifications envoyées au Mac pour un nouvel aperçu"))) return;
+    setDirty(false);
+    history.reset();
+  };
+  /** Claude places B-roll on one passage of the edit on screen (unsaved changes included). */
+  const askBroll = async (range: [number, number], note: string) => {
+    if (!draft || !(await call({ brollAsk: { range, note }, edl: draft }, "Claude cherche du B-roll pour ce passage"))) return;
     setDirty(false);
     history.reset();
   };
@@ -211,7 +217,7 @@ function Review({
     onSeek: seek,
     onSplit: splitHere,
     onMark: addNote,
-    onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : selection && selection.kind !== "title" && selection.kind !== "cap" ? removeSelection : undefined,
+    onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : selection && selection.kind !== "title" && selection.kind !== "cap" && selection.kind !== "brange" ? removeSelection : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
     onZoom: (dir) => zoomRef.current?.(dir),
@@ -505,6 +511,7 @@ function Review({
               zoomRef={zoomRef}
               onRemove={removeSelection}
               onMark={canDraw ? addNote : undefined}
+              onBrollAsk={working ? undefined : askBroll}
             />
           )}
         </div>

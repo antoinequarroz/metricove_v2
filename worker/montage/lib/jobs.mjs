@@ -5,7 +5,7 @@ import { join, basename } from "node:path";
 import { ensureDir, assertSpace, themeFor, log, round } from "./util.mjs";
 import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
-import { proposeEdit, writeScript } from "./claude.mjs";
+import { proposeEdit, proposeBroll, writeScript } from "./claude.mjs";
 import { renderEdl } from "./render.mjs";
 import { timeline, toRush, toTimeline, FILLER, captionsOf, audioOf } from "./edl.mjs";
 import { listTracks } from "./audio.mjs";
@@ -153,6 +153,48 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       return;
     }
 
+    if (action === "broll") {
+      // « Claude, propose du B-roll ici » : seuls les plans du passage changent, puis un aperçu de la dernière version.
+      const v = job.versions[job.versions.length - 1];
+      const edl = v.edl;
+      const tl = timeline(edl);
+      const total = tl.length ? tl[tl.length - 1].start + tl[tl.length - 1].dur : 0;
+      const a = Math.max(0, Number(job.brollAsk?.range?.[0]) || 0), b = Math.min(total, Number(job.brollAsk?.range?.[1]) || total);
+      const notes = [];
+      if (b - a >= 0.8) {
+        await step("Claude choisit le B-roll du passage…", 0.05);
+        const words = [];
+        for (const s of tl) for (const w of s.words || []) {
+          if (w.cut || w.t1 <= s.in || w.t0 >= s.out) continue;
+          const t = toTimeline(s, Math.max(w.t0, s.in));
+          if (t >= a - 0.05 && t < b) words.push({ t, w: w.w });
+        }
+        try {
+          const mine = listBroll(cfg);
+          const p = await proposeBroll(cfg, { job, range: [a, b], words, mine, note: job.brollAsk?.note, cwd: dir });
+          const shots = [];
+          for (const x of (p.shots || []).slice(0, 3)) {
+            const at = round(Math.max(a, Number(x.at) || a));
+            const dur = round(Math.min(4, Math.max(1.2, Number(x.dur) || 2), b - at));
+            if (dur < 0.8 || !String(x.query || "").trim() || shots.some((o) => at < o.at + o.dur && o.at < at + dur)) continue;
+            const file = x.file && mine.includes(x.file) ? x.file : null;
+            shots.push({ at, dur, query: String(x.query).trim().slice(0, 80), mode: x.mode === "pip" ? "pip" : "full", ...(file ? { source: "mine", ref: file } : {}) });
+          }
+          if (shots.length) {
+            edl.broll = [...(edl.broll || []).filter((s) => s.at + s.dur <= a || s.at >= b), ...shots].sort((x, y) => x.at - y.at).slice(0, 30);
+            if (p.notes) notes.push(String(p.notes).trim());
+          } else notes.push("Claude n'a pas trouvé de plan qui colle à ce passage : rien n'a changé.");
+        } catch (e) {
+          notes.push(`Claude n'a pas pu proposer de B-roll (${e.message.slice(0, 200)}) : rien n'a changé dans ce passage.`);
+        }
+      }
+      notes.push(...await withBroll(cfg, edl, step));
+      const r = await renderEdl(cfg, { edl, rushPaths, theme, quality: "preview", style: job.style, dir: join(dir, "apercu"), onStep: (s, x) => step(s, 0.2 + 0.75 * x) });
+      const upload = await api.upload(r.video, `apercu-${job.id}-v${v.n}.mp4`);
+      await api.setPreview(job.id, v.n, upload, edl.broll || [], { notes: notes.filter(Boolean).join("\n") });
+      return;
+    }
+
     if (action === "final") {
       const v = job.versions.find((x) => x.n === job.approved);
       if (!v) throw new Error(`Version validée introuvable (${job.approved}).`);
@@ -200,11 +242,12 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
 
 /** Plans de B-roll sans source (ajoutés ou changés à la main) : cherchés avant le rendu. */
 async function withBroll(cfg, edl, step) {
-  if (!edl.broll?.some((s) => !s.source)) return;
-  await step("Recherche du B-roll…", 0.03);
+  if (!edl.broll?.some((s) => !s.source || !s.thumb)) return [];
+  await step("Recherche du B-roll…", 0.1);
   const b = await resolveBroll(cfg, edl.broll, edl.format);
   edl.broll = b.broll;
   for (const n of b.notes) log("note :", n);
+  return b.notes;
 }
 
 /** Écrit les images des notes dessinées dans le dossier de travail (mark-<id>.jpg) et situe chaque note dans les phrases. */
