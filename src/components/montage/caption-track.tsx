@@ -12,7 +12,7 @@ const EMOJIS = ["🔥", "💡", "✅", "❌", "👉", "🚀", "😅", "📚", "�
 /** A subtitle block chosen on the timeline: its shot and its first word (stable while the text does not change). */
 export type CaptionPick = { seg: number; from: number; word?: number };
 
-const wordsOf = (edl: Edl, b: CaptionBlock) => (edl.segments[b.seg].words ?? []).map((w, i) => ({ w, i })).filter((x) => x.i >= b.from && x.i <= b.to && !x.w.cut);
+const wordsOf = (edl: Edl, b: CaptionBlock) => (edl.segments[b.seg].words ?? []).map((w, i) => ({ w, i })).filter((x) => x.i >= b.from && x.i <= b.to && !x.w.cut && !!x.w.w);
 const textOf = (edl: Edl, b: CaptionBlock) => wordsOf(edl, b).map((x) => x.w.w).join(" ");
 
 /**

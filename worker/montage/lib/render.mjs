@@ -257,7 +257,7 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   });
   chain.push(overlay ? `[${cur}][2:v]overlay=0:0:format=auto,format=yuv420p[v]` : `[${cur}]format=yuv420p[v]`);
   // Son des plans de B-roll gardé : mélangé sous la voix (et la musique), sans changer leur niveau.
-  if (br.audio.length) chain.push(`[1:a]aresample=48000,aformat=channel_layouts=stereo[vx];[vx]${br.audio.map((x) => `[${x}]`).join("")}amix=inputs=${br.audio.length + 1}:normalize=0:duration=first,alimiter=limit=0.95[a]`);
+  if (br.audio.length) chain.push(`[1:a]aresample=48000,aformat=channel_layouts=stereo[vx];[vx]${br.audio.map((x) => `[${x}]`).join("")}amix=inputs=${br.audio.length + 1}:normalize=0:duration=first,alimiter=limit=0.95:level=0[a]`);
   const fc = chain.join(";");
   await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", br.audio.length ? "[a]" : "1:a",
     "-c:v", ENCODER, "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);

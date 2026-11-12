@@ -2,6 +2,8 @@ import { getSetting, setSetting } from "@/server/db";
 
 /** Pexels key set in Réglages, else PEXELS_KEY in the server .env. Never sent to the page. */
 export const pexelsKey = () => getSetting<string>("pexelsKey") || process.env.PEXELS_KEY || "";
+/** The key comes from the server .env (it cannot be removed from Réglages). */
+export const pexelsFromEnv = () => !getSetting<string>("pexelsKey") && !!process.env.PEXELS_KEY;
 export const setPexelsKey = (key: string) => setSetting("pexelsKey", key || null);
 
 export type PexelsHit = {

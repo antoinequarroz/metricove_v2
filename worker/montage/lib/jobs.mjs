@@ -214,7 +214,10 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
         const at = 0.05 + share * (k + 1);
         const fdir = join(dir, `final-${fmt.replace(":", "x")}`);
         try {
-          const e = await renderEdl(cfg, { edl: { ...v.edl, format: fmt }, rushPaths, theme, quality: "final", style: job.style, dir: fdir, onStep: (s, x) => step(`${fmt} · ${s}`, at + share * x) });
+          // Les limites de blocs posées à la main valent pour la largeur de ligne du format principal : ailleurs, coupe automatique.
+          const width = (f) => theme.captionsMaxChars?.[f] || 18; // comme hf.mjs
+          const segments = width(fmt) === width(v.edl.format) ? v.edl.segments : v.edl.segments.map((s) => ({ ...s, words: s.words?.map(({ brk, glue, ...w }) => w) }));
+          const e = await renderEdl(cfg, { edl: { ...v.edl, format: fmt, segments }, rushPaths, theme, quality: "final", style: job.style, dir: fdir, onStep: (s, x) => step(`${fmt} · ${s}`, at + share * x) });
           const up = await api.upload(e.video, `${slug(job.title)}-${fmt.replace(":", "x")}.mp4`);
           await api.addMedia(up, `${job.title} (${fmt})`);
           log(`[${job.id.slice(0, 8)}] format ${fmt} envoyé`);

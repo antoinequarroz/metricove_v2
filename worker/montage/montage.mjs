@@ -7,6 +7,7 @@
 //   node montage.mjs --setup      télécharge le modèle Whisper (≈ 1,6 Go) après vérification de la place
 import { existsSync, createWriteStream, renameSync } from "node:fs";
 import { dirname } from "node:path";
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { loadConfig, log, sleep, run, freeGb, ensureDir } from "./lib/util.mjs";
@@ -67,7 +68,7 @@ async function loop() {
       let brolls, brollKey;
       try {
         const { list } = await macBrollList(cfg);
-        brollKey = JSON.stringify(list.map((x) => [x.name, !!x.thumb, x.dur]));
+        brollKey = createHash("sha1").update(JSON.stringify(list.map((x) => [x.name, x.thumb || "", x.dur]))).digest("hex");
         if (brollKey !== sentBroll || Date.now() - brollAt > 600_000) brolls = list;
       } catch { /* dossier illisible : la page garde sa liste */ }
       const claimed = await api.claim(VERSION, tracks, brolls);

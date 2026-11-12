@@ -43,6 +43,8 @@ export function BrollPicker({ open, onOpenChange, format, query, onPick }: { ope
   const [filter, setFilter] = useState("");
   const [q, setQ] = useState(query === "illustration" ? "" : query);
   const [hits, setHits] = useState<PexelsHit[] | null>(null);
+  /** The search the results on screen come from (more pages and the shot's description use it, not the field). */
+  const [searched, setSearched] = useState("");
   const [page, setPage] = useState(1);
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -50,32 +52,18 @@ export function BrollPicker({ open, onOpenChange, format, query, onPick }: { ope
   const media = useStore((s) => s.media);
   const videos = useMemo(() => media.filter((m) => m.kind === "video" && m.url), [media]);
 
-  useEffect(() => {
-    if (!open) return;
-    setQ(query === "illustration" ? "" : query);
-    setFilter("");
-    setHits(null);
-    setError("");
-    fetch("/api/broll")
-      .then((r) => r.json())
-      .then((j: { mine: { list: MacShot[]; at?: string }; pexels: boolean }) => {
-        setMine(j.mine);
-        setPexelsOn(j.pexels);
-        // Opens where there is something to pick.
-        setTab(j.mine.list.length ? "mine" : j.pexels ? "pexels" : "library");
-      })
-      .catch(() => setMine({ list: [] }));
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const search = async (p = 1) => {
-    if (!q.trim()) return;
+  /** Searches Pexels for `text`; page 1 replaces the results, the next pages add to them. */
+  const search = async (p: number, text: string) => {
+    const term = text.trim();
+    if (!term) return;
     setLoading(true);
     setError("");
     try {
-      const r = await fetch(`/api/broll/pexels?${new URLSearchParams({ q: q.trim(), format, page: String(p) })}`);
+      const r = await fetch(`/api/broll/pexels?${new URLSearchParams({ q: term, format, page: String(p) })}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `Erreur ${r.status}`);
       setHits((h) => (p === 1 ? j.hits : [...(h ?? []), ...j.hits]));
+      setSearched(term);
       setMore(j.more);
       setPage(p);
     } catch (e) {
@@ -84,10 +72,33 @@ export function BrollPicker({ open, onOpenChange, format, query, onPick }: { ope
       setLoading(false);
     }
   };
-  // The Pexels tab searches the shot's description right away.
+
   useEffect(() => {
-    if (open && tab === "pexels" && pexelsOn && hits === null && q.trim() && !loading) search(1);
-  }, [open, tab, pexelsOn]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!open) return;
+    const start = query === "illustration" ? "" : query;
+    setQ(start);
+    setFilter("");
+    setHits(null);
+    setSearched("");
+    setMore(false);
+    setError("");
+    fetch("/api/broll")
+      .then((r) => r.json())
+      .then((j: { mine: { list: MacShot[]; at?: string }; pexels: boolean }) => {
+        setMine(j.mine);
+        setPexelsOn(j.pexels);
+        // Opens where there is something to pick; on Pexels, the shot's description is searched right away.
+        const first: Tab = j.mine.list.length ? "mine" : j.pexels ? "pexels" : "library";
+        setTab(first);
+        if (first === "pexels") search(1, start);
+      })
+      .catch(() => setMine({ list: [] }));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const changeTab = (t: Tab) => {
+    setTab(t);
+    if (t === "pexels" && pexelsOn && hits === null && !loading) search(1, q);
+  };
 
   const pick = (p: BrollPick) => {
     onPick(p);
@@ -106,7 +117,7 @@ export function BrollPicker({ open, onOpenChange, format, query, onPick }: { ope
             <Segmented
               label="Source du plan"
               value={tab}
-              onChange={setTab}
+              onChange={changeTab}
               options={[
                 { value: "mine", label: `Mes plans${mine?.list.length ? ` (${mine.list.length})` : ""}` },
                 { value: "library", label: "Bibliothèque" },
@@ -124,7 +135,7 @@ export function BrollPicker({ open, onOpenChange, format, query, onPick }: { ope
                 className="flex flex-1 items-center gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  search(1);
+                  search(1, q);
                 }}
               >
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Par ex. pile de livres, café, bibliothèque" aria-label="Recherche Pexels" disabled={!pexelsOn} className="h-9 min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-3 text-[13.5px] outline-none focus:border-accent/60" />
@@ -190,13 +201,13 @@ export function BrollPicker({ open, onOpenChange, format, query, onPick }: { ope
                         sub={fmtSec(h.dur)}
                         image={h.image}
                         video={h.preview}
-                        onClick={() => pick({ source: "pexels", ref: h.id, url: h.url, thumb: smallPexels(h.image), query: q.trim().slice(0, 80) })}
+                        onClick={() => pick({ source: "pexels", ref: h.id, url: h.url, thumb: smallPexels(h.image), query: searched.slice(0, 80) })}
                       />
                     ))}
                   </Grid>
                   {more && (
                     <div className="mt-4 flex justify-center">
-                      <Button onClick={() => search(page + 1)} disabled={loading}>
+                      <Button onClick={() => search(page + 1, searched)} disabled={loading}>
                         {loading ? "Chargement…" : "Plus de résultats"}
                       </Button>
                     </div>

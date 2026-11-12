@@ -134,12 +134,16 @@ export function toOutput(plan, t) {
 export function outputWords(plan) {
   const out = [];
   for (const s of plan) {
+    // Un mot qui ne s'affiche pas (coupé, hors du plan, trop court) passe son début de bloc (brk) au mot suivant.
+    let carry = false;
     for (const w of s.words || []) {
-      if (w.cut || w.t1 <= s.in || w.t0 >= s.out) continue;
+      if (w.cut || w.t1 <= s.in || w.t0 >= s.out) { carry ||= !!w.brk; continue; }
       const [a, b] = inside(w, s);
       const S = round(s.map(a)), E = round(s.map(b));
-      if (E - S < 0.02) continue;
-      out.push({ w: w.w, s: S, e: E, seg: s.i, ...(w.hl ? { hl: true } : {}), ...(w.emoji ? { emoji: w.emoji } : {}), ...(w.brk ? { brk: true } : {}), ...(w.glue ? { glue: true } : {}) });
+      if (E - S < 0.02) { carry ||= !!w.brk; continue; }
+      const brk = !!w.brk || carry, glue = !carry && !!w.glue;
+      carry = false;
+      out.push({ w: w.w, s: S, e: E, seg: s.i, ...(w.hl ? { hl: true } : {}), ...(w.emoji ? { emoji: w.emoji } : {}), ...(brk ? { brk: true } : {}), ...(glue ? { glue: true } : {}) });
     }
   }
   return out;

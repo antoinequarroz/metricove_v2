@@ -405,7 +405,20 @@ export function captionBlocks(edl: Edl, style?: CaptionStyle) {
   const out: { seg: number; from: number; to: number; start: number; end: number }[] = [];
   for (const s of timeline(edl)) {
     const seg = edl.segments.findIndex((x) => x.id === s.id);
-    const live: LiveWord[] = (s.words ?? []).flatMap((w, i) => (w.cut || w.t1 <= s.in || w.t0 >= s.out ? [] : [{ i, w: w.w, s: toTimeline(s, w.t0), e: toTimeline(s, w.t1), brk: w.brk, glue: w.glue }]));
+    // Words that are not shown (cut, outside the shot, too short to render) hand their block start to the next word,
+    // as the Mac does (worker/montage/lib/edl.mjs outputWords).
+    const live: LiveWord[] = [];
+    let carry = false;
+    (s.words ?? []).forEach((w, i) => {
+      const ms = (t: number) => Math.round(toTimeline(s, t) * 1000) / 1000;
+      const gone = w.cut || w.t1 <= s.in || w.t0 >= s.out || ms(Math.min(w.t1, s.out)) - ms(Math.max(w.t0, s.in)) < 0.02;
+      if (gone) {
+        carry ||= !!w.brk;
+        return;
+      }
+      live.push({ i, w: w.w, s: toTimeline(s, w.t0), e: toTimeline(s, w.t1), brk: w.brk || carry || undefined, glue: carry ? undefined : w.glue });
+      carry = false;
+    });
     const chunks: LiveWord[][] = [];
     let cur: LiveWord[] = [];
     for (const w of live) {
@@ -481,7 +494,7 @@ export const FILLER = /^(e+u+h+|h+e+u+h*|h+u+m+|h+m+|bah|ben)[.,!?…]*$/i;
 export type CaptionBlock = ReturnType<typeof captionBlocks>[number];
 
 const liveIn = (s: EdlSegment, from: number, to: number) => (s.words ?? []).map((w, i) => ({ w, i })).filter((x) => x.i >= from && x.i <= to && !x.w.cut);
-const retext = (s: EdlSegment) => (s.text = (s.words ?? []).filter((w) => !w.cut).map((w) => w.w).join(" "));
+const retext = (s: EdlSegment) => (s.text = (s.words ?? []).filter((w) => !w.cut && w.w).map((w) => w.w).join(" "));
 
 /**
  * Pins the blocks of shot `seg` as they are shown now (each block's first word starts a block, the others stay with the
@@ -512,16 +525,46 @@ export function retextBlock(edl: Edl, b: CaptionBlock, text: string, style?: Cap
   if (!s.words || !live.length || !tokens.length) return edl;
   if (tokens.length === live.length) live.forEach((x, k) => (s.words![x.i].w = tokens[k].slice(0, 80)));
   else {
-    const t0 = live[0].w.t0;
-    const t1 = live[live.length - 1].w.t1;
-    const total = tokens.reduce((n, t) => n + t.length + 1, 0);
-    let at = t0;
-    const words: EdlWord[] = tokens.map((t, k) => {
-      const d = ((t1 - t0) * (t.length + 1)) / total;
-      const w: EdlWord = { t0: Math.round(at * 1000) / 1000, t1: Math.round((at + d) * 1000) / 1000, w: t.slice(0, 80), ...(k === 0 ? { brk: true } : { glue: true }) };
-      at += d;
-      return w;
+    // The new words take the speech of the old ones, never the pauses between them: the silences removed from the
+    // shot (audio.silences) stay the same, so the sound and the timeline do not move.
+    const runs: { t0: number; t1: number }[] = [];
+    for (const x of live) {
+      const r = runs[runs.length - 1];
+      if (r && x.w.t0 - r.t1 <= 0.04) r.t1 = Math.max(r.t1, x.w.t1);
+      else runs.push({ t0: x.w.t0, t1: x.w.t1 });
+    }
+    // Tokens per run: one each, the rest in proportion to the length of the run. A run left without a token keeps
+    // its time as an empty word (nothing shows).
+    const count = runs.map(() => 0);
+    const spare = Math.max(0, tokens.length - runs.length);
+    const speech = runs.reduce((n, r) => n + (r.t1 - r.t0), 0) || 1;
+    runs.forEach((r, k) => (count[k] = k < tokens.length ? 1 + Math.floor((spare * (r.t1 - r.t0)) / speech) : 0));
+    for (let left = tokens.length - count.reduce((n, c) => n + c, 0), k = 0; left > 0; k = (k + 1) % runs.length, left--) count[k]++;
+    const words: EdlWord[] = [];
+    let next0 = 0;
+    const ms = (t: number) => Math.round(t * 1000) / 1000;
+    runs.forEach((r, k) => {
+      let mine = tokens.slice(next0, next0 + count[k]);
+      next0 += count[k];
+      // A word needs time to be read (and the Mac drops words under 20 ms): too many for this run share a word.
+      const fit = Math.max(1, Math.floor((r.t1 - r.t0) / 0.08));
+      if (mine.length > fit) {
+        const per = Math.ceil(mine.length / fit);
+        mine = Array.from({ length: Math.ceil(mine.length / per) }, (_, j) => mine.slice(j * per, j * per + per).join(" "));
+      }
+      if (!mine.length) return void words.push({ t0: r.t0, t1: r.t1, w: "", glue: true });
+      const total = mine.reduce((n, t) => n + t.length + 1, 0);
+      let at = r.t0;
+      for (const t of mine) {
+        const d = ((r.t1 - r.t0) * (t.length + 1)) / total;
+        words.push({ t0: ms(at), t1: ms(at + d), w: t.slice(0, 80), glue: true });
+        at += d;
+      }
     });
+    words[0].t0 = runs[0].t0;
+    delete words[0].glue;
+    words[0].brk = true;
+    const t0 = live[0].w.t0;
     const drop = new Set(live.map((x) => x.i));
     const rest = s.words.filter((_, i) => !drop.has(i));
     rest.splice(rest.filter((w) => w.t0 < t0).length, 0, ...words);

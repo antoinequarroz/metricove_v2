@@ -1,7 +1,7 @@
 // B-roll : plans d'illustration posés par-dessus Antoine (sa voix continue).
 // Recherche : d'abord les fichiers de `brollDir` (noms descriptifs), sinon Pexels (clé `pexelsKey` du config.json,
 // jamais affichée). Les vidéos Pexels sont gardées dans `brollCache`, plafonné en taille (les plus anciennes partent).
-import { existsSync, readdirSync, statSync, rmSync, renameSync, createWriteStream, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, rmSync, renameSync, createWriteStream, readFileSync, writeFileSync, utimesSync } from "node:fs";
 import { join, basename, extname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -56,7 +56,15 @@ function trimCache(cfg) {
   const cap = (cfg.brollCacheGb ?? 1) * 1e9;
   const files = readdirSync(dir).filter((f) => VIDEO.test(f)).map((f) => ({ f: join(dir, f), ...statSync(join(dir, f)) })).sort((a, b) => b.mtimeMs - a.mtimeMs);
   let total = 0;
-  for (const x of files) { total += x.size; if (total > cap) rmSync(x.f, { force: true }); }
+  // Le plus récent (celui qu'on vient de prendre) reste toujours, même s'il dépasse à lui seul le plafond.
+  files.forEach((x, i) => { total += x.size; if (i > 0 && total > cap) rmSync(x.f, { force: true }); });
+}
+
+/** Fichier du cache déjà là : marqué comme utilisé maintenant, pour que le plafond enlève d'abord les autres. */
+function cached(file) {
+  if (!existsSync(file)) return false;
+  try { const t = new Date(); utimesSync(file, t, t); } catch { /* sans importance */ }
+  return true;
 }
 
 async function download(url, file) {
@@ -69,7 +77,7 @@ async function download(url, file) {
 /** Vidéo Pexels en cache (téléchargée si besoin) ; `v` = objet vidéo de l'API si déjà connu ; `url` = fichier choisi dans la page (sans clé). */
 async function pexelsFile(cfg, id, v, url) {
   const file = join(cacheDir(cfg), `pexels-${String(id).replace(/[^\w-]/g, "")}.mp4`);
-  if (existsSync(file)) return file;
+  if (cached(file)) return file;
   if (url && /^https:\/\/videos\.pexels\.com\//.test(url)) {
     await download(url, file);
     trimCache(cfg);
@@ -87,7 +95,7 @@ async function pexelsFile(cfg, id, v, url) {
 /** Vidéo de la bibliothèque Metricove en cache (téléchargée une fois). */
 async function libraryFile(cfg, id) {
   const file = join(cacheDir(cfg), `bibliotheque-${String(id).replace(/[^\w-]/g, "")}.mp4`);
-  if (existsSync(file)) return file;
+  if (cached(file)) return file;
   if (!API) return null;
   const r = await API.req("GET", `/api/media/${encodeURIComponent(id)}/file`, { raw: true });
   if (!r.ok) throw new Error(`vidéo de la bibliothèque ${id} → ${r.status}`);
@@ -168,7 +176,8 @@ export async function resolveBroll(cfg, list = [], format = "9:16") {
     const s = { ...shot, mode: shot.mode === "pip" ? "pip" : "full" };
     let file = s.source ? await brollFile(cfg, s) : null;
     if (!file) {
-      delete s.source; delete s.ref; delete s.thumb;
+      // Le plan d'avant est introuvable : on en cherche un autre, sans garder ce qui allait avec l'ancien fichier.
+      delete s.source; delete s.ref; delete s.thumb; delete s.url; delete s.from;
       const mine = matchMine(cfg, s.query);
       if (mine) { s.source = "mine"; s.ref = mine; file = join(brollDir(cfg), mine); }
       else if (cfg.pexelsKey) {

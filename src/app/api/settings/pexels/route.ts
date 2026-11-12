@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pexelsKey, setPexelsKey } from "@/server/broll";
+import { pexelsFromEnv, pexelsKey, setPexelsKey } from "@/server/broll";
 
 export const dynamic = "force-dynamic";
 
@@ -13,5 +13,5 @@ export async function PUT(req: Request) {
     if (r && (r.status === 401 || r.status === 403)) return NextResponse.json({ error: "Pexels refuse cette clé" }, { status: 400 });
   }
   setPexelsKey(k);
-  return NextResponse.json({ pexels: !!pexelsKey() });
+  return NextResponse.json({ pexels: !!pexelsKey(), pexelsFromEnv: pexelsFromEnv() });
 }

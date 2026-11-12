@@ -85,14 +85,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (b.brollAsk !== undefined) {
     if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });
     if (job.kind !== "montage") return NextResponse.json({ error: "Seulement pour une vidéo face caméra" }, { status: 400 });
-    const [a, z] = Array.isArray(b.brollAsk.range) ? (b.brollAsk.range as unknown[]).map(Number) : [];
+    const [a, z] = Array.isArray(b.brollAsk?.range) ? (b.brollAsk?.range as unknown[]).map(Number) : [];
     if (!Number.isFinite(a) || !Number.isFinite(z) || a < 0 || z - a < 0.8 || z - a > 120) return NextResponse.json({ error: "Choisis un passage de 1 s à 2 min" }, { status: 400 });
     // The edit on screen becomes the version Claude adds B-roll to (unsaved changes included).
     const edl = b.edl !== undefined ? cleanEdl(b.edl, job.rushIds) : job.versions.at(-1)?.edl;
     if (typeof edl === "string") return NextResponse.json({ error: edl }, { status: 400 });
     if (!edl) return NextResponse.json({ error: "Pas encore de montage" }, { status: 400 });
     addVersion(job, structuredClone(edl), "edit");
-    const note = typeof b.brollAsk.note === "string" ? b.brollAsk.note.trim().slice(0, 500) : "";
+    const note = typeof b.brollAsk?.note === "string" ? b.brollAsk?.note.trim().slice(0, 500) : "";
     job.brollAsk = { range: [Math.round(a * 100) / 100, Math.round(z * 100) / 100], ...(note ? { note } : {}) };
     return NextResponse.json({ job: queue(job, "broll") });
   }
