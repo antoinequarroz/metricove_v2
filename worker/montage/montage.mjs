@@ -7,14 +7,17 @@
 //   node montage.mjs --setup      télécharge le modèle Whisper (≈ 1,6 Go) après vérification de la place
 import { existsSync, createWriteStream, renameSync } from "node:fs";
 import { dirname } from "node:path";
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { loadConfig, log, sleep, run, freeGb, ensureDir } from "./lib/util.mjs";
 import { Api } from "./lib/api.mjs";
 import { scan } from "./lib/rushes.mjs";
 import { handle } from "./lib/jobs.mjs";
+import { listTracks } from "./lib/audio.mjs";
+import { macBrollList, setBrollApi } from "./lib/broll.mjs";
 
-const VERSION = "0.1.0";
+const VERSION = "0.13.0";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 
@@ -48,6 +51,9 @@ async function loop() {
   const api = new Api(cfg, { dryRun: argv.has("--dry-run") });
   log(`worker de montage ${VERSION} → ${cfg.metricoveUrl}${api.dryRun ? " (essai à blanc)" : ""}`);
   let lastScan = 0;
+  let sentTracks = null, sentAt = 0;
+  let sentBroll = null, brollAt = 0;
+  setBrollApi(api);
   for (;;) {
     try {
       if (Date.now() - lastScan > cfg.scanSeconds * 1000) {
@@ -55,7 +61,19 @@ async function loop() {
         const list = await scan(api, cfg).catch((e) => { log("inventaire des rushes :", e.message); return []; });
         if (list.length) log(`${list.length} rush(es) dans ${cfg.rushesDir}`);
       }
-      const claimed = await api.claim(VERSION);
+      // La liste des morceaux part avec la demande quand elle a changé (et une fois au démarrage) : la page les propose par nom.
+      let tracks;
+      try { const now = listTracks(cfg).slice(0, 200); if (now.join("\n") !== sentTracks || Date.now() - sentAt > 600_000) tracks = now; } catch { /* dossier illisible : la page garde sa liste */ }
+      // Les plans du dossier B-roll (avec une petite image) partent de même quand ils ont changé : la page les propose.
+      let brolls, brollKey;
+      try {
+        const { list } = await macBrollList(cfg);
+        brollKey = createHash("sha1").update(JSON.stringify(list.map((x) => [x.name, x.thumb || "", x.dur]))).digest("hex");
+        if (brollKey !== sentBroll || Date.now() - brollAt > 600_000) brolls = list;
+      } catch { /* dossier illisible : la page garde sa liste */ }
+      const claimed = await api.claim(VERSION, tracks, brolls);
+      if (tracks) { sentTracks = tracks.join("\n"); sentAt = Date.now(); }
+      if (brolls) { sentBroll = brollKey; brollAt = Date.now(); }
       if (claimed?.job) {
         log(`tâche « ${claimed.job.title} » → ${claimed.action}`);
         await handle(api, cfg, claimed);

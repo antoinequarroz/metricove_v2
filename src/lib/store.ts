@@ -2,13 +2,24 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Account, AppState, Media, Network, Post, Project } from "./types";
+import type { Account, AppState, Media, Network, Post, PostFormat, Project } from "./types";
 import { isImageFile, prepareImage } from "./image";
 import { uploadInChunks } from "./upload";
 
 export type CalendarView = "month" | "week" | "list";
 
-type ComposerState = { open: boolean; postId?: string; date?: string; mediaId?: string };
+type ComposerState = {
+  open: boolean;
+  postId?: string;
+  date?: string;
+  mediaId?: string;
+  /** A new post that starts as a carousel (visuals made in the Studio), in order. */
+  mediaIds?: string[];
+  /** Text a new post starts with. */
+  caption?: string;
+  /** Feed or story, for a new post. */
+  format?: PostFormat;
+};
 
 type State = {
   loaded: boolean;

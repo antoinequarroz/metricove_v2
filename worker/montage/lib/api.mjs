@@ -31,14 +31,14 @@ export class Api {
     return text ? JSON.parse(text) : null;
   }
 
-  claim(version) { return this.req("POST", "/api/montage/worker/claim", { json: { worker: "mac", version } }); }
+  claim(version, tracks, brolls) { return this.req("POST", "/api/montage/worker/claim", { json: { worker: "mac", version, ...(tracks ? { tracks } : {}), ...(brolls ? { brolls } : {}) } }); }
   patch(id, data) { return this.req("PATCH", `/api/montage/jobs/${id}`, { json: data }); }
   step(id, step, progress) { return this.patch(id, { step, progress }).catch((e) => log("étape non envoyée :", e.message)); }
   fail(id, error) { return this.patch(id, { status: "failed", error: String(error).slice(0, 2000) }); }
   addVersion(id, data) { return this.req("POST", `/api/montage/jobs/${id}/versions`, { json: data }); }
   /** Aperçu d'une version modifiée ; `broll` = plans trouvés (source, ref, thumb), réenregistrés dans la version. */
-  setPreview(id, n, upload, broll) { return this.req("POST", `/api/montage/jobs/${id}/versions/${n}/preview`, { json: { upload, ...(broll ? { broll } : {}) } }); }
-  final(id, upload, title) { return this.req("POST", `/api/montage/jobs/${id}/final`, { json: { upload, title } }); }
+  setPreview(id, n, upload, broll, more = {}) { return this.req("POST", `/api/montage/jobs/${id}/versions/${n}/preview`, { json: { upload, ...(broll ? { broll } : {}), ...more } }); }
+  final(id, upload, title, notes) { return this.req("POST", `/api/montage/jobs/${id}/final`, { json: { upload, title, ...(notes ? { notes } : {}) } }); }
   /** Vidéo de plus dans la bibliothèque (formats en plus du rendu final). Renvoie { media }. */
   addMedia(upload, title) { return this.req("POST", "/api/media", { json: { upload, title } }); }
   scan(rushes) { return this.req("POST", "/api/montage/rushes/scan", { json: { rushes } }); }

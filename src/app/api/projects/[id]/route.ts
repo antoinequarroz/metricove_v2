@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Project } from "@/lib/types";
 import { deleteProject, listProjects, saveProject } from "@/server/db";
+import { forgetProfile } from "@/server/profiles";
 import { cleanProject } from "@/server/projects";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -21,5 +22,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
   if (!listProjects().some((p) => p.id === id)) return NextResponse.json({ error: "Projet introuvable" }, { status: 404 });
   deleteProject(id);
+  forgetProfile(id);
   return NextResponse.json({ ok: true });
 }

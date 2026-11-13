@@ -1,7 +1,8 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, type AudioSettings, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_TEXTS, MUSIC_FADE, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
+import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db } from "./db";
 
 /* ---------- Tables ---------- */
@@ -304,8 +305,8 @@ export function release(job: MontageJob, status: MontageJob["status"]) {
 
 export const previewPath = (jobId: string, n: number) => path.join(dir("montage", path.basename(jobId)), `v${n}.mp4`);
 
-export function addVersion(job: MontageJob, edl: Edl, by: MontageVersion["by"], notes?: string) {
-  const v: MontageVersion = { n: (job.versions.at(-1)?.n ?? 0) + 1, edl, by, notes: notes?.slice(0, 2000), preview: false, createdAt: new Date().toISOString() };
+export function addVersion(job: MontageJob, edl: Edl, by: MontageVersion["by"], notes?: string, reel?: ReelPlan) {
+  const v: MontageVersion = { n: (job.versions.at(-1)?.n ?? 0) + 1, edl, ...(reel ? { reel } : {}), by, notes: notes?.slice(0, 2000), preview: false, createdAt: new Date().toISOString() };
   job.versions.push(v);
   return v;
 }
@@ -317,17 +318,38 @@ export function dropPreviews(jobId: string) {
 
 /* ---------- Worker presence ---------- */
 
-export function workerSeen(info: { worker?: string; version?: string }) {
-  init()
+/** The Mac says it is there; with `tracks` (its music files) when it sends them, else the last list is kept. */
+export function workerSeen(info: { worker?: string; version?: string; tracks?: string[] }) {
+  const conn = init();
+  const before = conn.prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
+  const tracks = info.tracks ?? (before ? (JSON.parse(before.value) as { tracks?: string[] }).tracks : undefined);
+  conn
     .prepare("insert into kv (key, value) values ('worker', @v) on conflict(key) do update set value = excluded.value")
-    .run({ v: JSON.stringify({ ...info, at: Date.now() }) });
+    .run({ v: JSON.stringify({ worker: info.worker, version: info.version, ...(tracks ? { tracks } : {}), at: Date.now() }) });
+}
+
+/** One shot of the Mac B-roll folder, as the page lists it. */
+export type MacBroll = { name: string; thumb?: string; dur?: number };
+
+/** The files of the Mac B-roll folder (worker 0.13.0), kept apart from the presence record that is read every few seconds. */
+export function saveMacBroll(list: MacBroll[]) {
+  init()
+    .prepare("insert into kv (key, value) values ('worker-broll', @v) on conflict(key) do update set value = excluded.value")
+    .run({ v: JSON.stringify({ list, at: Date.now() }) });
+}
+
+export function macBroll(): { list: MacBroll[]; at?: string } {
+  const r = init().prepare("select value from kv where key = 'worker-broll'").get() as { value: string } | undefined;
+  if (!r) return { list: [] };
+  const v = JSON.parse(r.value) as { list: MacBroll[]; at: number };
+  return { list: v.list, at: new Date(v.at).toISOString() };
 }
 
 export function workerStatus() {
   const r = init().prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
   if (!r) return { online: false as const };
-  const w = JSON.parse(r.value) as { worker?: string; version?: string; at: number };
-  return { online: Date.now() - w.at < 30_000, lastSeen: new Date(w.at).toISOString(), name: w.worker, version: w.version };
+  const w = JSON.parse(r.value) as { worker?: string; version?: string; tracks?: string[]; at: number };
+  return { online: Date.now() - w.at < 30_000, lastSeen: new Date(w.at).toISOString(), name: w.worker, version: w.version, tracks: w.tracks };
 }
 
 /* ---------- Validation of what the worker or the page sends ---------- */
@@ -355,7 +377,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
             const t1 = num(w.t1);
             const text = str(w.w, 80);
             if (t0 === undefined || t1 === undefined || text === undefined) return [];
-            return [{ t0, t1, w: text, cut: w.cut === true || undefined, hl: w.hl === true || undefined, emoji: str(w.emoji, 16) || undefined }];
+            return [{ t0, t1, w: text, cut: w.cut === true || undefined, hl: w.hl === true || undefined, emoji: str(w.emoji, 16) || undefined, brk: w.brk === true || undefined, glue: w.glue === true || undefined }];
           })
       : undefined;
     segments.push({
@@ -367,6 +389,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
       kept: s.kept !== false,
       reason: str(s.reason, 120),
       words,
+      ...((sp) => (sp !== undefined && sp >= 0.5 && sp <= 2 && sp !== 1 ? { speed: Math.round(sp * 100) / 100 } : {}))(num(s.speed)),
     });
   }
   const t = e.title as Record<string, unknown> | null | undefined;
@@ -378,7 +401,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
     endCard: end && str(end.text, 200) ? { text: str(end.text, 200)! } : null,
     zooms: Array.isArray(e.zooms)
       ? (e.zooms as Record<string, unknown>[])
-          .map((z) => ({ at: num(z.at)!, dur: num(z.dur)!, scale: num(z.scale)! }))
+          .map((z) => ({ at: num(z.at)!, dur: num(z.dur)!, scale: num(z.scale)!, ...(z.hold === true ? { hold: true } : {}) }))
           .filter((z) => z.at !== undefined && z.dur !== undefined && z.scale !== undefined)
       : [],
     crop: e.crop === "center" ? "center" : "face",
@@ -387,6 +410,7 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
     audio: e.audio === undefined ? undefined : cleanAudio(e.audio),
     broll: Array.isArray(e.broll) ? cleanBroll(e.broll) : undefined,
     brollAuto: e.brollAuto === undefined ? undefined : e.brollAuto === true,
+    ...(Array.isArray(e.texts) && e.texts.length ? { texts: cleanTexts(e.texts) } : {}),
     exports: Array.isArray(e.exports) ? [...new Set((e.exports as unknown[]).filter((f): f is MontageFormat => FORMATS.includes(f as string)))].filter((f) => f !== format) : undefined,
   };
 }
@@ -400,15 +424,22 @@ export function cleanBroll(raw: unknown[]): Broll[] {
     const dur = num(b.dur);
     const query = str(b.query, 120)?.trim();
     if (at === undefined || dur === undefined || dur <= 0 || !query) continue;
-    const thumb = typeof b.thumb === "string" && b.thumb.startsWith("data:image/") && b.thumb.length < 60_000 ? b.thumb : undefined;
+    // A small picture made by the Mac, or the one shown in the picker (Pexels still, cover of a library video).
+    const thumb =
+      typeof b.thumb === "string" && ((b.thumb.startsWith("data:image/") && b.thumb.length < 60_000) || /^https:\/\/images\.pexels\.com\/[^\s"'<>]{1,500}$/.test(b.thumb) || /^\/api\/media\/[\w-]{1,80}\/cover$/.test(b.thumb))
+        ? b.thumb
+        : undefined;
     out.push({
       at: Math.max(0, at),
       dur: Math.min(30, dur),
       query,
-      source: b.source === "mine" || b.source === "pexels" ? b.source : undefined,
+      source: b.source === "mine" || b.source === "pexels" || b.source === "library" ? b.source : undefined,
       ref: str(b.ref, 300) || undefined,
       thumb,
       mode: b.mode === "pip" ? "pip" : "full",
+      ...(b.source === "pexels" && typeof b.url === "string" && /^https:\/\/videos\.pexels\.com\/[^\s"'<>]{1,400}$/.test(b.url) ? { url: b.url } : {}),
+      ...(num(b.from)! > 0 ? { from: Math.min(3600, Math.round(num(b.from)! * 100) / 100) } : {}),
+      ...(num(b.sound)! > 0 ? { sound: Math.min(1, Math.round(num(b.sound)! * 100) / 100) } : {}),
     });
   }
   return out.sort((a, b) => a.at - b.at);
@@ -428,6 +459,42 @@ export function cleanCaptions(raw: unknown): CaptionStyle {
   };
 }
 
+/** Where the music starts and its fades, kept only when set. */
+/** Texts put on the video by hand: at most 12, bounded. */
+export function cleanTexts(raw: unknown): FreeText[] {
+  const out: FreeText[] = [];
+  const seen = new Set<string>();
+  for (const t of Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []) {
+    if (out.length >= MAX_TEXTS) break;
+    const text = (str(t?.text, 200) ?? "").replace(/\r/g, "").trim();
+    const start = Math.max(0, num(t?.start) ?? 0);
+    const end = Math.min(num(t?.end) ?? start + 3, start + 600);
+    if (!text || !(end - start >= 0.3)) continue;
+    let id = (str(t?.id, 40) ?? "").replace(/[^\w-]/g, "");
+    if (!id || seen.has(id)) id = `t-${crypto.randomUUID().slice(0, 8)}`;
+    seen.add(id);
+    const unit = (v: unknown) => Math.min(1, Math.max(0, num(v) ?? 0.5));
+    out.push({
+      id,
+      text,
+      start: Math.round(start * 100) / 100,
+      end: Math.round(end * 100) / 100,
+      x: Math.round(unit(t?.x) * 1000) / 1000,
+      y: Math.round(unit(t?.y) * 1000) / 1000,
+      size: (["s", "m", "l", "xl"] as const).find((z) => z === t?.size) ?? "m",
+      style: t?.style === "band" ? "band" : "plain",
+    });
+  }
+  return out;
+}
+
+export function cleanCue(raw: unknown): MusicCue {
+  const m = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const pick = (v: unknown, max: number) => (num(v) !== undefined && num(v)! >= 0 ? Math.round(Math.min(max, num(v)!) * 10) / 10 : undefined);
+  const [start, fadeIn, fadeOut] = [pick(m.start, MUSIC_FADE.maxStart), pick(m.fadeIn, MUSIC_FADE.maxIn), pick(m.fadeOut, MUSIC_FADE.maxOut)];
+  return { ...(start ? { start } : {}), ...(fadeIn !== undefined ? { fadeIn } : {}), ...(fadeOut !== undefined ? { fadeOut } : {}) };
+}
+
 export function cleanAudio(raw: unknown): AudioSettings {
   const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const m = (a.music && typeof a.music === "object" ? a.music : {}) as Record<string, unknown>;
@@ -440,6 +507,7 @@ export function cleanAudio(raw: unknown): AudioSettings {
       track: str(m.track, 200)?.trim() || undefined,
       volume: Math.min(1, Math.max(0, num(m.volume) ?? d.music.volume)),
       duck: m.duck !== false,
+      ...cleanCue(m),
     },
   };
 }
@@ -448,7 +516,8 @@ export function cleanAudio(raw: unknown): AudioSettings {
 export function cleanMarks(raw: unknown): MontageMark[] | string {
   if (!Array.isArray(raw)) return [];
   const marks: MontageMark[] = [];
-  for (const [i, m] of (raw as Record<string, unknown>[]).slice(0, 8).entries()) {
+  for (const [i, m] of (raw as Record<string, unknown>[]).slice(0, 40).entries()) {
+    if (marks.length >= 8) break;
     const t = num(m.t);
     const version = num(m.version);
     const text = str(m.text, 1000)?.trim() ?? "";
@@ -458,6 +527,121 @@ export function cleanMarks(raw: unknown): MontageMark[] | string {
     marks.push({ id: str(m.id, 60) || `m${i + 1}`, version, t: Math.max(0, t), text, image });
   }
   return marks;
+}
+
+/* ---------- Animated reel: the plan of a version ---------- */
+
+/** A reel version has no edit list. */
+export const EMPTY_EDL: Edl = { format: "9:16", segments: [] };
+
+const FX = {
+  enter: ["rise", "type", "punch", "slide", "blur"],
+  transition: ["auto", "up", "circle", "side", "cut"],
+  decor: ["ring", "dots", "bars", "none"],
+} as const;
+
+function cleanFx(raw: unknown): ReelFx | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const pick = <T extends string>(v: unknown, among: readonly T[]) => (among.includes(v as T) ? (v as T) : among[0]);
+  return { enter: pick(r.enter, FX.enter), transition: pick(r.transition, FX.transition), decor: pick(r.decor, FX.decor), accent: (str(r.accent, 60) ?? "").replace(/\s+/g, " ").trim(), count: r.count === true };
+}
+
+/** Code written by Claude on the Mac. The Mac checks it again before every render; here only its size is bounded. */
+function cleanCode(raw: unknown): ReelCode | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.html !== "string" || typeof r.js !== "string" || r.html.length > 20_000 || r.js.length > 15_000) return undefined;
+  const css = typeof r.css === "string" ? r.css : "";
+  if (css.length > 12_000) return undefined;
+  const at = num(r.at);
+  return { html: r.html, css, js: r.js, ...(at !== undefined && Number.isInteger(at) && at >= 0 && at < 20 ? { at } : {}) };
+}
+
+const PACES = ["calm", "normal", "fast"] as const;
+
+/**
+ * The plan of a reel version. From the Mac (`base` left out): taken as it is, code included.
+ * From the page: the code never travels through the browser, so each scene takes the code of the scene with the same id
+ * in `base` when the page still marks it `custom`. A whole custom scene whose text changed loses its code (the text is in it).
+ */
+export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan | string {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const seen = new Set<string>();
+  const scenes: ReelScene[] = [];
+  for (const x of (Array.isArray(r.scenes) ? (r.scenes as Record<string, unknown>[]) : []).slice(0, 16)) {
+    const title = (str(x?.title, 120) ?? "").replace(/\r/g, "").trim();
+    const body = (str(x?.body, 240) ?? "").replace(/\r/g, "").trim();
+    if (!title && !body) continue;
+    let id = (str(x?.id, 40) ?? "").replace(/[^\w-]/g, "");
+    if (!id || seen.has(id)) id = `s-${crypto.randomUUID().slice(0, 8)}`;
+    seen.add(id);
+    const seconds = num(x?.seconds);
+    const dur = num(x?.dur);
+    const anim = (str(x?.anim, 300) ?? "").replace(/\s+/g, " ").trim();
+    const fx = cleanFx(x?.fx);
+    const old = base?.scenes.find((s) => s.id === id);
+    const art = base ? (x?.custom === "art" && old?.art && old.title === title && old.body === body ? old.art : undefined) : cleanCode(x?.art);
+    const layer = art ? undefined : base ? (x?.custom === "layer" ? old?.layer : undefined) : cleanCode(x?.layer);
+    scenes.push({
+      id,
+      title,
+      body,
+      ...(anim ? { anim } : {}),
+      ...(seconds !== undefined && seconds >= 1.5 ? { seconds: Math.round(Math.min(15, seconds) * 10) / 10 } : {}),
+      ...(x?.cut === true ? { cut: true } : {}),
+      ...(fx ? { fx } : {}),
+      ...(art ? { art } : {}),
+      ...(layer ? { layer } : {}),
+      ...(!base && dur !== undefined && dur > 0 && dur < 60 ? { dur } : {}),
+    });
+  }
+  if (!scenes.some((s) => !s.cut)) return "Garde au moins une scène";
+  if (scenes.filter((s) => !s.cut).length > 8) return "8 scènes au plus";
+  const volume = num(r.volume);
+  const duration = num(r.duration);
+  // Only compared with the names of the Mac's folder, never joined to a path: kept as it is.
+  const track = str(r.track, 200)?.trim();
+  const cue = cleanCue(r.cue);
+  return {
+    scenes,
+    look,
+    logo: r.logo !== false,
+    music: r.music !== false,
+    volume: volume === undefined ? (base?.volume ?? 0.7) : Math.min(1, Math.max(0, volume)),
+    ...(track ? { track } : {}),
+    ...(Object.keys(cue).length ? { cue } : {}),
+    ...(Array.isArray(r.texts) && r.texts.length ? { texts: cleanTexts(r.texts) } : {}),
+    pace: PACES.find((p) => p === r.pace) ?? base?.pace ?? "normal",
+    ...(base?.direction ? { direction: base.direction } : str(r.direction, 1000)?.trim() ? { direction: str(r.direction, 1000)!.trim() } : {}),
+    ...(!base && duration !== undefined && duration > 0 ? { duration } : {}),
+  };
+}
+
+/** The plan as the page gets it: the code stays on the server, the page only learns that there is some. */
+export function pageReel(plan: ReelPlan): ReelPlan {
+  return { ...plan, scenes: plan.scenes.map(({ art, layer, ...s }) => ({ ...s, ...(art ? { custom: "art" as const } : layer ? { custom: "layer" as const } : {}) })) };
+}
+
+/**
+ * A job as the page gets it. For a reel: no code from Claude in the plans, and a link in place of each drawing.
+ * The Mac gets the whole job when it takes it (worker/claim).
+ */
+export function pageJob(job: MontageJob): MontageJob {
+  if (job.kind !== "motion") return job;
+  return {
+    ...job,
+    ...(job.marks ? { marks: job.marks.map((m) => ({ ...m, image: m.image ? `/api/montage/jobs/${job.id}/marks/${m.id}` : undefined })) } : {}),
+    versions: job.versions.map((v) => (v.reel ? { ...v, reel: pageReel(v.reel) } : v)),
+  };
+}
+
+/** A reel whose last request failed goes back to its last good version: the versions edited by hand that never got a video are dropped. */
+export function restoreReel(job: MontageJob) {
+  while (job.versions.length > 1 && job.versions.at(-1)!.by === "edit" && !job.versions.at(-1)!.preview) job.versions.pop();
+  job.marks = undefined;
+  job.range = undefined;
+  job.base = undefined;
 }
 
 /* ---------- Subtitle style per project ---------- */

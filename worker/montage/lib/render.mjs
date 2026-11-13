@@ -10,7 +10,11 @@ import { probe } from "./rushes.mjs";
 import { overlayPage, renderOverlay } from "./hf.mjs";
 import { renderPlan, toOutput, outputWords, audioOf, captionsOf } from "./edl.mjs";
 import { buildAudio } from "./audio.mjs";
-import { brollFile } from "./broll.mjs";
+import { brollFile, hasAudio } from "./broll.mjs";
+import { cleanTexts } from "./texts.mjs";
+
+// Encodeur vidéo : celui du Mac. MONTAGE_ENCODER=libx264 pour essayer le rendu sur une autre machine.
+const ENCODER = process.env.MONTAGE_ENCODER || "h264_videotoolbox";
 
 export { timeline } from "./edl.mjs";
 
@@ -77,17 +81,26 @@ function faceInFrame(src, W, H, c, fc) {
 
 /**
  * Filtres du B-roll : chaque plan entre à son temps rendu, plein écran (recadré au format) ou en fenêtre arrondie
- * (~40 % de la largeur, dans le coin du haut opposé au visage). Image seule : la voix continue.
+ * (~40 % de la largeur, dans le coin du haut opposé au visage). La voix continue ; le son du plan est muet, sauf
+ * `sound` (0 à 1) : il passe alors sous la voix (`audio` : étiquettes à mélanger avec le son du montage).
+ * `from` : seconde du plan où il commence.
  */
 async function brollLayers(cfg, edl, plan, faces, W, H, firstInput) {
-  const inputs = [], filters = [], overlays = [];
+  const inputs = [], filters = [], overlays = [], audio = [];
   for (const shot of edl.broll || []) {
     const file = await brollFile(cfg, shot);
     if (!file) { log(`B-roll « ${shot.query} » sans fichier : ignoré`); continue; }
     const a = toOutput(plan, shot.at), b = toOutput(plan, shot.at + shot.dur), d = b - a;
     if (d < 0.3) continue;
-    const k = firstInput + inputs.length / 6, L = `br${overlays.length}`;
-    inputs.push("-stream_loop", "-1", "-t", d.toFixed(3), "-i", file);
+    const k = firstInput + inputs.length / 8, L = `br${overlays.length}`;
+    const from = Math.max(0, Number(shot.from) || 0);
+    inputs.push("-ss", from.toFixed(3), "-stream_loop", "-1", "-t", d.toFixed(3), "-i", file);
+    const vol = Math.min(1, Math.max(0, Number(shot.sound) || 0));
+    if (vol > 0 && await hasAudio(file)) {
+      const A = `ba${audio.length}`, ms = Math.round(a * 1000), fo = Math.max(0, d - 0.25).toFixed(3);
+      filters.push(`[${k}:a]atrim=duration=${d.toFixed(3)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=${vol.toFixed(2)},afade=t=in:d=0.15,afade=t=out:st=${fo}:d=0.25,adelay=${ms}|${ms}[${A}]`);
+      audio.push(A);
+    }
     const fade = `fade=t=in:st=${a.toFixed(3)}:d=0.12:alpha=1,fade=t=out:st=${Math.max(a, b - 0.12).toFixed(3)}:d=0.12:alpha=1`;
     const head = `[${k}:v]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS+${a.toFixed(3)}/TB,fps=${FPS}`;
     if (shot.mode === "pip") {
@@ -104,7 +117,7 @@ async function brollLayers(cfg, edl, plan, faces, W, H, firstInput) {
       overlays.push({ L, x: 0, y: 0, a, b });
     }
   }
-  return { inputs, filters, overlays };
+  return { inputs, filters, overlays, audio };
 }
 
 /**
@@ -122,8 +135,10 @@ async function renderPart(s, rush, src, vf, vbit, out) {
   const fc = [`[0:v]setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${(len + off + 1).toFixed(2)},split=${n}${s.pieces.map((_, k) => `[vi${k}]`).join("")}`];
   if (src.hasAudio) fc.push(`[1:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,asplit=${n}${s.pieces.map((_, k) => `[ai${k}]`).join("")}`);
   s.pieces.forEach(([a, b], k) => {
-    fc.push(`[vi${k}]trim=start=${rv(a)}:end=${rv(b)},setpts=PTS-STARTPTS[v${k}]`);
-    if (src.hasAudio) fc.push(`[ai${k}]atrim=start=${ra(a)}:end=${ra(b)},asetpts=PTS-STARTPTS,afade=t=in:d=0.012,afade=t=out:st=${Math.max(0, b - a - 0.015).toFixed(3)}:d=0.015[a${k}]`);
+    // Vitesse du plan : image accélérée ou ralentie, son au même tempo (sans changer la hauteur de la voix).
+    const sp = s.speed || 1;
+    fc.push(`[vi${k}]trim=start=${rv(a)}:end=${rv(b)},setpts=${sp === 1 ? "PTS-STARTPTS" : `(PTS-STARTPTS)/${sp}`}[v${k}]`);
+    if (src.hasAudio) fc.push(`[ai${k}]atrim=start=${ra(a)}:end=${ra(b)},asetpts=PTS-STARTPTS,${sp === 1 ? "" : `atempo=${sp},`}afade=t=in:d=0.012,afade=t=out:st=${Math.max(0, (b - a) / sp - 0.015).toFixed(3)}:d=0.015[a${k}]`);
   });
   const ins = s.pieces.map((_, k) => (src.hasAudio ? `[v${k}][a${k}]` : `[v${k}]`)).join("");
   fc.push(`${ins}concat=n=${n}:v=1:a=${src.hasAudio ? 1 : 0}[cv]${src.hasAudio ? "[ca]" : ""}`, `[cv]${vf}[v]`);
@@ -131,7 +146,7 @@ async function renderPart(s, rush, src, vf, vbit, out) {
   if (src.hasAudio) args.push("-ss", String(s.in), "-t", String(round(len + 0.05)), "-i", rush);
   else args.push("-f", "lavfi", "-t", String(s.oDur), "-i", "anullsrc=r=48000:cl=stereo");
   args.push("-filter_complex", fc.join(";"), "-map", "[v]", "-map", src.hasAudio ? "[ca]" : "1:a:0");
-  await run("ffmpeg", [...args, "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-shortest", out]);
+  await run("ffmpeg", [...args, "-c:v", ENCODER, "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", "-shortest", out]);
 }
 
 /**
@@ -189,7 +204,7 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
     const p = join(dir, "part999.mov");
     await run("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `color=c=${theme.dark.replace("#", "0x")}:s=${W}x${H}:r=${FPS}:d=${endSec}`,
       "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", String(endSec), "-vf", "format=yuv420p,setsar=1",
-      "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", p]);
+      "-c:v", ENCODER, "-b:v", vbit, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", p]);
     parts.push(p);
   }
   writeFileSync(join(dir, "parts.txt"), parts.map((p) => `file '${p}'`).join("\n"));
@@ -204,17 +219,25 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   const titleUntil = edl.title?.text ? Math.min(toOutput(plan, edl.title.until || 2.8), speechEnd) : Math.min(2.8, speechEnd);
   let overlay = null;
   const showWords = captions.on !== false && words.length;
-  if (showWords || edl.title?.text || endSec) {
-    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces });
+  // Textes libres : posés en secondes de la timeline de l'éditeur, comme l'accroche et les zooms.
+  const texts = cleanTexts(edl.texts).filter((t) => t.start < plan[plan.length - 1].start + plan[plan.length - 1].dur - 0.2)
+    .map((t) => ({ ...t, start: toOutput(plan, t.start), end: Math.max(toOutput(plan, t.start) + 0.3, toOutput(plan, t.end)) }));
+  if (showWords || edl.title?.text || endSec || texts.length) {
+    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces, texts });
     overlay = await renderOverlay(cfg, ensureDir(join(dir, "hf")), html, join(dir, "overlay.mov"), { fps: FPS, theme });
   }
 
   // Zooms (temps de la timeline de l'éditeur → temps rendu) : pairs = zoom avant, impairs = zoom arrière.
   const terms = [];
-  [...(edl.zooms || [])].sort((a, b) => a.at - b.at).forEach((z, k) => {
+  // Les plans serrés fixes ne comptent pas dans l'alternance avant / arrière des zooms qui bougent.
+  let k = -1;
+  [...(edl.zooms || [])].sort((a, b) => a.at - b.at).forEach((z) => {
     const a = toOutput(plan, z.at), b = toOutput(plan, z.at + z.dur);
-    const S = Math.min(1.4, Math.max(1.02, Number(z.scale) || 1.1));
+    const S = Math.min(z.hold ? 2 : 1.4, Math.max(1.02, Number(z.scale) || 1.1));
     if (b - a < 0.2) return;
+    // Plan serré fixe (recadrage) : le même grossissement tout le passage, sans mouvement.
+    if (z.hold) return void terms.push(`between(t,${a.toFixed(3)},${b.toFixed(3)})*${(S - 1).toFixed(3)}`);
+    k++;
     const p = `(t-${a.toFixed(3)})/${(b - a).toFixed(3)}`;
     terms.push(`between(t,${a.toFixed(3)},${b.toFixed(3)})*${(S - 1).toFixed(3)}*${k % 2 ? `(1-${p})` : p}`);
   });
@@ -233,9 +256,11 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
     cur = `s${i + 1}`;
   });
   chain.push(overlay ? `[${cur}][2:v]overlay=0:0:format=auto,format=yuv420p[v]` : `[${cur}]format=yuv420p[v]`);
+  // Son des plans de B-roll gardé : mélangé sous la voix (et la musique), sans changer leur niveau.
+  if (br.audio.length) chain.push(`[1:a]aresample=48000,aformat=channel_layouts=stereo[vx];[vx]${br.audio.map((x) => `[${x}]`).join("")}amix=inputs=${br.audio.length + 1}:normalize=0:duration=first,alimiter=limit=0.95:level=0[a]`);
   const fc = chain.join(";");
-  await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", "1:a",
-    "-c:v", "h264_videotoolbox", "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);
+  await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", br.audio.length ? "[a]" : "1:a",
+    "-c:v", ENCODER, "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);
   const cover = join(dir, final ? "couverture.jpg" : "apercu.jpg");
   await run("ffmpeg", ["-v", "error", "-y", "-ss", String(Math.min(titleUntil * 0.6, total / 2)), "-i", out, "-frames:v", "1", "-q:v", "3", cover]).catch(() => {});
   writeFileSync(join(dir, "sous-titres.srt"), srt(words));

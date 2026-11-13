@@ -54,6 +54,9 @@ export function removedSpans(s, mode = "keep") {
   return merge(rem);
 }
 
+/** Vitesse d'un plan (0,5 à 2 ; absente : 1). Même règle que src/lib/montage.ts. */
+export const speedOf = (s) => (s.speed >= 0.5 && s.speed <= 2 ? s.speed : 1);
+
 const goneBefore = (gone, r) => gone.reduce((n, [a, b]) => n + Math.max(0, Math.min(b, r) - a), 0);
 
 /** Timeline de l'éditeur : segments gardés, dans l'ordre ; durée = out − in − parties retirées. */
@@ -62,7 +65,7 @@ export function timeline(edl) {
   const mode = audioOf(edl).silences;
   return edl.segments.filter((s) => s.kept && s.out > s.in).map((s) => {
     const gone = removedSpans(s, mode);
-    const seg = { ...s, gone, start: round(t), dur: round(Math.max(0, s.out - s.in - goneBefore(gone, s.out))) };
+    const seg = { ...s, gone, start: round(t), dur: round(Math.max(0, s.out - s.in - goneBefore(gone, s.out)) / speedOf(s)) };
     t += seg.dur;
     return seg;
   });
@@ -71,12 +74,12 @@ export function timeline(edl) {
 /** Seconde de la timeline de l'éditeur d'une seconde de rush, dans un segment placé. */
 export function toTimeline(s, r) {
   const x = Math.min(Math.max(r, s.in), s.out);
-  return s.start + (x - s.in) - goneBefore(s.gone || [], x);
+  return s.start + (x - s.in - goneBefore(s.gone || [], x)) / speedOf(s);
 }
 
 /** Seconde de rush d'une seconde de la timeline de l'éditeur, dans un segment placé (inverse de toTimeline). */
 export function toRush(s, t) {
-  let r = s.in + Math.max(0, t - s.start);
+  let r = s.in + Math.max(0, t - s.start) * speedOf(s);
   for (const [a, b] of s.gone || []) if (a <= r) r += b - a;
   return Math.min(r, s.out);
 }
@@ -92,13 +95,13 @@ export function pieces(s, fps = 30) {
 }
 
 /** Seconde de la vidéo rendue d'une seconde de rush, pour un segment découpé en morceaux. */
-function mapper(ps, start) {
+function mapper(ps, start, sp = 1) {
   return (t) => {
     let o = start;
     for (const [a, b] of ps) {
       if (t < a) return o;
-      if (t <= b) return o + (t - a);
-      o += b - a;
+      if (t <= b) return o + (t - a) / sp;
+      o += (b - a) / sp;
     }
     return o;
   };
@@ -110,9 +113,10 @@ export function renderPlan(edl, fps = 30) {
   const out = [];
   for (const s of timeline(edl)) {
     const ps = pieces(s, fps);
-    const dur = ps.reduce((x, [a, b]) => x + (b - a), 0);
+    const sp = speedOf(s);
+    const dur = ps.reduce((x, [a, b]) => x + (b - a), 0) / sp;
     if (dur < 0.05) continue;
-    out.push({ ...s, i: out.length, pieces: ps, oStart: round(o), oDur: round(dur), map: mapper(ps, o) });
+    out.push({ ...s, i: out.length, pieces: ps, speed: sp, oStart: round(o), oDur: round(dur), map: mapper(ps, o, sp) });
     o += dur;
   }
   return out;
@@ -130,12 +134,16 @@ export function toOutput(plan, t) {
 export function outputWords(plan) {
   const out = [];
   for (const s of plan) {
+    // Un mot qui ne s'affiche pas (coupé, hors du plan, trop court) passe son début de bloc (brk) au mot suivant.
+    let carry = false;
     for (const w of s.words || []) {
-      if (w.cut || w.t1 <= s.in || w.t0 >= s.out) continue;
+      if (w.cut || w.t1 <= s.in || w.t0 >= s.out) { carry ||= !!w.brk; continue; }
       const [a, b] = inside(w, s);
       const S = round(s.map(a)), E = round(s.map(b));
-      if (E - S < 0.02) continue;
-      out.push({ w: w.w, s: S, e: E, seg: s.i, ...(w.hl ? { hl: true } : {}), ...(w.emoji ? { emoji: w.emoji } : {}) });
+      if (E - S < 0.02) { carry ||= !!w.brk; continue; }
+      const brk = !!w.brk || carry, glue = !carry && !!w.glue;
+      carry = false;
+      out.push({ w: w.w, s: S, e: E, seg: s.i, ...(w.hl ? { hl: true } : {}), ...(w.emoji ? { emoji: w.emoji } : {}), ...(brk ? { brk: true } : {}), ...(glue ? { glue: true } : {}) });
     }
   }
   return out;

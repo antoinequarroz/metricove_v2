@@ -1,7 +1,7 @@
 // B-roll : plans d'illustration posés par-dessus Antoine (sa voix continue).
 // Recherche : d'abord les fichiers de `brollDir` (noms descriptifs), sinon Pexels (clé `pexelsKey` du config.json,
 // jamais affichée). Les vidéos Pexels sont gardées dans `brollCache`, plafonné en taille (les plus anciennes partent).
-import { existsSync, readdirSync, statSync, rmSync, renameSync, createWriteStream } from "node:fs";
+import { existsSync, readdirSync, statSync, rmSync, renameSync, createWriteStream, readFileSync, writeFileSync, utimesSync } from "node:fs";
 import { join, basename, extname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -9,6 +9,10 @@ import { home, ensureDir, run, log } from "./util.mjs";
 
 const VIDEO = /\.(mp4|mov|m4v|webm|mkv)$/i;
 const STOP = new Set(["avec", "dans", "pour", "sans", "sous", "vers", "chez", "des", "les", "une", "sur", "par", "qui", "que", "aux", "the", "and"]);
+
+/** Client de l'API Metricove : pour les plans pris dans la bibliothèque (posé par montage.mjs). */
+let API = null;
+export const setBrollApi = (api) => { API = api; };
 
 export const brollDir = (cfg) => ensureDir(home(cfg.brollDir || "~/Movies/Metricove/broll"));
 const cacheDir = (cfg) => ensureDir(home(cfg.brollCache || "~/Movies/Metricove/broll-cache"));
@@ -52,7 +56,15 @@ function trimCache(cfg) {
   const cap = (cfg.brollCacheGb ?? 1) * 1e9;
   const files = readdirSync(dir).filter((f) => VIDEO.test(f)).map((f) => ({ f: join(dir, f), ...statSync(join(dir, f)) })).sort((a, b) => b.mtimeMs - a.mtimeMs);
   let total = 0;
-  for (const x of files) { total += x.size; if (total > cap) rmSync(x.f, { force: true }); }
+  // Le plus récent (celui qu'on vient de prendre) reste toujours, même s'il dépasse à lui seul le plafond.
+  files.forEach((x, i) => { total += x.size; if (i > 0 && total > cap) rmSync(x.f, { force: true }); });
+}
+
+/** Fichier du cache déjà là : marqué comme utilisé maintenant, pour que le plafond enlève d'abord les autres. */
+function cached(file) {
+  if (!existsSync(file)) return false;
+  try { const t = new Date(); utimesSync(file, t, t); } catch { /* sans importance */ }
+  return true;
 }
 
 async function download(url, file) {
@@ -62,15 +74,33 @@ async function download(url, file) {
   renameSync(file + ".part", file);
 }
 
-/** Vidéo Pexels en cache (téléchargée si besoin) ; `v` = objet vidéo de l'API si déjà connu. */
-async function pexelsFile(cfg, id, v) {
-  const file = join(cacheDir(cfg), `pexels-${id}.mp4`);
-  if (existsSync(file)) return file;
+/** Vidéo Pexels en cache (téléchargée si besoin) ; `v` = objet vidéo de l'API si déjà connu ; `url` = fichier choisi dans la page (sans clé). */
+async function pexelsFile(cfg, id, v, url) {
+  const file = join(cacheDir(cfg), `pexels-${String(id).replace(/[^\w-]/g, "")}.mp4`);
+  if (cached(file)) return file;
+  if (url && /^https:\/\/videos\.pexels\.com\//.test(url)) {
+    await download(url, file);
+    trimCache(cfg);
+    return file;
+  }
   if (!cfg.pexelsKey) return null;
   v ||= await pexels(cfg, `/videos/videos/${encodeURIComponent(id)}`);
   const f = pickFile(v);
   if (!f) return null;
   await download(f.link, file);
+  trimCache(cfg);
+  return file;
+}
+
+/** Vidéo de la bibliothèque Metricove en cache (téléchargée une fois). */
+async function libraryFile(cfg, id) {
+  const file = join(cacheDir(cfg), `bibliotheque-${String(id).replace(/[^\w-]/g, "")}.mp4`);
+  if (cached(file)) return file;
+  if (!API) return null;
+  const r = await API.req("GET", `/api/media/${encodeURIComponent(id)}/file`, { raw: true });
+  if (!r.ok) throw new Error(`vidéo de la bibliothèque ${id} → ${r.status}`);
+  await pipeline(Readable.fromWeb(r.body), createWriteStream(file + ".part"));
+  renameSync(file + ".part", file);
   trimCache(cfg);
   return file;
 }
@@ -81,14 +111,56 @@ export async function brollFile(cfg, shot) {
     const f = join(brollDir(cfg), basename(shot.ref));
     return existsSync(f) ? f : null;
   }
-  if (shot.source === "pexels" && shot.ref) return pexelsFile(cfg, shot.ref).catch((e) => { log("B-roll Pexels :", e.message); return null; });
+  if (shot.source === "pexels" && shot.ref) return pexelsFile(cfg, shot.ref, null, shot.url).catch((e) => { log("B-roll Pexels :", e.message); return null; });
+  if (shot.source === "library" && shot.ref) return libraryFile(cfg, shot.ref).catch((e) => { log("B-roll bibliothèque :", e.message); return null; });
   return null;
 }
 
-async function thumbOf(file) {
-  for (const [w, q] of [[160, 6], [120, 10]]) {
-    const buf = await run("ffmpeg", ["-v", "error", "-ss", "0.5", "-i", file, "-frames:v", "1", "-vf", `scale=${w}:-2`, "-q:v", String(q), "-f", "image2pipe", "-vcodec", "mjpeg", "-"], { binary: true }).catch(() => null);
-    if (buf && buf.length <= 40000) return `data:image/jpeg;base64,${buf.toString("base64")}`;
+/** Le plan a-t-il du son ? (pour le mixer sous la voix) */
+export async function hasAudio(file) {
+  const out = await run("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file]).catch(() => "");
+  return String(out).trim().length > 0;
+}
+
+async function durationOf(file) {
+  const out = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]).catch(() => "");
+  const d = parseFloat(out);
+  return Number.isFinite(d) && d > 0 ? Math.round(d * 10) / 10 : undefined;
+}
+
+/**
+ * Plans du dossier B-roll avec une petite image et leur durée, pour la page (worker 0.13.0). Les images sont gardées
+ * dans broll-cache/vignettes.json ; au plus `budget` nouvelles par appel pour ne pas retarder la boucle.
+ */
+export async function macBrollList(cfg, budget = 12) {
+  const idx = join(cacheDir(cfg), "vignettes.json");
+  let cache = {};
+  try { cache = JSON.parse(readFileSync(idx, "utf8")); } catch { /* première fois */ }
+  const out = [], next = {};
+  let made = 0, changed = false;
+  for (const name of listBroll(cfg).slice(0, 300)) {
+    const st = statSync(join(brollDir(cfg), name));
+    let c = cache[name];
+    if (!c || c.mtime !== st.mtimeMs || c.size !== st.size) {
+      if (made >= budget) { out.push({ name }); continue; }
+      made++; changed = true;
+      const file = join(brollDir(cfg), name);
+      c = { mtime: st.mtimeMs, size: st.size, thumb: await thumbOf(file, [[96, 8], [72, 12]], 14000), dur: await durationOf(file) };
+    }
+    next[name] = c;
+    out.push({ name, ...(c.thumb ? { thumb: c.thumb } : {}), ...(c.dur ? { dur: c.dur } : {}) });
+  }
+  if (changed || Object.keys(cache).length !== Object.keys(next).length) {
+    try { writeFileSync(idx, JSON.stringify(next)); } catch { /* cache facultatif */ }
+  }
+  return { list: out, pending: made >= budget };
+}
+
+async function thumbOf(file, sizes = [[160, 6], [120, 10]], max = 40000, at = 0.5) {
+  for (const [w, q] of sizes) {
+    const buf = await run("ffmpeg", ["-v", "error", "-ss", String(at), "-i", file, "-frames:v", "1", "-vf", `scale=${w}:-2`, "-q:v", String(q), "-f", "image2pipe", "-vcodec", "mjpeg", "-"], { binary: true }).catch(() => null);
+    // base64 grossit de 4/3 : la limite porte sur la data URL envoyée.
+    if (buf && buf.length && buf.length * 1.34 + 23 <= max) return `data:image/jpeg;base64,${buf.toString("base64")}`;
   }
   return undefined;
 }
@@ -104,7 +176,8 @@ export async function resolveBroll(cfg, list = [], format = "9:16") {
     const s = { ...shot, mode: shot.mode === "pip" ? "pip" : "full" };
     let file = s.source ? await brollFile(cfg, s) : null;
     if (!file) {
-      delete s.source; delete s.ref; delete s.thumb;
+      // Le plan d'avant est introuvable : on en cherche un autre, sans garder ce qui allait avec l'ancien fichier.
+      delete s.source; delete s.ref; delete s.thumb; delete s.url; delete s.from;
       const mine = matchMine(cfg, s.query);
       if (mine) { s.source = "mine"; s.ref = mine; file = join(brollDir(cfg), mine); }
       else if (cfg.pexelsKey) {
@@ -118,7 +191,7 @@ export async function resolveBroll(cfg, list = [], format = "9:16") {
     }
     if (!file) { notes.push(`B-roll « ${s.query} » introuvable : plan retiré.`); continue; }
     used.add(String(s.ref));
-    s.thumb ||= await thumbOf(file);
+    s.thumb ||= await thumbOf(file, undefined, undefined, (s.from || 0) + 0.5);
     out.push(s);
     files.push(file);
   }

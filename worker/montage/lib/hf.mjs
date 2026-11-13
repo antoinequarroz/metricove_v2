@@ -5,7 +5,9 @@
 // masques avec marge (accents et jambages jamais coupés) ; rendu --workers 1 (sinon ~30 Go d'images sur le disque).
 import { writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { join, basename } from "node:path";
-import { run, ensureDir } from "./util.mjs";
+import { run, ensureDir, home } from "./util.mjs";
+import { fontFaceCss, fontPaths } from "./fonts.mjs";
+import { textLayer } from "./texts.mjs";
 
 const E = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const f = (x) => Number(x).toFixed(3);
@@ -26,15 +28,17 @@ function chunksOf(words, maxc) {
   for (const w of words) {
     if (cur.length) {
       const p = cur[cur.length - 1];
-      if (linesOf([...cur, w], maxc).length > 2 || w.s - p.e > 0.35 || w.seg !== p.seg
-          || (/[.?!,]$/.test(p.w) && cur.map((x) => x.w).join(" ").length >= 8)) { chunks.push(cur); cur = []; }
+      // Limites posées à la main dans Metricove : `brk` = un bloc commence ici, `glue` = pas de coupe avant ce mot (3 lignes au plus).
+      const auto = linesOf([...cur, w], maxc).length > 2 || w.s - p.e > 0.35
+          || (/[.?!,]$/.test(p.w) && cur.map((x) => x.w).join(" ").length >= 8);
+      if (w.seg !== p.seg || w.brk || (w.glue ? linesOf([...cur, w], maxc).length > 3 : auto)) { chunks.push(cur); cur = []; }
     }
     cur.push(w);
   }
   if (cur.length) chunks.push(cur);
   for (let k = 1; k < chunks.length; ) {
     const a = chunks[k - 1], b = chunks[k];
-    if (b.length === 1 && b[0].s - a[a.length - 1].e < 0.35 && b[0].seg === a[a.length - 1].seg && linesOf([...a, ...b], maxc).length <= 2) { a.push(...chunks.splice(k, 1)[0]); continue; }
+    if (b.length === 1 && !b[0].brk && b[0].s - a[a.length - 1].e < 0.35 && b[0].seg === a[a.length - 1].seg && linesOf([...a, ...b], maxc).length <= 2) { a.push(...chunks.splice(k, 1)[0]); continue; }
     k++;
   }
   return chunks;
@@ -47,7 +51,7 @@ const SIZE = { s: 0.8, m: 1, l: 1.2 };
  * words : [{ w, s, e, seg, hl?, emoji? }] en secondes de la vidéo rendue ; speechEnd : fin de la parole ; dur : durée totale.
  * captions : { on, position, look, size, highlight, emoji } ; faces : { [seg]: { y0, y1 } } visage dans l'image (0..1), pour « auto ».
  */
-export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, theme, format, captions = {}, faces = {} }) {
+export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, theme, format, captions = {}, faces = {}, texts = [] }) {
   const k = Math.min(W, H) / 1080;
   const px = (v) => `${Math.round(v * k)}px`;
   const maxc = Math.round((theme.captionsMaxChars?.[format] || 18) / (SIZE[captions.size] || 1));
@@ -56,7 +60,8 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
   const A = theme.accent, T = theme.text, INK = theme.ink, DARK = theme.dark;
   const HL = /^#[0-9a-f]{6}$/i.test(captions.highlight || "") ? captions.highlight : A;
   const look = captions.look || "karaoke";
-  const fontFaces = (theme.fontFiles || []).map((p) => `@font-face{font-family:"${theme.font}";src:url("assets/${basename(p)}");}`).join("\n");
+  const STRETCH = /^\d{2,3}%$/.test(theme.fontStretch || "") ? `font-stretch:${theme.fontStretch};` : "";
+  const fontFaces = fontFaceCss(theme, (p) => `assets/${basename(p)}`);
   const els = [], js = [];
 
   // Place des sous-titres : bas, haut, milieu, ou « auto » = sous le visage, sinon au-dessus.
@@ -133,10 +138,15 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
     js.push(`tl.to("#end .eb",{scaleX:1,duration:0.45,ease:"expo.out"},${f(s + 0.15)}); tl.to("#end .m>span",{yPercent:0,duration:0.5,ease:"expo.out"},${f(s + 0.3)});`);
   }
 
+  // Textes libres posés à la main (au-dessus du reste, sauf du carton de fin qui est opaque).
+  const free = textLayer(texts, { W, H, total: endCard?.text ? speechEnd : dur, accent: A, onAccent: INK });
+  els.push(...free.els); js.unshift(...free.js.filter((x) => x.startsWith("gsap.set"))); js.push(...free.js.filter((x) => !x.startsWith("gsap.set")));
+
   const css = `${fontFaces}
+${free.css}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent}
-#root{position:relative;width:${W}px;height:${H}px;font-family:"${theme.font}",${theme.fallbackFonts};color:${T}}
+#root{position:relative;width:${W}px;height:${H}px;font-family:"${theme.font}",${theme.fallbackFonts};${STRETCH}color:${T}}
 .m{overflow:hidden;padding:0.22em 0.05em 0.28em;margin:-0.22em -0.05em -0.28em}.m>span{display:inline-block}
 .shade{position:absolute;left:0;right:0}
 .shade-bottom{top:${Math.round(H * (capTop - 0.2))}px;bottom:0;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0.42) 45%,rgba(0,0,0,0.62) 100%)}
@@ -173,9 +183,14 @@ window.__timelines["main"]=tl; tl.seek(0);
 /** Rend la page en .mov transparent (ProRes 4444). */
 export async function renderOverlay(cfg, dir, html, out, { fps, theme }) {
   ensureDir(join(dir, "assets"));
-  for (const p of theme.fontFiles || []) if (existsSync(p)) copyFileSync(p, join(dir, "assets", basename(p)));
+  for (const p of fontPaths(theme)) if (existsSync(p)) copyFileSync(p, join(dir, "assets", basename(p)));
   writeFileSync(join(dir, "hyperframes.json"), JSON.stringify({ paths: { assets: "assets" }, media: { autoProxy: true } }));
   writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "metricove-montage", private: true, type: "module" }));
+  // `gsapFile` (config) : une copie de gsap.min.js sur le Mac, pour rendre sans réseau (comme pour un reel).
+  if (cfg.gsapFile && existsSync(home(cfg.gsapFile))) {
+    copyFileSync(home(cfg.gsapFile), join(dir, "assets", "gsap.min.js"));
+    html = html.replace(/https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@[^"]+/, "assets/gsap.min.js");
+  }
   writeFileSync(join(dir, "index.html"), html);
   await run("npx", ["--yes", cfg.hyperframes, "render", "--format", "mov", "--fps", String(fps), "--workers", "1", "-o", out, "--quiet", "."], { cwd: dir });
   return out;

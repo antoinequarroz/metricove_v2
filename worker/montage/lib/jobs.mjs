@@ -1,16 +1,22 @@
-// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover (contrat docs/MONTAGE.md).
+// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion (contrat docs/MONTAGE.md).
+// Un reel animé (kind "motion") a ses propres actions motion (création ou retouche par Claude) et preview (retouche à la main).
 import { statSync, rmSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { ensureDir, assertSpace, themeFor, log, round } from "./util.mjs";
 import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
-import { proposeEdit, writeScript } from "./claude.mjs";
+import { proposeEdit, proposeBroll, writeScript } from "./claude.mjs";
 import { renderEdl } from "./render.mjs";
 import { timeline, toRush, toTimeline, FILLER, captionsOf, audioOf } from "./edl.mjs";
 import { listTracks } from "./audio.mjs";
 import { listBroll, resolveBroll } from "./broll.mjs";
 import { writeCaption } from "./caption.mjs";
 import { makeCover } from "./cover.mjs";
+import { withFont } from "./fonts.mjs";
+import { writePost } from "./post.mjs";
+import { cleanMotion, makeMotion, renderPlan } from "./motion.mjs";
+import { reviseMotion, writeReelMarks } from "./motion-revise.mjs";
+import { directMotion } from "./motion-direct.mjs";
 
 export async function handle(api, cfg, { job, action, rushes = [], media }) {
   const dir = ensureDir(join(cfg.workDir, "taches", job.id));
@@ -33,13 +39,67 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       rmSync(dir, { recursive: true, force: true });
       return;
     }
+    if (action === "post") {
+      const post = await writePost(api, cfg, job, step);
+      await api.patch(job.id, { status: "done", post });
+      log(`[${job.id.slice(0, 8)}] post envoyé (${post.slides.length} visuel(s), ${post.caption.length} car.)`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (job.kind === "motion") {
+      assertSpace(cfg);
+      // « Annuler le reel » supprime la tâche : on s'arrête à l'étape suivante au lieu d'envoyer une vidéo dont personne ne veut.
+      const alive = async () => api.dryRun || (await api.req("GET", `/api/montage/jobs/${job.id}`, { raw: true })).status !== 404;
+      const guarded = async (s, p) => { if (!(await alive())) throw new Error("reel annulé"); return step(s, p); };
+      const versions = job.versions || [];
+      // Le plan d'une version, avec le logo du projet (jamais gardé dans la tâche : il arrive avec elle).
+      const planOf = (v) => cleanMotion({ ...v.reel, look: { ...v.reel.look, logo: v.reel.logo === false ? "" : job.motion?.look?.logo } });
+      try {
+        if (action === "preview") {
+          // Version retouchée à la main dans l'écran de montage : le plan est rendu tel quel, sans Claude.
+          const v = versions[versions.length - 1];
+          if (!v?.reel) throw new Error("Version du reel introuvable.");
+          const r = await renderPlan(cfg, planOf(v), dir, guarded);
+          await guarded("Envoi de l'aperçu…", 0.92);
+          const upload = await api.upload(r.video, `reel-${job.id}-v${v.n}.mp4`);
+          await api.setPreview(job.id, v.n, upload, undefined, { reel: r.plan, notes: r.notes.join("\n") });
+          log(`[${job.id.slice(0, 8)}] aperçu du reel envoyé (version ${v.n}, ${r.duration.toFixed(1)} s)`);
+          return;
+        }
+        if (action !== "motion") throw new Error(`Action inconnue pour un reel : ${action}`);
+        const from = versions.find((v) => v.n === job.base && v.reel) || [...versions].reverse().find((v) => v.reel);
+        let r;
+        if (from) {
+          // Retouche demandée dans l'écran de montage : Claude ne modifie que le passage visé.
+          await guarded("Claude prépare la retouche…", 0.04);
+          const rev = await reviseMotion(cfg, planOf(from), { feedback: job.feedback, marks: writeReelMarks(job, dir), range: job.range }, dir);
+          r = await renderPlan(cfg, rev.plan, dir, guarded, rev.notes, rev.fresh);
+        } else {
+          r = await makeMotion(cfg, job, dir, guarded, directMotion);
+        }
+        await guarded("Envoi vers l'écran de montage…", 0.92);
+        const upload = await api.upload(r.video, `${slug(job.title)}.mp4`);
+        try {
+          await api.addVersion(job.id, { reel: r.plan, notes: r.notes.join("\n"), upload });
+        } catch (e) {
+          // Un serveur qui ne connaît pas encore l'écran de montage du reel : la vidéo part dans la bibliothèque, comme avant.
+          if (from || !/→ 400/.test(String(e.message))) throw e;
+          const again = await api.upload(r.video, `${slug(job.title)}.mp4`);
+          await api.final(job.id, again, job.title, r.notes.join("\n"));
+        }
+        log(`[${job.id.slice(0, 8)}] reel animé envoyé (${r.duration.toFixed(1)} s)`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+      return;
+    }
     if (action === "cover") {
       await makeCover(api, cfg, { job, media }, step);
       await api.patch(job.id, { status: "done" });
       return;
     }
     assertSpace(cfg);
-    const theme = themeFor(cfg, job);
+    const theme = await withFont(cfg, themeFor(cfg, job));
     await step("Récupération des rushes…", 0.02);
     const rushPaths = await localRushes(api, cfg, rushes.filter((r) => job.rushIds.includes(r.id)));
 
@@ -67,6 +127,8 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       const brollAuto = settings.brollAuto !== false;
       const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, broll: brollAuto ? listBroll(cfg) : null, cwd: dir });
       const edl = buildEdl(job, cands, p, { settings, captions, tracks });
+      // Les textes posés à la main restent d'une proposition à l'autre.
+      if (last?.edl.texts?.length) edl.texts = last.edl.texts;
       const bnotes = [];
       if (edl.broll?.length) {
         await step("Recherche du B-roll…", 0.45);
@@ -91,6 +153,48 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       return;
     }
 
+    if (action === "broll") {
+      // « Claude, propose du B-roll ici » : seuls les plans du passage changent, puis un aperçu de la dernière version.
+      const v = job.versions[job.versions.length - 1];
+      const edl = v.edl;
+      const tl = timeline(edl);
+      const total = tl.length ? tl[tl.length - 1].start + tl[tl.length - 1].dur : 0;
+      const a = Math.max(0, Number(job.brollAsk?.range?.[0]) || 0), b = Math.min(total, Number(job.brollAsk?.range?.[1]) || total);
+      const notes = [];
+      if (b - a >= 0.8) {
+        await step("Claude choisit le B-roll du passage…", 0.05);
+        const words = [];
+        for (const s of tl) for (const w of s.words || []) {
+          if (w.cut || w.t1 <= s.in || w.t0 >= s.out) continue;
+          const t = toTimeline(s, Math.max(w.t0, s.in));
+          if (t >= a - 0.05 && t < b) words.push({ t, w: w.w });
+        }
+        try {
+          const mine = listBroll(cfg);
+          const p = await proposeBroll(cfg, { job, range: [a, b], words, mine, note: job.brollAsk?.note, cwd: dir });
+          const shots = [];
+          for (const x of (p.shots || []).slice(0, 3)) {
+            const at = round(Math.max(a, Number(x.at) || a));
+            const dur = round(Math.min(4, Math.max(1.2, Number(x.dur) || 2), b - at));
+            if (dur < 0.8 || !String(x.query || "").trim() || shots.some((o) => at < o.at + o.dur && o.at < at + dur)) continue;
+            const file = x.file && mine.includes(x.file) ? x.file : null;
+            shots.push({ at, dur, query: String(x.query).trim().slice(0, 80), mode: x.mode === "pip" ? "pip" : "full", ...(file ? { source: "mine", ref: file } : {}) });
+          }
+          if (shots.length) {
+            edl.broll = [...(edl.broll || []).filter((s) => s.at + s.dur <= a || s.at >= b), ...shots].sort((x, y) => x.at - y.at).slice(0, 30);
+            if (p.notes) notes.push(String(p.notes).trim());
+          } else notes.push("Claude n'a pas trouvé de plan qui colle à ce passage : rien n'a changé.");
+        } catch (e) {
+          notes.push(`Claude n'a pas pu proposer de B-roll (${e.message.slice(0, 200)}) : rien n'a changé dans ce passage.`);
+        }
+      }
+      notes.push(...await withBroll(cfg, edl, step));
+      const r = await renderEdl(cfg, { edl, rushPaths, theme, quality: "preview", style: job.style, dir: join(dir, "apercu"), onStep: (s, x) => step(s, 0.2 + 0.75 * x) });
+      const upload = await api.upload(r.video, `apercu-${job.id}-v${v.n}.mp4`);
+      await api.setPreview(job.id, v.n, upload, edl.broll || [], { notes: notes.filter(Boolean).join("\n") });
+      return;
+    }
+
     if (action === "final") {
       const v = job.versions.find((x) => x.n === job.approved);
       if (!v) throw new Error(`Version validée introuvable (${job.approved}).`);
@@ -110,7 +214,10 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
         const at = 0.05 + share * (k + 1);
         const fdir = join(dir, `final-${fmt.replace(":", "x")}`);
         try {
-          const e = await renderEdl(cfg, { edl: { ...v.edl, format: fmt }, rushPaths, theme, quality: "final", style: job.style, dir: fdir, onStep: (s, x) => step(`${fmt} · ${s}`, at + share * x) });
+          // Les limites de blocs posées à la main valent pour la largeur de ligne du format principal : ailleurs, coupe automatique.
+          const width = (f) => theme.captionsMaxChars?.[f] || 18; // comme hf.mjs
+          const segments = width(fmt) === width(v.edl.format) ? v.edl.segments : v.edl.segments.map((s) => ({ ...s, words: s.words?.map(({ brk, glue, ...w }) => w) }));
+          const e = await renderEdl(cfg, { edl: { ...v.edl, format: fmt, segments }, rushPaths, theme, quality: "final", style: job.style, dir: fdir, onStep: (s, x) => step(`${fmt} · ${s}`, at + share * x) });
           const up = await api.upload(e.video, `${slug(job.title)}-${fmt.replace(":", "x")}.mp4`);
           await api.addMedia(up, `${job.title} (${fmt})`);
           log(`[${job.id.slice(0, 8)}] format ${fmt} envoyé`);
@@ -138,11 +245,12 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
 
 /** Plans de B-roll sans source (ajoutés ou changés à la main) : cherchés avant le rendu. */
 async function withBroll(cfg, edl, step) {
-  if (!edl.broll?.some((s) => !s.source)) return;
-  await step("Recherche du B-roll…", 0.03);
+  if (!edl.broll?.some((s) => !s.source || !s.thumb)) return [];
+  await step("Recherche du B-roll…", 0.1);
   const b = await resolveBroll(cfg, edl.broll, edl.format);
   edl.broll = b.broll;
   for (const n of b.notes) log("note :", n);
+  return b.notes;
 }
 
 /** Écrit les images des notes dessinées dans le dossier de travail (mark-<id>.jpg) et situe chaque note dans les phrases. */

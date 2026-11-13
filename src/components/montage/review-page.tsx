@@ -4,16 +4,19 @@ import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, Message
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { edlDuration, timeline, type CaptionStyle, type Edl, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { edlDuration, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
 import { Annotator } from "./annotator";
+import { ReelReview } from "./reel-review";
 import { CaptionsEditor } from "./captions-editor";
 import { Segmented } from "./controls";
+import { TextGhost, TextPanel } from "./free-texts";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
+import { useTimelineKeys, useUndo } from "./timeline-kit";
 import { montageApi, useMontage } from "./use-montage";
 
 const ASPECT: Record<Edl["format"], string> = { "9:16": "9 / 16", "4:5": "4 / 5", "1:1": "1 / 1", "16:9": "16 / 9" };
@@ -32,10 +35,12 @@ export function ReviewPage({ id }: { id: string }) {
         </Link>
       </div>
     );
+  // An animated reel has its own editing screen: the same player, drawings and versions, over a timeline of scenes.
+  if (job.kind === "motion") return <ReelReview job={job} worker={data.worker} refresh={refresh} />;
   return <Review job={job} worker={data.worker} rushes={data.rushes} refresh={refresh} />;
 }
 
-type Tab = "text" | "captions" | "settings";
+type Tab = "text" | "captions" | "texts" | "settings";
 
 function Review({
   job,
@@ -59,7 +64,11 @@ function Review({
   const player = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
   const [tab, setTab] = useState<Tab>("captions");
-  const [selection, setSelection] = useState<Selection>(null);
+  const [selection, setSelectionRaw] = useState<Selection>(null);
+  /** The free text chosen on the timeline or in the Texts tab (one thing is chosen at a time). */
+  const [textSel, setTextSelRaw] = useState<string | null>(null);
+  const setSelection = (s: Selection) => (setSelectionRaw(s), s && setTextSelRaw(null));
+  const setTextSel = (id: string | null) => (setTextSelRaw(id), id && (setSelectionRaw(null), setTab("texts")));
   const [drawing, setDrawing] = useState(false);
   const [marks, setMarks] = useState<MontageMark[]>([]);
   const openComposer = useStore((s) => s.openComposer);
@@ -68,6 +77,7 @@ function Review({
   // A new version arrived: show it, unless the user is editing.
   useEffect(() => {
     if (!dirty && latest) {
+      history.reset();
       setShown(latest.n);
       setDraft(latest.edl);
     }
@@ -79,15 +89,64 @@ function Review({
     setShown(n);
     setDraft(v?.edl);
     setDirty(false);
+    history.reset();
   };
 
+  const history = useUndo<Edl>(draft, (edl) => {
+    setDraft(edl);
+    // Back at the version on show: nothing is left to apply.
+    setDirty(JSON.stringify(edl) !== JSON.stringify(version?.edl));
+    setSelection(null);
+  });
   const edit = (fn: (e: Edl) => Edl) => {
+    history.record(draft);
     setDraft((d) => (d ? fn(structuredClone(d)) : d));
     setDirty(true);
   };
-  const setEdl = (next: Edl) => {
+  /** `key` names a panel of sliders: its changes in a row make one step to undo. */
+  const setEdl = (next: Edl, key?: string) => {
+    history.record(draft, key);
     setDraft(next);
     setDirty(true);
+  };
+  const texts = draft?.texts ?? [];
+  const setTexts = (next: FreeText[], key?: string) => draft && setEdl({ ...draft, texts: next }, key);
+  const curText = texts.find((t) => t.id === textSel);
+  const [playing, setPlaying] = useState(false);
+  const composerOpen = useStore((s) => s.composer.open);
+  const zoomRef = useRef<((dir: 1 | -1 | 0) => void) | null>(null);
+  // While it plays, the playhead follows the video frame by frame.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      if (player.current) setTime(player.current.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+  /** Removes what is selected on the timeline: a shot, a zoom or a B-roll shot. */
+  const removeSelection = () => {
+    if (!draft || !selection || selection.kind === "title" || selection.kind === "cap" || selection.kind === "brange") return;
+    const next = structuredClone(draft);
+    if (selection.kind === "seg") {
+      const s = next.segments.find((x) => x.id === selection.id);
+      if (!s || next.segments.filter((x) => x.kept).length < 2) return;
+      s.kept = false;
+    } else if (selection.kind === "zoom") {
+      if (!next.zooms?.[selection.i]) return;
+      next.zooms.splice(selection.i, 1);
+    } else {
+      if (!next.broll?.[selection.i]) return;
+      next.broll.splice(selection.i, 1);
+    }
+    setEdl(next);
+    setSelection(null);
+  };
+  const splitHere = () => {
+    const next = draft && splitAt(draft, time);
+    if (next) setEdl(next);
   };
 
   const call = async (body: object, ok: string) => {
@@ -105,9 +164,21 @@ function Review({
     }
   };
 
-  const apply = async () => draft && (await call({ edl: draft }, "Modifications envoyées au Mac pour un nouvel aperçu")) && setDirty(false);
+  const apply = async () => {
+    if (!draft || !(await call({ edl: draft }, "Modifications envoyées au Mac pour un nouvel aperçu"))) return;
+    setDirty(false);
+    history.reset();
+  };
+  /** Claude places B-roll on one passage of the edit on screen (unsaved changes included). */
+  const askBroll = async (range: [number, number], note: string) => {
+    if (!draft || !(await call({ brollAsk: { range, note }, edl: draft }, "Claude cherche du B-roll pour ce passage"))) return;
+    setDirty(false);
+    history.reset();
+  };
+  /** Notes that say something: one left empty is not sent. */
+  const filled = marks.filter((m) => m.text.trim() || m.image);
   const revise = async () => {
-    if (await call({ revise: feedback, marks }, marks.length ? `Demande et ${marks.length} note${marks.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude")) {
+    if (await call({ revise: feedback, marks: filled }, filled.length ? `Demande et ${filled.length} note${filled.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude")) {
       setFeedback("");
       setMarks([]);
     }
@@ -131,6 +202,28 @@ function Review({
   };
   const sentMarks = (job.marks ?? []).filter((m) => m.version === version?.n);
   const canDraw = job.status === "review" && !!version?.preview && compareWith === null;
+  /** Puts a note at the playhead (M): a place in the video and a few words for Claude, without drawing. */
+  const addNote = () => {
+    if (!version || !canDraw) return;
+    if (marks.length >= 8) return void toast.message("8 notes au plus par demande");
+    player.current?.pause();
+    setMarks((x) => [...x, { id: crypto.randomUUID(), version: version.n, t: Math.round((player.current?.currentTime ?? time) * 100) / 100, text: "" }]);
+  };
+  useTimelineKeys({
+    enabled: !!draft && compareWith === null && !(drawing && canDraw) && !composerOpen,
+    canPlay: !!version?.preview,
+    video: () => player.current,
+    total: draft ? edlDuration(draft) : 0,
+    onSeek: seek,
+    onSplit: splitHere,
+    onMark: addNote,
+    onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : selection && selection.kind !== "title" && selection.kind !== "cap" && selection.kind !== "brange" ? removeSelection : undefined,
+    onUndo: history.undo,
+    onRedo: history.redo,
+    onZoom: (dir) => zoomRef.current?.(dir),
+  });
+  // Another video on screen: nothing plays yet.
+  useEffect(() => setPlaying(false), [version?.n, version?.preview, compareWith]);
 
   return (
     <>
@@ -228,8 +321,13 @@ function Review({
                 {compareWith !== null ? (
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
-                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => [...x, m])} onClose={() => setDrawing(false)}>
-                    <Preview job={job} v={version} ref={player} onTime={setTime} />
+                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m]))} onClose={() => setDrawing(false)}>
+                    <div className="relative" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
+                      <Preview job={job} v={version} ref={player} onTime={setTime} />
+                      {curText && draft && tab === "texts" && !drawing && (
+                        <TextGhost text={curText} aspect={(([w, h]) => w / h)(draft.format.split(":").map(Number))} onMove={(x, y, key) => setTexts(texts.map((t) => (t.id === curText.id ? { ...t, x, y } : t)), key)} />
+                      )}
+                    </div>
                   </Annotator>
                 )}
                 {version.notes && (
@@ -260,7 +358,15 @@ function Review({
                             <button onClick={() => seek(m.t)} className="tabular shrink-0 font-mono text-[11px] text-ink-3 hover:text-accent">
                               {fmtSec(m.t)}
                             </button>
-                            <span className="min-w-0 flex-1 truncate">{m.text || "Dessin sans texte"}</span>
+                            <input
+                              value={m.text}
+                              onChange={(e) => setMarks((x) => x.map((y) => (y.id === m.id ? { ...y, text: e.target.value } : y)))}
+                              autoFocus={!m.text && !m.image}
+                              maxLength={1000}
+                              placeholder={m.image ? "Dessin sans texte" : "Ta note à cet endroit"}
+                              aria-label={`Note à ${fmtSec(m.t)}`}
+                              className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-line-strong focus:border-accent/60 focus:bg-surface"
+                            />
                             <button onClick={() => setMarks((x) => x.filter((y) => y.id !== m.id))} aria-label="Retirer la note" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink">
                               <X className="size-3.5" />
                             </button>
@@ -277,7 +383,7 @@ function Review({
                       className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60"
                     />
                     <div className="mt-2 flex justify-end">
-                      <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !marks.length)}>
+                      <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !filled.length)}>
                         <Wand2 className="size-3.5" /> Nouvelle version
                       </Button>
                     </div>
@@ -296,6 +402,7 @@ function Review({
                       options={[
                         { value: "captions", label: "Sous-titres" },
                         { value: "text", label: "Transcription" },
+                        { value: "texts", label: "Textes" },
                         { value: "settings", label: "Réglages" },
                       ]}
                     />
@@ -315,8 +422,9 @@ function Review({
                   </div>
                   {dirty && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">Modifications pas encore rendues : la vidéo montre encore la version {version.n}. Clique sur « Voir l&apos;aperçu » pour que le Mac la refasse.</p>}
 
-                  {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={setEdl} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
-                  {tab === "settings" && <SettingsPanel edl={draft} onChange={setEdl} />}
+                  {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
+                  {tab === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}
+                  {tab === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
                   {tab === "text" && (
                   <>
                   <p className="text-[12px] text-ink-3">
@@ -350,7 +458,7 @@ function Review({
                               ) : (
                                 <span className="rounded bg-ink/5 px-1.5 py-px font-medium">Coupé{s.reason ? ` · ${s.reason}` : ""}</span>
                               )}
-                              <span className="tabular font-mono">{(s.out - s.in).toFixed(1)} s</span>
+                              <span className="tabular font-mono">{((s.out - s.in) / (s.speed ?? 1)).toFixed(1)} s</span>
                             </div>
                             <p className={cn("text-[13.5px] leading-relaxed", !s.kept && "text-ink-3 line-through decoration-ink-3/60")}>
                               {s.words?.length
@@ -392,6 +500,18 @@ function Review({
               rushes={rushes}
               selection={selection}
               onSelect={setSelection}
+              textSel={textSel}
+              onTextSel={setTextSel}
+              workerVersion={worker?.version}
+              captionStyle={job.style}
+              src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
+              stale={dirty}
+              playing={playing}
+              undo={history}
+              zoomRef={zoomRef}
+              onRemove={removeSelection}
+              onMark={canDraw ? addNote : undefined}
+              onBrollAsk={working ? undefined : askBroll}
             />
           )}
         </div>
@@ -400,7 +520,7 @@ function Review({
   );
 }
 
-function VersionChip({ v, on, onClick }: { v: MontageVersion; on: boolean; onClick: () => void }) {
+export function VersionChip({ v, on, onClick }: { v: MontageVersion; on: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -413,7 +533,7 @@ function VersionChip({ v, on, onClick }: { v: MontageVersion; on: boolean; onCli
   );
 }
 
-const Preview = ({ job, v, ref, onTime }: { job: MontageJob; v: MontageVersion; ref?: React.Ref<HTMLVideoElement>; onTime?: (t: number) => void }) => (
+export const Preview = ({ job, v, ref, onTime }: { job: MontageJob; v: MontageVersion; ref?: React.Ref<HTMLVideoElement>; onTime?: (t: number) => void }) => (
   <div className="overflow-hidden rounded-2xl border border-line bg-black shadow-card" style={{ aspectRatio: ASPECT[v.edl.format] }}>
     {v.preview ? (
       <video ref={ref} key={`${job.id}-${v.n}`} src={`/api/montage/jobs/${job.id}/versions/${v.n}/preview`} controls
@@ -431,7 +551,7 @@ const Preview = ({ job, v, ref, onTime }: { job: MontageJob; v: MontageVersion; 
   </div>
 );
 
-function Compare({ job, before, after, onBefore }: { job: MontageJob; before: number; after: number; onBefore: (n: number) => void }) {
+export function Compare({ job, before, after, onBefore }: { job: MontageJob; before: number; after: number; onBefore: (n: number) => void }) {
   const a = useRef<HTMLVideoElement>(null);
   const b = useRef<HTMLVideoElement>(null);
   const vb = job.versions.find((v) => v.n === before);

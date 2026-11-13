@@ -45,6 +45,19 @@ export function pickTrack(cfg, name, notes) {
   return join(dir, list[0]);
 }
 
+/**
+ * Le départ et les fondus d'une musique : { start, fadeIn, fadeOut } en secondes (absents : début du fichier, fondus courts).
+ * Renvoie les options d'entrée ffmpeg (`seek`, à placer avant -i) et les filtres de fondu pour une musique de `total` secondes.
+ */
+export function musicCue(cue = {}, total, defaults = { in: 0.5, out: 1.5 }) {
+  const n = (v, or, max) => (Number.isFinite(Number(v)) && v !== null && v !== undefined && Number(v) >= 0 ? Math.min(max, Number(v)) : or);
+  const start = n(cue.start, 0, 600);
+  const fin = Math.min(n(cue.fadeIn, defaults.in, 5), total / 2);
+  const fout = Math.min(n(cue.fadeOut, defaults.out, 8), total / 2);
+  const fades = [fin > 0.01 ? `afade=t=in:d=${fin.toFixed(2)}` : "", fout > 0.01 ? `afade=t=out:st=${Math.max(0, total - fout).toFixed(3)}:d=${fout.toFixed(2)}` : ""].filter(Boolean).join(",");
+  return { seek: start > 0 ? ["-ss", start.toFixed(2)] : [], fades };
+}
+
 /** Débruitage de la voix (wav 48 kHz) ; renvoie le fichier débruité. */
 async function denoise(cfg, wav, dir) {
   const bin = home(cfg.deepFilter || "~/Movies/Metricove/outils/deep-filter");
@@ -93,14 +106,14 @@ export async function buildAudio(cfg, { base, dir, audio, final, total, notes })
   const tail = final ? "" : `,loudnorm=${LN}`; // aperçu : une seule passe
   if (track) {
     const vol = Math.min(1, Math.max(0, Number(audio.music.volume ?? 0.15)));
-    const fadeOut = Math.max(0, total - 1.5).toFixed(3);
-    const m = `[1:a]aresample=48000,aformat=channel_layouts=stereo,atrim=0:${total.toFixed(3)},asetpts=N/SR/TB,volume=${vol},afade=t=in:d=0.6,afade=t=out:st=${fadeOut}:d=1.5[m]`;
+    const cue = musicCue(audio.music, total);
+    const m = `[1:a]aresample=48000,aformat=channel_layouts=stereo,atrim=0:${total.toFixed(3)},asetpts=N/SR/TB,volume=${vol}${cue.fades ? `,${cue.fades}` : ""}[m]`;
     // La voix est d'abord mise à niveau pour que la baisse de la musique réagisse pareil d'une vidéo à l'autre.
     const vo = `[0:a]aresample=48000,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo`;
     const fc = audio.music.duck !== false
       ? `${m};${vo},asplit=2[v][sc];[m][sc]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=400[md];[v][md]amix=inputs=2:duration=first:normalize=0${tail}[o]`
       : `${m};${vo}[v];[v][m]amix=inputs=2:duration=first:normalize=0${tail}[o]`;
-    await run("ffmpeg", ["-v", "error", "-y", "-i", v, "-stream_loop", "-1", "-i", track, "-filter_complex", fc, "-map", "[o]", "-ar", "48000", "-c:a", "pcm_s16le", mix]);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", v, "-stream_loop", "-1", ...cue.seek, "-i", track, "-filter_complex", fc, "-map", "[o]", "-ar", "48000", "-c:a", "pcm_s16le", mix]);
     log(`musique : ${basename(track)} (volume ${vol}${audio.music.duck !== false ? ", baisse sous la voix" : ""})`);
   } else {
     await run("ffmpeg", ["-v", "error", "-y", "-i", v, "-af", `aresample=48000,aformat=channel_layouts=stereo${tail}`, "-ar", "48000", "-c:a", "pcm_s16le", mix]);

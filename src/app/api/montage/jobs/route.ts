@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import type { MontageFormat, MontageJob } from "@/lib/montage";
+import { MAX_DIRECTION, MAX_SCENES, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
 import { getRushRow, getStyle, listJobs, saveJob } from "@/server/montage";
+import { cleanLook, starterProfile } from "@/lib/profiles";
+import { profileOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -22,16 +24,30 @@ type Body = {
   accountIds?: string[];
   draft?: string;
   mediaId?: string;
+  // kind "post"
+  idea?: string;
+  slides?: number;
+  reel?: boolean;
+  // kind "motion"
+  scenes?: unknown;
+  look?: unknown;
+  logo?: boolean;
+  music?: boolean;
+  direction?: unknown;
+  pace?: unknown;
 };
 
 /**
  * Asks the Mac for an edit (kind "montage", with rushes), a teleprompter script (kind "script")
- * or a post description (kind "caption").
+ * a post description (kind "caption"), a feed cover (kind "cover"), a whole post (kind "post")
+ * or an animated reel (kind "motion").
  */
 export async function POST(req: Request) {
   const b = (await req.json().catch(() => ({}))) as Body;
   if (b.kind === "caption") return captionJob(b);
   if (b.kind === "cover") return coverJob(b);
+  if (b.kind === "post") return postJob(b);
+  if (b.kind === "motion") return motionJob(b);
   const kind = b.kind === "script" ? "script" : "montage";
   const format: MontageFormat = ["9:16", "4:5", "1:1", "16:9"].includes(b.brief?.format as string) ? (b.brief!.format as MontageFormat) : "9:16";
   const rushIds = [...new Set(b.rushIds ?? [])].filter((id) => getRushRow(id));
@@ -46,6 +62,7 @@ export async function POST(req: Request) {
     title: clip(b.title, 120) ?? (kind === "script" ? "Texte de prompteur" : "Nouveau montage"),
     projectId,
     style: projectId && kind === "montage" ? getStyle(projectId) : undefined,
+    voice: kind === "script" ? voiceOf(projectId) : undefined,
     status: "queued",
     action: kind === "script" ? "script" : "propose",
     brief: {
@@ -77,6 +94,7 @@ function captionJob(b: Body) {
     kind: "caption",
     title: media ? `Description : ${media.title}`.slice(0, 120) : "Description de post",
     projectId: project?.id,
+    voice: voiceOf(project?.id),
     status: "queued",
     action: "caption",
     brief: { format: media?.aspect ?? "9:16" },
@@ -119,6 +137,74 @@ function coverJob(b: Body) {
       project: project?.name,
       instructions: typeof b.draft === "string" && b.draft.trim() ? b.draft.trim().slice(0, 2000) : undefined,
     },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/** Asks the Mac for a whole post from an idea: the text of each slide and the description. */
+function postJob(b: Body) {
+  const idea = typeof b.idea === "string" ? b.idea.trim().slice(0, 3000) : "";
+  if (!idea) return NextResponse.json({ error: "Décrivez l'idée du post" }, { status: 400 });
+  const slides = Math.min(10, Math.max(1, Math.round(Number.isFinite(b.slides) ? (b.slides as number) : 5)));
+  const projects = listProjects();
+  const project = projects.find((p) => p.id === b.projectId);
+  // The accounts given, else those of the project: Claude adapts the tone and the length to them.
+  const ids = new Set(Array.isArray(b.accountIds) && b.accountIds.length ? b.accountIds : (project?.accountIds ?? []));
+  const accounts = listAccounts().filter((a) => ids.has(a.id));
+  const networks = NETWORK_ORDER.filter((n: Network) => accounts.some((a) => a.network === n));
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "post",
+    title: `Post : ${idea}`.slice(0, 120),
+    projectId: project?.id,
+    voice: voiceOf(project?.id),
+    status: "queued",
+    action: "post",
+    brief: { format: "4:5" },
+    post: { idea, slides, networks, accounts: accounts.map((a) => ({ network: a.network, handle: a.handle })), project: project?.name, ...(b.reel === true ? { reel: true } : {}) },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/** Asks the Mac for an animated reel: text scenes in the look of the project, no rush. */
+function motionJob(b: Body) {
+  const scenes = (Array.isArray(b.scenes) ? (b.scenes as Record<string, unknown>[]) : [])
+    .map((s) => {
+      const anim = typeof s?.anim === "string" ? s.anim.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+      return { title: typeof s?.title === "string" ? s.title.trim().slice(0, 120) : "", body: typeof s?.body === "string" ? s.body.trim().slice(0, 240) : "", ...(anim ? { anim } : {}) };
+    })
+    .filter((s) => s.title || s.body)
+    .slice(0, MAX_SCENES);
+  if (!scenes.length) return NextResponse.json({ error: "Écris au moins une scène" }, { status: 400 });
+  const project = listProjects().find((p) => p.id === b.projectId);
+  // The look the page shows, checked; what it does not say comes from the project's profile.
+  const base = project ? profileOf(project).look : starterProfile("antoine").look;
+  const look = cleanLook(b.look, base);
+  if (typeof look === "string") return NextResponse.json({ error: look }, { status: 400 });
+  // The logo stays out of the job (the list of jobs is read every few seconds): the Mac gets it when it takes the job.
+  const { logo: _logo, ...stored } = look;
+  void _logo;
+  const direction = typeof b.direction === "string" ? b.direction.replace(/\r\n?/g, "\n").trim().slice(0, MAX_DIRECTION) : "";
+  const pace = (["calm", "normal", "fast"] as const).find((p) => p === b.pace);
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "motion",
+    title: `Reel animé : ${scenes[0].title || scenes[0].body}`.replace(/\s+/g, " ").slice(0, 120),
+    projectId: project?.id,
+    status: "queued",
+    action: "motion",
+    brief: { format: "9:16" },
+    motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, ...(direction ? { direction } : {}), ...(pace ? { pace } : {}), project: project?.name },
     rushIds: [],
     versions: [],
     createdAt: now,

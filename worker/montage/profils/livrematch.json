@@ -1,0 +1,47 @@
+{
+  "project": "livre ?match",
+  "look": {
+    "theme": "custom",
+    "accent": "#ff6a5b",
+    "font": "grotesque",
+    "fields": [
+      {
+        "bg": "#15161f",
+        "ink": "#f7f5ed"
+      },
+      {
+        "bg": "#f3f45b",
+        "ink": "#15161f"
+      },
+      {
+        "bg": "#f7f5ed",
+        "ink": "#15161f"
+      }
+    ],
+    "grid": true,
+    "pill": true,
+    "align": "left",
+    "valign": "middle",
+    "grain": false,
+    "numbers": true
+  },
+  "tone": "LivreMatch (livrematch.fr) : « Trouve le livre qui matche avec tes envies. » Romantasy, fantasy, romance et pépites BookTok, pour des lectrices francophones.\nTutoiement, ton chaleureux, complice, un peu taquin, sans langue de bois. Vocabulaire de la marque : « ton prochain match », « qui matche », « coup de cœur ». On entre par une envie (ce qu'on veut ressentir, un trope), pas par un rayon.\nDescription d'un livre : une accroche d'une ou deux phrases courtes avec un emoji. Puis « [Titre] pourrait te plaire si tu aimes : » et 3 ou 4 tirets longs (—). Puis une phrase qui renvoie à la fiche sans spoiler sur livrematch.fr, lien dans la bio. Puis une question finale avec 👇. Enfin 4 ou 5 hashtags, dont #romantasy et #bookstagramfrance.\nCarrousel : un livre ou un trope par visuel, titres courts, dernier visuel = invitation au quiz sur livrematch.fr (six réponses, zéro jugement).\nNi prix, ni note, ni Amazon. Aucun spoiler au-delà de la 4e de couverture. N'invente aucun livre : uniquement ceux cités dans l'idée.",
+  "skill": "~/Lab/projets/livrematch/.claude/skills/livrematch-voix",
+  "examplesFile": "prompts/livrematch-legendes.txt",
+  "publishedExamples": 5,
+  "ideas": [
+    "Après Fourth Wing : quoi lire quand la saga t'a laissé un vide",
+    "Romantasy avec des dragons : la sélection",
+    "Slow burn : les romantasy qui prennent leur temps",
+    "Ennemis-to-lovers : 5 livres pour toi",
+    "3 romantasy pour débuter",
+    "Dark academia : par où commencer",
+    "Le quiz LivreMatch : six réponses, zéro jugement"
+  ],
+  "logoFile": "~/Lab/projets/livrematch/public/logo-mark.svg",
+  "skillDirs": [
+    "~/Lab/projets/livrematch/.claude/skills",
+    "~/Lab/projets/livrematch/.agents/skills",
+    "~/Lab/projets/livrematch/video/.claude/skills"
+  ]
+}

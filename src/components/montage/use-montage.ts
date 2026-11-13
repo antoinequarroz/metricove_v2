@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { MontageJob, Rush } from "@/lib/montage";
 
-export type WorkerStatus = { online: boolean; lastSeen?: string; name?: string; version?: string };
+export type WorkerStatus = { online: boolean; lastSeen?: string; name?: string; version?: string; tracks?: string[] };
 type Data = { jobs: MontageJob[]; rushes: Rush[]; worker: WorkerStatus; freeDisk: number };
 
 export async function montageApi<T>(url: string, init?: RequestInit): Promise<T> {

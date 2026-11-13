@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { MontageJob, Rush } from "@/lib/montage";
+import { useStore } from "@/lib/store";
 import { uploadInChunks } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
-import { fmtSec, PageHeader, VideoTabs } from "./parts";
+import { fmtSec, PageHeader, StudioTabs, VideoTabs } from "./parts";
 import { useVoiceFollow } from "./use-voice-follow";
 import { montageApi, useMontage } from "./use-montage";
 
@@ -194,11 +195,12 @@ export function StudioPage() {
     }
   }, [pending?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const activeProject = useStore((s) => s.activeProject);
   const askClaude = async () => {
     try {
       const { job } = await montageApi<{ job: MontageJob }>("/api/montage/jobs", {
         method: "POST",
-        body: JSON.stringify({ kind: "script", title: idea.slice(0, 80), brief: { format: orientation === "portrait" ? "9:16" : "16:9", instructions: idea } }),
+        body: JSON.stringify({ kind: "script", title: idea.slice(0, 80), projectId: activeProject !== "all" ? activeProject : undefined, brief: { format: orientation === "portrait" ? "9:16" : "16:9", instructions: idea } }),
       });
       setScriptJob(job.id);
     } catch (e) {
@@ -251,14 +253,17 @@ export function StudioPage() {
         <VideoTabs />
       </PageHeader>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
-        <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          {/* ---------- Camera + teleprompter ---------- */}
-          <div className="flex flex-col gap-3">
+        <div className="mx-auto mb-4 flex max-w-[1680px]">
+          <StudioTabs />
+        </div>
+        <div className="mx-auto grid max-w-[1680px] gap-5 lg:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[minmax(0,1fr)_480px]">
+          {/* ---------- Camera + teleprompter: stays in view while the script and the takes scroll ---------- */}
+          <div className="flex flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
             <div
               ref={stage}
               className={cn(
                 "relative mx-auto w-full overflow-hidden rounded-2xl border border-line bg-black shadow-card",
-                full ? "flex h-full items-center justify-center rounded-none border-0" : orientation === "portrait" ? "max-w-[400px]" : "",
+                full ? "flex h-full items-center justify-center rounded-none border-0" : orientation === "portrait" ? "max-lg:max-w-[400px] lg:max-w-[max(240px,calc((100dvh-300px)*9/16))]" : "lg:max-w-[max(420px,calc((100dvh-300px)*16/9))]",
               )}
               style={full ? undefined : { aspectRatio: orientation === "portrait" ? "9 / 16" : "16 / 9" }}
             >

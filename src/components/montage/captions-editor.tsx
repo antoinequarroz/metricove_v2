@@ -31,7 +31,7 @@ export function CaptionsEditor({
   onSaveStyle?: (s: CaptionStyle) => void;
 }) {
   const style = edl.captions ?? fallback ?? DEFAULT_CAPTIONS;
-  const blocks = useMemo(() => captionBlocks(edl), [edl]);
+  const blocks = useMemo(() => captionBlocks(edl, style), [edl, style]);
   const [pick, setPick] = useState<Pick>(null);
   const setStyle = (patch: Partial<CaptionStyle>) => onChange({ ...structuredClone(edl), captions: { ...style, ...patch } });
   const hl = style.highlight || "var(--accent)";
@@ -187,14 +187,20 @@ export function CaptionsEditor({
         {blocks.map((b, k) => {
           const s = edl.segments[b.seg];
           const live = time >= b.start && time < b.end;
+          // Cut words around the block are listed with it (struck through), so that they can be put back.
+          const prev = blocks[k - 1]?.seg === b.seg ? blocks[k - 1] : undefined;
+          const after = blocks[k + 1]?.seg === b.seg ? blocks[k + 1] : undefined;
+          const lo = prev ? prev.to + 1 : 0;
+          const hi = after ? after.from - 1 : s.words!.length - 1;
           return (
             <li key={`${s.id}-${b.from}`} className={cn("flex gap-3 rounded-lg border px-2.5 py-1.5", live ? "border-accent/50 bg-accent-soft/50" : "border-line bg-surface")}>
               <button onClick={() => onSeek(b.start)} className="tabular w-9 shrink-0 pt-0.5 text-left font-mono text-[11px] text-ink-3 hover:text-accent" aria-label={`Aller au bloc ${k + 1}`}>
                 {fmtSec(b.start)}
               </button>
               <p className="min-w-0 flex-1 text-[13.5px] leading-relaxed">
-                {s.words!.slice(b.from, b.to + 1).map((w, i) => {
-                  const wi = b.from + i;
+                {s.words!.slice(lo, hi + 1).map((w, i) => {
+                  const wi = lo + i;
+                  if (!w.w) return null;
                   const on = pick?.seg === b.seg && pick.word === wi;
                   return (
                     <span key={wi}>

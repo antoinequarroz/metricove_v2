@@ -1,6 +1,7 @@
 // Propositions de Claude Code (abonnement du Mac) : choix des phrases, ordre, mots coupés, 3 accroches, fin, zooms,
 // mots clés, emojis, musique ; textes de prompteur. Read reste permis : Claude lit les images des notes dessinées.
 import { run, log } from "./util.mjs";
+import { voiceRules } from "./voice.mjs";
 
 const wordRefs = (description) => ({
   type: "array", description,
@@ -75,6 +76,10 @@ ${marks.map((m, i) => `${i + 1}. À ${fmtTime(m.t)} s de la version ${m.version}
     ? `\nB-ROLL : place 2 à 5 plans d'illustration sur des noms ou idées concrètes (id de la phrase + indice du mot où il commence, dur 1,5 à 3 s, query en français). mode full par défaut ; pip quand le visage ou l'émotion d'Antoine compte à ce moment. Jamais sur l'accroche d'ouverture ni sur deux phrases de suite.\n${broll.length ? `Plans d'Antoine (à préférer s'ils collent, mets le nom exact dans file) : ${broll.join(", ")}` : "Antoine n'a pas de plans à lui : laisse file vide, ils seront cherchés sur Pexels."}\n`
     : "";
   const music = tracks.length ? `\nMUSIQUE : choisis le morceau qui colle au ton (champ music) parmi : ${tracks.join(", ")}\n` : "";
+  // Le profil du projet (ton écrit par Antoine, skills du Mac) : il guide ce que Claude écrit et choisit, pas ce qui a été dit.
+  const project = job.voice?.tone || job.voice?.skill
+    ? `\nPROFIL DU PROJET — à suivre pour ce que tu écris (accroches, carton de fin, notes) et ce que tu choisis (rythme, mots clés, emojis, musique, B-roll). Le brief, le retour et les notes d'Antoine passent avant ; les RÈGLES plus bas restent valables, et on ne monte toujours que ce qui a été dit :\n${voiceRules(job, "", { examples: false })}\n`
+    : "";
   const prompt = `Tu es monteur vidéo pour les réseaux sociaux (Reels, TikTok, Shorts, LinkedIn). Tu montes à partir de la transcription.
 
 BRIEF
@@ -83,7 +88,7 @@ BRIEF
 - Accroche souhaitée : ${b.hook || "à proposer"}
 - Appel à l'action : ${b.cta || "à proposer si pertinent"}
 - Consignes : ${b.instructions || "—"}
-${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}${brollTxt}
+${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}${brollTxt}${project}
 PHRASES DISPONIBLES (id | rush | temps | mots numérotés) :
 ${lines}
 
@@ -110,9 +115,54 @@ export async function writeScript(cfg, job, cwd) {
   const prompt = `Écris un texte de prompteur en français pour une vidéo face caméra (${b.format || "9:16"}, ${b.seconds || 45} s environ).
 Sujet et consignes : ${b.instructions || job.title}
 ${b.hook ? `Accroche imposée : ${b.hook}\n` : ""}${b.cta ? `Appel à l'action : ${b.cta}\n` : ""}
-Structure : une accroche forte (1 phrase), 3 idées concrètes, un appel à l'action. Ton direct, oral, tutoiement.
+Structure : une accroche forte (1 phrase), 3 idées concrètes, un appel à l'action. Texte fait pour être dit à voix haute.
+Ton et règles du projet :
+${voiceRules(job, "- Ton direct, oral, tutoiement.")}
 Une phrase courte par ligne (12 mots maximum), sans titres, sans puces, sans emojis, sans didascalies.
 N'invente aucun fait (lieu, métier, chiffre, nom, expérience) qui n'est pas dans les consignes : reste sur ce qui est donné.
 S'il manque une information indispensable, mets au plus deux trous à compléter, sous la forme [à compléter : …]. Rends uniquement le texte.`;
   return ask(cfg, prompt, null, cwd);
+}
+
+const BROLL_SCHEMA = {
+  type: "object",
+  required: ["shots", "notes"],
+  properties: {
+    shots: {
+      type: "array",
+      description: "1 à 3 plans d'illustration dans le passage.",
+      items: {
+        type: "object", required: ["at", "dur", "query", "mode"],
+        properties: {
+          at: { type: "number", description: "seconde de la timeline où le plan commence (dans le passage)" },
+          dur: { type: "number", description: "1,2 à 4 s" },
+          query: { type: "string", description: "ce que le plan montre, en français, 2 à 5 mots concrets (sert à chercher)" },
+          mode: { type: "string", enum: ["full", "pip"] },
+          file: { type: "string", description: "fichier choisi dans la liste des plans d'Antoine, sinon vide" },
+        },
+      },
+    },
+    notes: { type: "string", description: "1 ou 2 phrases en français pour Antoine : ce que montrent les plans et pourquoi." },
+  },
+};
+
+/**
+ * B-roll pour un seul passage de la vidéo montée (« Claude, propose du B-roll ici »).
+ * `words` : [{ t, w }] mots dits dans le passage, en secondes de la timeline ; `mine` : fichiers du dossier B-roll.
+ */
+export async function proposeBroll(cfg, { job, range, words, mine = [], note, cwd }) {
+  const [a, b] = range;
+  const project = job.voice?.tone || job.voice?.skill ? `\nPROFIL DU PROJET (pour le choix des images) :\n${voiceRules(job, "", { examples: false })}\n` : "";
+  const prompt = `Tu es monteur vidéo pour les réseaux sociaux. Dans une vidéo face caméra déjà montée (format ${job.brief?.format || "9:16"}), Antoine a choisi le passage de ${a.toFixed(1)} s à ${b.toFixed(1)} s et veut du B-roll (plans d'illustration posés par-dessus lui, sa voix continue).
+${note ? `\nSA DEMANDE (prioritaire) : ${note}\n` : ""}
+CE QUI EST DIT DANS LE PASSAGE (seconde de la timeline : mot) :
+${words.map((x) => `${x.t.toFixed(2)} ${x.w}`).join("\n") || "(pas de parole : illustre le sujet de la vidéo)"}
+${mine.length ? `\nPLANS D'ANTOINE (à préférer s'ils collent, mets le nom exact dans file) : ${mine.join(", ")}\n` : "\nAntoine n'a pas de plans à lui : laisse file vide, ils seront cherchés sur Pexels.\n"}${project}
+RÈGLES
+- 1 à 3 plans, entièrement dans le passage (at ≥ ${a.toFixed(1)}, at + dur ≤ ${b.toFixed(1)}), sans chevauchement, qui commencent sur le mot qu'ils illustrent.
+- query : ce qu'on voit, en mots concrets et filmables (objet, lieu, geste), pas une idée abstraite.
+- mode full par défaut ; pip quand le visage ou l'émotion d'Antoine compte à ce moment.
+Réponds uniquement avec le JSON demandé.`;
+  log("B-roll d'un passage demandé à Claude");
+  return ask(cfg, prompt, BROLL_SCHEMA, cwd);
 }

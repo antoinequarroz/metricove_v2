@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { NetworkBadge } from "@/lib/networks";
 import { cn } from "@/lib/utils";
+import { StyleProfiles } from "./style-profiles";
 import { Button } from "./ui";
 
 type Overview = {
@@ -13,6 +14,8 @@ type Overview = {
   publisher: { name: string; label: string; ready: boolean; detail?: string };
   teams: string[];
   apiToken: boolean;
+  pexels?: boolean;
+  pexelsFromEnv?: boolean;
   publicUrl: string | null;
 };
 
@@ -72,6 +75,12 @@ export function SettingsPage() {
             </div>
           )}
           {overview && <PasswordSection overview={overview} onChanged={load} />}
+          <div id="styles" className="scroll-mt-4">
+            <Section delay={40} title="Styles" hint="Un profil par projet : mêmes couleurs, même signature et même ton à chaque carrousel, post photo ou texte écrit par Claude.">
+              <StyleProfiles />
+            </Section>
+          </div>
+          {overview && <PexelsSection on={!!overview.pexels} fromEnv={!!overview.pexelsFromEnv} onChanged={load} />}
           {overview?.publisher.name === "treg" && <FacebookSection />}
           <InfoSection overview={overview} />
         </div>
@@ -171,6 +180,56 @@ function PasswordSection({ overview, onChanged }: { overview: Overview; onChange
             </Button>
           )}
         </div>
+      </form>
+    </Section>
+  );
+}
+
+function PexelsSection({ on, fromEnv, onChanged }: { on: boolean; fromEnv: boolean; onChanged: () => void }) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (value: string) => {
+    setBusy(true);
+    try {
+      const r = await json<{ pexels: boolean; pexelsFromEnv: boolean }>(await fetch("/api/settings/pexels", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: value }) }));
+      toast.success(value ? "Clé Pexels enregistrée" : r.pexelsFromEnv ? "Clé retirée de Metricove, celle du .env du serveur (PEXELS_KEY) reste active" : "Clé Pexels retirée");
+      setKey("");
+      onChanged();
+    } catch (err) {
+      toast.error("Clé Pexels inchangée", { description: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section
+      title="B-roll Pexels"
+      hint={
+        <>
+          Pour chercher des plans d&apos;illustration gratuits depuis la timeline. Clé gratuite sur{" "}
+          <a href="https://www.pexels.com/api/" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+            pexels.com/api
+          </a>
+          . {fromEnv ? "La clé vient du fichier .env du serveur (PEXELS_KEY) ; une clé enregistrée ici passe avant." : on ? "Une clé est enregistrée." : "Aucune clé pour l'instant."}
+        </>
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (key.trim()) save(key.trim());
+        }}
+        className="flex flex-wrap items-center gap-2 p-4"
+      >
+        <input type="password" autoComplete="off" maxLength={200} value={key} onChange={(e) => setKey(e.target.value)} placeholder={on ? "Nouvelle clé pour remplacer l'actuelle" : "Colle ta clé Pexels"} aria-label="Clé Pexels" className={cn(inputClass, "min-w-0 flex-1")} />
+        <Button variant="primary" disabled={busy || !key.trim()}>
+          <Check className="size-4" /> Enregistrer
+        </Button>
+        {on && !fromEnv && (
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => save("")}>
+            Retirer
+          </Button>
+        )}
       </form>
     </Section>
   );

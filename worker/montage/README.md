@@ -43,7 +43,7 @@ node montage.mjs --dry-run  # travaille mais n'envoie rien à Metricove
 ## Thème
 
 `theme` dans `config.json` : police (`font`, `fontFiles` pour des polices locales), couleurs (`accent`, `text`, `ink`, `dark`), `logo`, signes par ligne de sous-titres, durée du carton de fin.
-`themes["<projectId>"]` surcharge le thème pour un projet ; `job.theme` (prévu côté API) surcharge le tout.
+`themes["<projectId>"]` surcharge le thème pour un projet ; `job.theme` (apparence du profil de style enregistré du projet, Réglages → Styles) surcharge le tout.
 
 Autres réglages : `brollDir`, `brollCache`, `brollCacheGb`, `pexelsKey`, `musicDir`, `deepFilter` (chemin du binaire), `silenceDb` (seuil de silence, −35 dB), `whisper.dtw` (préréglage DTW du modèle, vide pour le couper), `whisper.dtwShift` (avance des débuts de mots, 0,15 s).
 

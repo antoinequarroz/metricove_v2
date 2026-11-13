@@ -1,0 +1,874 @@
+"use client";
+
+import { ArrowDown, ArrowUp, CalendarPlus, Clapperboard, Copy, ImagePlus, Images, Lightbulb, Loader2, Palette, Plus, RotateCcw, Save, Send, Sparkles, Trash2, X } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { isImageFile } from "@/lib/image";
+import { MAX_DIRECTION, MAX_SCENES, type MontageJob } from "@/lib/montage";
+import { lookOf, sameLook } from "@/lib/profiles";
+import { useStore } from "@/lib/store";
+import { useProfiles } from "@/lib/use-profiles";
+import { cn } from "@/lib/utils";
+import {
+  appFonts,
+  type Deck,
+  emptyDeck,
+  type Fonts,
+  FORMAT_OPTIONS,
+  HEIGHTS,
+  loadDraft,
+  loadFonts,
+  MAX_SLIDES,
+  newSlide,
+  photoFailed,
+  renderSlide,
+  retryPhoto,
+  saveDraft,
+  type Slide,
+  W,
+} from "@/lib/visuals";
+import { Segmented } from "../calendar";
+import { Button } from "../ui";
+import { Field, inputClass, LookControls, SlideCanvas, Toggle } from "./look-parts";
+import { PageHeader, Progress, StudioTabs, VideoTabs } from "./parts";
+import { montageApi, useMontage } from "./use-montage";
+
+/** Oldest Mac program that knows how to write a whole post, and the one that animates a reel. */
+const POST_WORKER = [0, 2, 0];
+const MOTION_WORKER = [0, 6, 0];
+/** Oldest Mac program that lets Claude write a scene's animation (free motion design). */
+const ANIM_WORKER = [0, 7, 0];
+/** First worker that follows a direction for the whole reel and a pace. */
+const DIRECT_WORKER = [0, 8, 0];
+const PACES = { calm: 1.25, normal: 1, fast: 0.8 } as const;
+type Pace = keyof typeof PACES;
+const DIRECTION_KEY = "metricove-reel-direction-v1";
+const atLeast = (version: string | undefined, min: number[]) => {
+  const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
+  return true;
+};
+
+/** Seconds a scene stays on screen. Same rule as the Mac (worker/montage/lib/motion.mjs). */
+const sceneSeconds = (s: Slide, last: boolean) =>
+  Math.min(7, Math.max(2.8, 1.9 + 0.058 * (s.title.trim().length + s.body.trim().length))) + (s.anim?.trim() ? 1.5 : 0) + (last ? 1.2 : 0);
+
+/**
+ * The visuals editor of the Studio. "visuals": a carousel or a photo post, drawn here.
+ * "motion": the same slides are the scenes of an animated reel (9:16), which the Mac animates.
+ */
+export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" }) {
+  const motion = mode === "motion";
+  const blank = (): Deck => (motion ? { ...emptyDeck(), format: "9:16" } : emptyDeck());
+  const max = motion ? MAX_SCENES : MAX_SLIDES;
+  const unit = motion ? "Scène" : "Visuel";
+  const [deck, setDeck] = useState<Deck>(blank);
+  const [current, setCurrent] = useState(0);
+  const [fonts, setFonts] = useState<Fonts | null>(null);
+  const [restored, setRestored] = useState(false);
+  const media = useStore((s) => s.media);
+  const uploadMedia = useStore((s) => s.uploadMedia);
+  const deleteMedia = useStore((s) => s.deleteMedia);
+  const openComposer = useStore((s) => s.openComposer);
+  const activeProject = useStore((s) => s.activeProject);
+  const projects = useStore((s) => s.projects);
+  const accounts = useStore((s) => s.accounts);
+
+  // The draft of the last visit, then the fonts (the canvas needs them loaded before it draws).
+  useEffect(() => {
+    const draft = loadDraft(mode);
+    if (draft) setDeck(motion ? { ...draft, format: "9:16", slides: draft.slides.slice(0, MAX_SCENES).map((s) => ({ ...s, photo: undefined })) } : draft);
+    setRestored(true);
+    const f = appFonts();
+    loadFonts(f).then(() => setFonts(f));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (restored) saveDraft(deck, mode);
+  }, [deck, restored, mode]);
+
+  const deckRef = useRef(deck);
+  deckRef.current = deck;
+  const index = Math.min(current, deck.slides.length - 1);
+  const slide = deck.slides[index];
+  const patch = (p: Partial<Deck>) => setDeck((d) => ({ ...d, ...p }));
+  const patchSlide = (p: Partial<Slide>) => setDeck((d) => ({ ...d, slides: d.slides.map((s, i) => (i === index ? { ...s, ...p } : s)) }));
+
+  const addSlide = () => {
+    if (deck.slides.length >= max) return;
+    setDeck((d) => ({ ...d, slides: [...d.slides.slice(0, index + 1), newSlide(), ...d.slides.slice(index + 1)] }));
+    setCurrent(index + 1);
+  };
+  const duplicate = () => {
+    if (deck.slides.length >= max) return;
+    setDeck((d) => ({ ...d, slides: [...d.slides.slice(0, index + 1), { ...slide, id: crypto.randomUUID() }, ...d.slides.slice(index + 1)] }));
+    setCurrent(index + 1);
+  };
+  const remove = () => {
+    if (deck.slides.length <= 1) return;
+    setDeck((d) => ({ ...d, slides: d.slides.filter((_, i) => i !== index) }));
+    setCurrent(Math.max(0, index - 1));
+  };
+  const move = (by: -1 | 1) => {
+    const to = index + by;
+    if (to < 0 || to >= deck.slides.length) return;
+    setDeck((d) => {
+      const slides = [...d.slides];
+      [slides[index], slides[to]] = [slides[to], slides[index]];
+      return { ...d, slides };
+    });
+    setCurrent(to);
+  };
+  // ---- Style profile of the project ----
+  const { profiles, save: saveProfile } = useProfiles();
+  const styled = deck.profileId && profiles?.[deck.profileId] ? deck.profileId : undefined;
+  const profile = styled ? profiles![styled] : undefined;
+  const styledProject = projects.find((p) => p.id === styled);
+  const projectIdeas = profile?.refs.ideas ?? [];
+  const lookChanged = !!profile && !sameLook(lookOf(deck), profile.look);
+  const applyProfile = (id: string) => {
+    const p = profiles?.[id];
+    setDeck((d) => (p ? { ...d, ...lookOf(p.look), logo: p.look.logo, profileId: id } : { ...d, profileId: undefined }));
+  };
+  // The active project gives its style once, when it becomes the active one. After that, a profile chosen
+  // by hand (or none) stays, across saves, page changes and reloads.
+  useEffect(() => {
+    if (!restored || !profiles || activeProject === "all" || !profiles[activeProject]) return;
+    if (deckRef.current.autoProject === activeProject) return;
+    const p = profiles[activeProject];
+    setDeck((d) => ({ ...d, ...lookOf(p.look), logo: p.look.logo, profileId: activeProject, autoProject: activeProject }));
+  }, [restored, profiles, activeProject]);
+  const [savingLook, setSavingLook] = useState(false);
+  const keepLook = async () => {
+    if (!styled || savingLook) return;
+    setSavingLook(true);
+    try {
+      await saveProfile(styled, { look: { ...lookOf(deck), logo: deck.logo ?? "" } });
+      toast.success(`Style de ${styledProject?.name ?? "ce projet"} enregistré`, { description: "Les prochains visuels du projet partiront de ce style." });
+    } catch (e) {
+      toast.error("Style non enregistré", { description: (e as Error).message });
+    } finally {
+      setSavingLook(false);
+    }
+  };
+
+  const reset = () => {
+    const base = blank();
+    setDeck({ ...(profile && styled ? { ...base, ...lookOf(profile.look), logo: profile.look.logo, profileId: styled } : base), autoProject: deck.autoProject });
+    setCurrent(0);
+  };
+
+  // ---- Photo of the slide ----
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [picking, setPicking] = useState(false);
+  const photos = useMemo(() => media.filter((m) => m.kind === "image" && m.url), [media]);
+  const importPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    if (!isImageFile(file)) return toast.error("Choisis une photo", { description: "JPEG, PNG, WebP ou HEIC." });
+    // Checked now: a photo this browser cannot read (HEIC outside Safari) would only fail when the post is made.
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.src = url;
+    try {
+      await img.decode();
+    } catch {
+      URL.revokeObjectURL(url);
+      return toast.error("Photo illisible par ce navigateur", { description: "Exporte-la en JPEG ou en PNG (les photos HEIC d'iPhone s'ouvrent dans Safari)." });
+    }
+    patchSlide({ photo: url, photoY: 0.5 });
+  };
+
+  // ---- Post written by Claude ----
+  const { data, refresh } = useMontage();
+  const [idea, setIdea] = useState("");
+  const [count, setCount] = useState(5);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  // Posts already taken into the editor: their request is being deleted, the list may still show it for a moment.
+  const [taken, setTaken] = useState<string[]>([]);
+  const pending = data?.jobs.find((j) => j.id === jobId);
+  const workerOld = !!data?.worker.version && !atLeast(data.worker.version, POST_WORKER);
+  // The two editors share the Mac's list: each one only sees the posts asked from it.
+  const mine = (j: MontageJob) => j.kind === "post" && !!j.post?.reel === motion;
+  // Posts Claude finished while the page was closed.
+  const ready = (data?.jobs ?? []).filter((j) => mine(j) && j.status === "done" && j.post?.result && j.id !== jobId && !taken.includes(j.id)).slice(0, 4);
+
+  // The deck as it was when Claude was asked: a result must not erase what was written meanwhile.
+  const askedDeck = useRef<Deck | null>(null);
+
+  const applyResult = (job: MontageJob) => {
+    const r = job.post?.result;
+    if (!r) return;
+    setDeck((d) => ({ ...d, caption: r.caption, slides: r.slides.slice(0, max).map((s) => newSlide(s.title, s.body)) }));
+    setCurrent(0);
+    setTaken((t) => [...t, job.id]);
+    // The request was only a means: remove it from the Mac's list.
+    montageApi(`/api/montage/jobs/${job.id}`, { method: "DELETE" }).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!pending) return;
+    if (pending.status === "done" && pending.post?.result) {
+      setJobId(null);
+      if (deckRef.current === askedDeck.current) {
+        applyResult(pending);
+        toast.success(motion ? "Scènes écrites par Claude" : "Post écrit par Claude", { description: motion ? "Relis les scènes et la description, puis génère le reel." : "Relis les visuels et la description, puis crée le post." });
+      } else {
+        // Edited while Claude wrote: the result waits in the list, a click takes it.
+        toast("Le post de Claude est prêt", { description: "Tu as modifié les visuels entre-temps : clique sur son idée, sous « Écrire le post », pour le reprendre.", duration: 12_000 });
+      }
+    } else if (pending.status === "failed" || pending.status === "cancelled") {
+      toast.error("Claude n'a pas pu écrire le post", { description: pending.error });
+      montageApi(`/api/montage/jobs/${pending.id}`, { method: "DELETE" }).catch(() => {});
+      setJobId(null);
+    }
+  }, [pending?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A request that vanished (deleted from another tab) must not spin forever.
+  const seenJob = useRef<string | null>(null);
+  useEffect(() => {
+    if (!jobId || !data) return;
+    if (pending) seenJob.current = jobId;
+    else if (seenJob.current === jobId) {
+      setJobId(null);
+      toast.error("La demande à Claude a été supprimée");
+    }
+  }, [jobId, data, pending]);
+
+  // Requests left by an earlier visit: one still running gets its spinner back, dead ones are removed.
+  useEffect(() => {
+    if (!data || jobId || asking) return;
+    const posts = data.jobs.filter((j) => mine(j) && !taken.includes(j.id));
+    const dead = posts.filter((j) => j.status === "failed" || j.status === "cancelled");
+    if (dead.length) {
+      setTaken((t) => [...t, ...dead.map((j) => j.id)]);
+      for (const j of dead) montageApi(`/api/montage/jobs/${j.id}`, { method: "DELETE" }).catch(() => {});
+    }
+    const running = posts.find((j) => j.status === "queued" || j.status === "working");
+    if (running) {
+      askedDeck.current = null;
+      setJobId(running.id);
+    }
+  }, [data, jobId, asking, taken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const askClaude = async () => {
+    if (!idea.trim() || jobId || asking) return;
+    setAsking(true);
+    try {
+      const { job } = await montageApi<{ job: MontageJob }>("/api/montage/jobs", {
+        method: "POST",
+        body: JSON.stringify({ kind: "post", idea, slides: Math.min(count, max), reel: motion, projectId: styled ?? (activeProject !== "all" ? activeProject : undefined) }),
+      });
+      askedDeck.current = deckRef.current;
+      setJobId(job.id);
+      refresh();
+    } catch (e) {
+      toast.error("Demande impossible", { description: (e as Error).message });
+    } finally {
+      setAsking(false);
+    }
+  };
+  const cancelClaude = () => {
+    if (jobId) setTaken((t) => [...t, jobId]);
+    if (jobId) montageApi(`/api/montage/jobs/${jobId}`, { method: "DELETE" }).catch(() => {});
+    setJobId(null);
+  };
+
+  // ---- Animated reel made by the Mac ----
+  const [reelId, setReelId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [music, setMusic] = useState(true);
+  const [direction, setDirection] = useState("");
+  /** "auto": normal, or what Claude chooses when there is a direction. */
+  const [pace, setPace] = useState<Pace | "auto">("auto");
+  useEffect(() => {
+    if (!motion) return;
+    try {
+      setDirection(localStorage.getItem(DIRECTION_KEY) ?? "");
+    } catch {}
+  }, [motion]);
+  const writeDirection = (v: string) => {
+    setDirection(v);
+    try {
+      localStorage.setItem(DIRECTION_KEY, v);
+    } catch {}
+  };
+  const directOld = motion && (!!direction.trim() || pace !== "auto") && !!data?.worker.version && !atLeast(data.worker.version, DIRECT_WORKER);
+  /** The reel that just came back: shown above the scenes until the next one. */
+  const [reelMedia, setReelMedia] = useState<string | null>(null);
+  const reel = data?.jobs.find((j) => j.id === reelId);
+  const motionOld = motion && !!data?.worker.version && !atLeast(data.worker.version, MOTION_WORKER);
+  // An older Mac program sends the reel straight to the library, without the editing screen.
+  const reviewOld = motion && !!data?.worker.version && !atLeast(data.worker.version, [0, 9, 0]);
+  const animOld = motion && !motionOld && !!data?.worker.version && !atLeast(data.worker.version, ANIM_WORKER) && deck.slides.some((s) => s.anim?.trim());
+  const baseSeconds = deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0);
+  // With a direction and no pace, Claude chooses the pace: the length is only known as a range. An old Mac ignores both.
+  const seconds = directOld
+    ? `environ ${Math.round(baseSeconds)} s`
+    : pace !== "auto"
+      ? `environ ${Math.round(baseSeconds * PACES[pace])} s`
+      : direction.trim()
+        ? `entre ${Math.round(baseSeconds * PACES.fast)} et ${Math.round(baseSeconds * PACES.calm)} s`
+        : `environ ${Math.round(baseSeconds)} s`;
+  const playMedia = useStore((s) => s.playMedia);
+  const router = useRouter();
+
+  // A reel asked earlier (this visit or another): follow it, show it when it is there, clean up after it.
+  useEffect(() => {
+    if (!motion || !data) return;
+    // A reel with a version lives in the editing screen: this page only waits for the first one.
+    const reels = data.jobs.filter((j) => j.kind === "motion" && !j.versions.length && !taken.includes(j.id));
+    const arrived = reelId ? data.jobs.find((j) => j.id === reelId && j.kind === "motion" && j.versions.length > 0) : undefined;
+    if (arrived) {
+      setReelId(null);
+      router.push(`/videos/montage/${arrived.id}`);
+      return;
+    }
+    const over = reels.filter((j) => j.status === "done" || j.status === "failed" || j.status === "cancelled");
+    if (over.length) {
+      setTaken((t) => [...t, ...over.map((j) => j.id)]);
+      for (const j of over) {
+        if (j.status === "done" && j.mediaId) {
+          setReelMedia(j.mediaId);
+          useStore.getState().load().catch(() => {});
+          toast.success("Ton reel animé est prêt", { description: "Il est dans la bibliothèque. Regarde-le, puis programme-le." });
+          if (j.notes) toast.warning("À savoir sur ce reel", { description: j.notes, duration: 15_000 });
+        } else if (j.status === "failed") toast.error("Le reel n'a pas pu être généré", { description: j.error, duration: 12_000 });
+        if (j.id === reelId) setReelId(null);
+        montageApi(`/api/montage/jobs/${j.id}`, { method: "DELETE" }).catch(() => {});
+      }
+    }
+    if (!reelId && !starting) {
+      const running = reels.find((j) => j.status === "queued" || j.status === "working");
+      if (running) setReelId(running.id);
+    }
+  }, [data, motion, reelId, starting, taken, router]);
+  const editing = motion ? (data?.jobs ?? []).filter((j) => j.kind === "motion" && j.versions.length > 0 && j.status !== "done" && j.status !== "cancelled") : [];
+
+  // A reel that left the list without a word (taken or cancelled from another tab) must not spin forever.
+  const seenReel = useRef<string | null>(null);
+  useEffect(() => {
+    if (!reelId || !data) return;
+    if (reel) seenReel.current = reelId;
+    else if (seenReel.current === reelId) {
+      setReelId(null);
+      useStore.getState().load().catch(() => {});
+    }
+  }, [reelId, data, reel]);
+
+  const generate = async () => {
+    if (reelId || starting) return;
+    setStarting(true);
+    try {
+      const { job } = await montageApi<{ job: MontageJob }>("/api/montage/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "motion",
+          scenes: deck.slides.map((s) => ({ title: s.title, body: s.body, ...(s.anim?.trim() ? { anim: s.anim.trim() } : {}) })),
+          // Whether a logo shows; the image itself is the one saved in the project's profile, which the Mac gets.
+          look: { ...lookOf(deck), logo: undefined },
+          logo: !!deck.logo,
+          music,
+          direction: direction.trim() || undefined,
+          pace: pace === "auto" ? undefined : pace,
+          projectId: styled ?? (activeProject !== "all" ? activeProject : undefined),
+        }),
+      });
+      setReelMedia(null);
+      setReelId(job.id);
+      refresh();
+    } catch (e) {
+      toast.error("Demande impossible", { description: (e as Error).message });
+    } finally {
+      setStarting(false);
+    }
+  };
+  const cancelReel = () => {
+    if (!reelId) return;
+    setTaken((t) => [...t, reelId]);
+    montageApi(`/api/montage/jobs/${reelId}`, { method: "DELETE" }).catch(() => {});
+    setReelId(null);
+  };
+  const reelFile = reelMedia ? media.find((m) => m.id === reelMedia) : undefined;
+
+  // ---- Create the post ----
+  const [making, setMaking] = useState<{ done: number; total: number } | null>(null);
+  const story = !motion && deck.format === "9:16";
+  const empty = deck.slides.every((s) => !s.title.trim() && !s.body.trim() && !s.photo);
+  // The visuals of the last "Créer le post": the same visuals are not sent to Médias twice.
+  const lastRender = useRef<{ key: string; ids: string[] } | null>(null);
+  const createPost = async () => {
+    if (!fonts || making) return;
+    for (const s of deck.slides) if (s.photo) retryPhoto(s.photo);
+    const total = deck.slides.length;
+    const open = (ids: string[]) => openComposer(story ? { mediaId: ids[0], caption: deck.caption, format: "story" } : { mediaIds: ids, caption: deck.caption, format: "feed" });
+    // Everything that changes the pixels. The description does not.
+    const key = JSON.stringify({ ...deck, caption: "", profileId: undefined, autoProject: undefined });
+    const last = lastRender.current;
+    if (last?.key === key && last.ids.every((id) => useStore.getState().media.some((m) => m.id === id))) return open(last.ids);
+    setMaking({ done: 0, total });
+    const name = (deck.slides[0].title.trim() || "Visuel").replace(/\s+/g, " ").slice(0, 60);
+    const ids: string[] = [];
+    try {
+      for (let i = 0; i < total; i++) {
+        const blob = await renderSlide(deck, i, fonts);
+        const title = total > 1 ? `${name} (${i + 1}/${total})` : name;
+        const file = new File([blob], `${name.replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase() || "visuel"}-${i + 1}.jpg`, { type: "image/jpeg" });
+        ids.push((await uploadMedia(file, undefined, title)).id);
+        setMaking({ done: i + 1, total });
+      }
+      lastRender.current = { key, ids };
+      // A story holds one image: the others wait in the library, one story each.
+      open(ids);
+      if (story && total > 1) toast("Une story par visuel", { description: `Le premier est dans le post. Les ${total - 1} autres sont dans Médias : fais une story pour chacun.`, duration: 10_000 });
+      else toast.success(total > 1 ? `${total} visuels ajoutés à Médias` : "Visuel ajouté à Médias", { description: "Choisis les comptes et la date, puis programme." });
+    } catch (e) {
+      // Nothing was posted: the visuals already sent are removed, so a new try does not double them.
+      const left = (await Promise.allSettled(ids.map((id) => deleteMedia(id)))).filter((r) => r.status === "rejected").length;
+      const failed = deck.slides.findIndex((s) => s.photo && photoFailed(s.photo));
+      if (failed >= 0) setCurrent(failed);
+      toast.error("Création impossible", { description: `${(e as Error).message}${left ? ` (${left} visuel${left > 1 ? "s" : ""} resté${left > 1 ? "s" : ""} dans Médias)` : ""}` });
+    } finally {
+      setMaking(null);
+    }
+  };
+
+  const project = styledProject ?? projects.find((p) => p.id === activeProject);
+  const suggestedHandle = useMemo(() => {
+    const pool = project ? accounts.filter((a) => project.accountIds.includes(a.id)) : accounts;
+    const a = pool.find((x) => x.network === "instagram") ?? pool[0];
+    return a ? `@${a.handle}` : "";
+  }, [project, accounts]);
+
+  return (
+    <>
+      <PageHeader kicker="Vidéos" title="Studio">
+        <VideoTabs />
+      </PageHeader>
+      <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
+        <div className="mx-auto max-w-[1680px]">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <StudioTabs />
+            <div className="ml-auto flex items-center gap-2">
+              <Button variant="ghost" onClick={reset} disabled={!!making} title={motion ? "Repartir d'une scène vide" : "Repartir d'un visuel vide"}>
+                <RotateCcw className="size-4" />
+                <span className="max-sm:hidden">Recommencer</span>
+              </Button>
+              {motion ? (
+                reelId ? (
+                  <Button onClick={cancelReel}>
+                    <X className="size-4" />
+                    Annuler le reel
+                  </Button>
+                ) : (
+                  <Button variant="primary" onClick={generate} disabled={starting || empty || motionOld}>
+                    <Clapperboard className="size-4" />
+                    Générer le reel
+                  </Button>
+                )
+              ) : (
+                <Button variant="primary" onClick={createPost} disabled={!fonts || !!making || empty}>
+                  {making ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {making ? `Visuel ${Math.min(making.done + 1, making.total)}/${making.total}…` : "Créer le post"}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {motion && reelId && (
+            <div className="mb-4 rounded-xl border border-line bg-surface p-4" aria-live="polite">
+              <p className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+                <Loader2 className="size-4 animate-spin text-accent" />
+                {reel?.step ?? (data?.worker.online ? "Ton Mac prépare le reel…" : "En attente de ton Mac (éteint ou en veille)…")}
+              </p>
+              <Progress value={reel?.status === "working" ? reel.progress : undefined} />
+              <p className="mt-2 text-[12px] text-ink-3">{reviewOld ? "Compte une à deux minutes. Tu peux quitter la page : le reel arrivera dans la bibliothèque." : "Compte une à deux minutes. Dès qu'il est prêt, il s'ouvre dans l'écran de montage pour le retoucher. Tu peux aussi quitter la page."}</p>
+            </div>
+          )}
+          {editing.length > 0 && (
+            <div className="mb-4 rounded-xl border border-line bg-surface p-3">
+              <p className="mb-2 text-[12.5px] font-medium text-ink-2">Reels à retoucher ou à valider</p>
+              <div className="flex flex-wrap gap-2">
+                {editing.slice(0, 6).map((j) => (
+                  <Link key={j.id} href={`/videos/montage/${j.id}`} className="press flex items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 text-[12.5px] hover:border-accent/50">
+                    <Clapperboard className="size-3.5 text-accent" />
+                    <span className="max-w-[220px] truncate">{j.title}</span>
+                    <span className="text-ink-3">version {j.versions.at(-1)!.n}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+          {animOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">{"Le programme de ton Mac ne sait pas encore écrire les animations demandées (version 0.7.0) : ces scènes auront l'animation standard."}</p>}
+          {motion && motionOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">Le programme de ton Mac est trop ancien pour animer un reel : mets-le à jour (version 0.6.0).</p>}
+          {motion && reelFile && !reelId && (
+            <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface p-4">
+              {reelFile.url && <video src={reelFile.url} controls playsInline preload="metadata" className="h-[280px] rounded-lg bg-black" />}
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <p className="text-[14px] font-semibold">Ton reel animé est prêt</p>
+                <p className="text-[12.5px] text-ink-3">Il est dans la bibliothèque. Si un texte ne va pas, corrige la scène et génère-le à nouveau.</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="primary" onClick={() => openComposer({ mediaId: reelFile.id, caption: deck.caption })}>
+                    <CalendarPlus className="size-4" />
+                    Programmer
+                  </Button>
+                  <Button onClick={() => playMedia(reelFile.id)}>Voir en grand</Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_800px]">
+            {/* ---------- Preview and slides: stays in view while the settings scroll ---------- */}
+            <div className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
+              {/* On a computer the small visuals stand in a column beside the big one: the height goes to the preview. */}
+              <div className="flex min-w-0 flex-col gap-3 lg:flex-row-reverse">
+              <div className="flex min-w-0 flex-1 items-center justify-center rounded-2xl border border-line bg-bg-2/60 p-5 max-sm:p-3">
+                {/* On a wide screen the visual is as tall as the window allows, so the whole column fits without scrolling. */}
+                <div
+                  className={cn("w-full lg:max-w-[var(--fit)]", deck.format === "9:16" ? "max-lg:max-w-[300px]" : deck.format === "1:1" ? "max-lg:max-w-[460px]" : "max-lg:max-w-[400px]")}
+                  style={{ "--fit": `max(200px, calc((100dvh - 310px) * ${W / HEIGHTS[deck.format]}))` } as React.CSSProperties}
+                >
+                  <SlideCanvas deck={deck} index={index} fonts={fonts} className="rounded-xl shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)]" />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 lg:items-start">
+                <div className="scroll-thin flex min-w-0 flex-1 gap-2 overflow-x-auto p-1 lg:max-h-[max(240px,calc(100dvh-270px))] lg:flex-none lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto" role="tablist" aria-label={motion ? "Scènes" : "Visuels"}>
+                  {deck.slides.map((s, i) => (
+                    <button
+                      key={s.id}
+                      role="tab"
+                      aria-selected={i === index}
+                      aria-label={`${unit} ${i + 1}`}
+                      onClick={() => setCurrent(i)}
+                      className={cn(
+                        "press relative w-[68px] shrink-0 overflow-hidden rounded-lg outline-none transition-shadow duration-150 focus-visible:ring-2 focus-visible:ring-accent/50",
+                        i === index ? "shadow-[0_0_0_2px_var(--accent)]" : "shadow-[0_0_0_1px_var(--line-strong)] hover:shadow-[0_0_0_1px_var(--ink-3)]",
+                      )}
+                    >
+                      <SlideCanvas deck={deck} index={i} fonts={fonts} small />
+                      <span className="tabular absolute bottom-1 left-1 rounded bg-black/55 px-1 text-[10px] font-medium text-white">{i + 1}</span>
+                    </button>
+                  ))}
+                  {deck.slides.length < max && (
+                    <button
+                      onClick={addSlide}
+                      aria-label={motion ? "Ajouter une scène" : "Ajouter un visuel"}
+                      title={motion ? "Ajouter une scène" : "Ajouter un visuel"}
+                      className="press grid w-[68px] shrink-0 place-items-center rounded-lg border border-dashed border-line-strong text-ink-3 hover:border-ink-3 hover:text-ink"
+                      style={{ aspectRatio: `${W} / ${HEIGHTS[deck.format]}` }}
+                    >
+                      <Plus className="size-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1 text-[12.5px] text-ink-3">
+                <span className="mr-1">
+                  {motion ? `Scène ${index + 1} sur ${deck.slides.length} · ${seconds} en tout` : deck.slides.length > 1 ? `Visuel ${index + 1} sur ${deck.slides.length} · carrousel` : "Un seul visuel · post photo"}
+                </span>
+                <IconButton label={motion ? "Reculer cette scène" : "Reculer ce visuel"} onClick={() => move(-1)} disabled={index === 0}>
+                  <ArrowUp className="size-3.5 -rotate-90" />
+                </IconButton>
+                <IconButton label={motion ? "Avancer cette scène" : "Avancer ce visuel"} onClick={() => move(1)} disabled={index === deck.slides.length - 1}>
+                  <ArrowDown className="size-3.5 -rotate-90" />
+                </IconButton>
+                <IconButton label={motion ? "Dupliquer cette scène" : "Dupliquer ce visuel"} onClick={duplicate} disabled={deck.slides.length >= max}>
+                  <Copy className="size-3.5" />
+                </IconButton>
+                <IconButton label={motion ? "Supprimer cette scène" : "Supprimer ce visuel"} onClick={remove} disabled={deck.slides.length <= 1} danger>
+                  <Trash2 className="size-3.5" />
+                </IconButton>
+                {story && deck.slides.length > 1 && <span className="ml-auto text-warn">En story, chaque visuel devient une story à part.</span>}
+              </div>
+              {motion && <p className="text-[12px] text-ink-3 lg:[@media(max-height:860px)]:hidden">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut. Pour un motion design sur mesure, décris-le dans « Animation » : Claude écrit la scène."}</p>}
+            </div>
+
+            {/* ---------- Settings: two columns of panels on a very wide screen ---------- */}
+            <div className="flex min-w-0 flex-col gap-4 2xl:block 2xl:columns-2 2xl:gap-4 2xl:[&>*]:mb-4 2xl:[&>*]:break-inside-avoid">
+              <Panel title="Écrit par Claude" icon={<Sparkles className="size-3.5 text-accent" />}>
+                <textarea
+                  value={idea}
+                  onChange={(e) => setIdea(e.target.value)}
+                  rows={3}
+                  maxLength={3000}
+                  placeholder={motion ? "L'idée du reel, par ex. « 3 romantasy à lire après Fourth Wing »" : "Ton idée, par ex. « 5 erreurs quand on débute avec Claude Code »"}
+                  aria-label={motion ? "Idée du reel" : "Idée du post"}
+                  className={cn(inputClass, "resize-y py-2 leading-snug")}
+                />
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2">
+                    {motion ? "Scènes" : "Visuels"}
+                    <select value={Math.min(count, max)} onChange={(e) => setCount(Number(e.target.value))} className="h-8 rounded-lg border border-line-strong bg-surface px-2 text-[13px] outline-none focus:border-accent/60">
+                      {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {jobId ? (
+                    <Button className="ml-auto" onClick={cancelClaude}>
+                      <X className="size-4" />
+                      Annuler
+                    </Button>
+                  ) : (
+                    <Button className="ml-auto" onClick={askClaude} disabled={!idea.trim() || asking || workerOld}>
+                      <Sparkles className="size-4 text-accent" />
+                      {motion ? "Écrire les scènes" : "Écrire le post"}
+                    </Button>
+                  )}
+                </div>
+                {jobId && (
+                  <p className="mt-2 flex items-center gap-1.5 text-[12px] text-ink-3" aria-live="polite">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    {pending?.step ?? (data?.worker.online ? "Claude écrit sur ton Mac…" : "En attente de ton Mac (éteint ou en veille)…")}
+                  </p>
+                )}
+                {!jobId && projectIdeas.length > 0 && (
+                  <div className="mt-2">
+                    <p className="mb-1 text-[11.5px] text-ink-3">Idées de {styledProject?.name ?? "ce projet"}</p>
+                    <div className="scroll-thin flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+                      {projectIdeas.map((i) => (
+                        <button key={i.id} type="button" onClick={() => setIdea(i.text)} title="Reprendre cette idée" className="press max-w-full truncate rounded-full border border-line-strong bg-surface px-2.5 py-0.5 text-[11.5px] text-ink-2 hover:text-ink">
+                          <Lightbulb className="mr-1 inline size-3 text-accent" />
+                          {i.text}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {workerOld && <p className="mt-2 text-[12px] text-warn">Le programme de ton Mac est trop ancien pour écrire un post entier : mets-le à jour (version 0.2.0).</p>}
+                {!jobId && ready.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {ready.map((j) => (
+                      <button
+                        key={j.id}
+                        onClick={() => applyResult(j)}
+                        title="Reprendre ce post écrit par Claude"
+                        className="press max-w-full truncate rounded-full border border-line-strong bg-surface px-2.5 py-0.5 text-[11.5px] text-ink-2 hover:text-ink"
+                      >
+                        <Sparkles className="mr-1 inline size-3 text-accent" />
+                        {j.title.replace(/^Post : /, "")}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {deck.slides.some((s) => s.title.trim() && s.title !== "Ton accroche ici") && !jobId && (
+                  <p className="mt-2 text-[11.5px] text-ink-3">{motion ? "Le texte de Claude remplace les scènes actuelles." : "Le texte de Claude remplace les visuels actuels."}</p>
+                )}
+              </Panel>
+
+              <Panel title={motion ? `Texte de la scène ${index + 1}` : `Texte du visuel ${index + 1}`}>
+                <Field label="Gros texte">
+                  <textarea aria-label="Gros texte" value={slide.title} onChange={(e) => patchSlide({ title: e.target.value })} rows={2} maxLength={motion ? 120 : 200} className={cn(inputClass, "resize-y py-2 leading-snug")} />
+                </Field>
+                <Field label="Petit texte">
+                  <textarea aria-label="Petit texte" value={slide.body} onChange={(e) => patchSlide({ body: e.target.value })} rows={3} maxLength={motion ? 240 : 600} className={cn(inputClass, "resize-y py-2 leading-snug")} />
+                </Field>
+                {motion && (
+                  <Field label="Animation (facultatif)">
+                    <textarea
+                      aria-label="Animation de la scène"
+                      value={slide.anim ?? ""}
+                      onChange={(e) => patchSlide({ anim: e.target.value })}
+                      rows={2}
+                      maxLength={300}
+                      placeholder="Décris le motion design, par ex. « des couvertures qui tombent en cascade » ou « un compteur qui monte jusqu'à 6 »"
+                      className={cn(inputClass, "resize-y py-2 leading-snug")}
+                    />
+                    <span className="text-[11.5px] text-ink-3">{slide.anim?.trim() ? "Claude écrit cette scène en HyperFrames, dans le style du projet. Si son animation plante, la scène garde l'animation standard." : "Vide : l'animation standard (texte qui monte mot à mot)."}</span>
+                  </Field>
+                )}
+              </Panel>
+
+              {motion && (
+                <Panel title="Animations">
+                  <Field label="Consignes pour tout le reel (facultatif)">
+                    <textarea
+                      aria-label="Consignes pour tout le reel"
+                      value={direction}
+                      onChange={(e) => writeDirection(e.target.value)}
+                      rows={4}
+                      maxLength={MAX_DIRECTION}
+                      placeholder={"Ex. : des livres qui tombent en cascade, le mot clé entouré d'un trait, un compteur sur le chiffre, transitions rapides."}
+                      className={cn(inputClass, "resize-y py-2 leading-snug")}
+                    />
+                  </Field>
+                  <p className="text-[12px] text-ink-3">{"Pour tout le reel : Claude choisit l'entrée du texte, les transitions et le décor de chaque scène, et ajoute des animations HyperFrames derrière le texte, dans tes couleurs. Pour une scène entièrement sur mesure, remplis plutôt le champ « Animation » de cette scène. Compte une à deux minutes de plus."}</p>
+                  {directOld && <p className="text-[12px] text-warn">{"Le programme de ton Mac est trop ancien pour suivre des consignes générales ou un rythme (version 0.8.0) : le reel sortira sans eux."}</p>}
+                  <Field label="Rythme">
+                    <select aria-label="Rythme" value={pace} onChange={(e) => setPace(e.target.value as Pace | "auto")} className={inputClass}>
+                      <option value="auto">{direction.trim() ? "Au choix de Claude" : "Normal"}</option>
+                      <option value="calm">Calme</option>
+                      {direction.trim() && <option value="normal">Normal</option>}
+                      <option value="fast">Rapide</option>
+                    </select>
+                  </Field>
+                </Panel>
+              )}
+
+              {motion && (
+                <Panel title="Musique">
+                  <Toggle label="Mettre une musique de ton dossier sous les scènes" checked={music} onChange={setMusic} />
+                  <p className="text-[12px] text-ink-3">{"Le Mac prend un morceau du dossier Musique de Metricove. S'il est vide, le reel sort sans son."}</p>
+                </Panel>
+              )}
+
+              {!motion && (
+              <Panel title={`Photo du visuel ${index + 1}`}>
+                <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,.jpg,.jpeg,.png,.webp,.heic" className="hidden" onChange={(e) => (importPhoto(e.target.files?.[0]), (e.target.value = ""))} />
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => fileInput.current?.click()}>
+                    <ImagePlus className="size-3.5" />
+                    Importer
+                  </Button>
+                  <Button size="sm" onClick={() => setPicking((p) => !p)} disabled={!photos.length} title={photos.length ? undefined : "Aucune photo dans Médias"}>
+                    <Images className="size-3.5" />
+                    Depuis Médias
+                  </Button>
+                  {slide.photo && (
+                    <Button size="sm" variant="ghost" onClick={() => patchSlide({ photo: undefined })}>
+                      <X className="size-3.5" />
+                      Retirer
+                    </Button>
+                  )}
+                </div>
+                {picking && (
+                  <div className="scroll-thin mt-2 grid max-h-44 grid-cols-5 gap-1.5 overflow-y-auto rounded-lg border border-line p-1.5">
+                    {photos.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => {
+                          if (m.url) retryPhoto(m.url);
+                          patchSlide({ photo: m.url, photoY: 0.5 });
+                          setPicking(false);
+                        }}
+                        title={m.title}
+                        aria-label={`Utiliser la photo ${m.title}`}
+                        className="press aspect-square overflow-hidden rounded-md bg-surface-2 outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={m.url} alt="" loading="lazy" className="size-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {slide.photo ? (
+                  <div className="mt-3 flex flex-col gap-2.5">
+                    <Slider label="Cadrage" value={slide.photoY ?? 0.5} min={0} max={1} onChange={(photoY) => patchSlide({ photoY })} />
+                    <Slider label="Assombrir" value={slide.dim ?? (slide.title.trim() || slide.body.trim() ? 0.45 : 0)} min={0} max={0.85} onChange={(dim) => patchSlide({ dim })} />
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[12px] text-ink-3">Sans photo, le visuel prend le fond choisi plus bas. Une photo sans texte donne un post photo simple.</p>
+                )}
+              </Panel>
+              )}
+
+              <Panel title={motion ? "Style du reel" : "Style de tous les visuels"} icon={<Palette className="size-3.5 text-accent" />}>
+                {projects.length > 0 && (
+                  <Field label="Profil de style">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        aria-label="Profil de style"
+                        value={styled ?? ""}
+                        onChange={(e) => applyProfile(e.target.value)}
+                        disabled={!profiles}
+                        className="h-9 min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-2 text-[13px] outline-none focus:border-accent/60"
+                      >
+                        <option value="">Aucun (style libre)</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      {lookChanged && (
+                        <>
+                          <Button size="sm" className="h-9" onClick={() => applyProfile(styled!)} title="Revenir au style enregistré du projet">
+                            <RotateCcw className="size-3.5" />
+                            Rétablir
+                          </Button>
+                          <Button size="sm" className="h-9" onClick={keepLook} disabled={savingLook} title="Faire de ces réglages le style du projet">
+                            <Save className="size-3.5" />
+                            Enregistrer
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    <span className="text-[11.5px] text-ink-3">
+                      {styled ? (lookChanged ? "Modifié pour ce post seulement, tant que tu n'enregistres pas." : "Couleurs, texte, signature et ton de Claude viennent du projet.") : "Choisis un projet pour reprendre son style."}{" "}
+                      <Link href="/settings#styles" className="font-medium text-accent">
+                        Tous les profils
+                      </Link>
+                    </span>
+                  </Field>
+                )}
+                {!motion && (
+                <Field label="Format">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Segmented value={deck.format} onChange={(format) => patch({ format })} options={FORMAT_OPTIONS.map((f) => ({ value: f.value, label: f.label }))} />
+                    <span className="text-[12px] text-ink-3">{FORMAT_OPTIONS.find((f) => f.value === deck.format)?.hint}</span>
+                  </div>
+                </Field>
+                )}
+                <LookControls look={deck} onChange={patch} suggestedHandle={suggestedHandle} />
+                {motion && <p className="text-[12px] text-ink-3">{"Le logo du reel est celui enregistré dans le profil du projet. Retire-le ici pour un reel sans logo."}</p>}
+              </Panel>
+
+              <Panel title={motion ? "Description du reel" : "Description du post"}>
+                <textarea
+                  value={deck.caption}
+                  onChange={(e) => patch({ caption: e.target.value })}
+                  rows={5}
+                  maxLength={5000}
+                  placeholder={motion ? "Le texte publié avec le reel. Tu peux aussi l'écrire plus tard, dans le post." : "Le texte publié avec les visuels. Tu peux aussi l'écrire plus tard, dans le post."}
+                  aria-label={motion ? "Description du reel" : "Description du post"}
+                  className={cn(inputClass, "resize-y py-2 leading-snug")}
+                />
+              </Panel>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Panel({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xl border border-line bg-surface p-4">
+      <h2 className="mb-2.5 flex items-center gap-1.5 text-[13px] font-semibold">
+        {icon}
+        {title}
+      </h2>
+      <div className="flex flex-col gap-2.5">{children}</div>
+    </section>
+  );
+}
+
+function Slider({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+  return (
+    <label className="flex items-center gap-3 text-[12px] font-medium text-ink-2">
+      <span className="w-20 shrink-0">{label}</span>
+      <input type="range" min={min} max={max} step={0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} className="min-w-0 flex-1 accent-[var(--accent)]" />
+    </label>
+  );
+}
+
+function IconButton({ label, onClick, disabled, danger, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={cn("press grid size-7 place-items-center rounded-md text-ink-3 outline-none hover:bg-ink/5 focus-visible:ring-2 focus-visible:ring-accent/50 disabled:pointer-events-none disabled:opacity-35", danger ? "hover:text-danger" : "hover:text-ink")}
+    >
+      {children}
+    </button>
+  );
+}

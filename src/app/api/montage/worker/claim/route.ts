@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { listMedia } from "@/server/db";
-import { claimJob, listRushes, workerSeen } from "@/server/montage";
+import { listMedia, listProjects } from "@/server/db";
+import { claimJob, listRushes, saveMacBroll, workerSeen, type MacBroll } from "@/server/montage";
+import { profileOf, themeOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +10,33 @@ export const dynamic = "force-dynamic";
  * Otherwise: the job, what to do, and its rushes (with a download URL when the file waits on the server).
  */
 export async function POST(req: Request) {
-  const b = (await req.json().catch(() => ({}))) as { worker?: string; version?: string };
-  workerSeen({ worker: b.worker?.slice(0, 40), version: b.version?.slice(0, 20) });
-  const job = claimJob();
-  if (!job) return new Response(null, { status: 204 });
+  const b = (await req.json().catch(() => ({}))) as { worker?: string; version?: string; tracks?: unknown; brolls?: unknown };
+  // The files of the Mac's music folder (worker 0.10.0), so that the page can offer them by name.
+  const tracks = Array.isArray(b.tracks) ? b.tracks.filter((t): t is string => typeof t === "string" && t.length > 0 && t.length <= 200).slice(0, 200) : undefined;
+  workerSeen({ worker: b.worker?.slice(0, 40), version: b.version?.slice(0, 20), tracks });
+  // The files of the Mac B-roll folder with a small picture (worker 0.13.0), sent when the folder changes.
+  if (Array.isArray(b.brolls)) {
+    const list: MacBroll[] = [];
+    for (const x of b.brolls.slice(0, 300) as Record<string, unknown>[]) {
+      if (!x || typeof x.name !== "string" || !x.name || x.name.length > 200) continue;
+      const thumb = typeof x.thumb === "string" && x.thumb.startsWith("data:image/jpeg;base64,") && x.thumb.length < 16_000 ? x.thumb : undefined;
+      const dur = typeof x.dur === "number" && Number.isFinite(x.dur) && x.dur > 0 ? Math.round(x.dur * 10) / 10 : undefined;
+      list.push({ name: x.name, ...(thumb ? { thumb } : {}), ...(dur ? { dur } : {}) });
+    }
+    saveMacBroll(list);
+  }
+  const claimed = claimJob();
+  if (!claimed) return new Response(null, { status: 204 });
+  // An edit lives for days (versions, feedback, final render): it gets the project's profile as it is now,
+  // not as it was when the job was made. Not stored with the job.
+  const styled = claimed.kind === "montage" || claimed.kind === "cover";
+  const voice = styled ? voiceOf(claimed.projectId) : undefined;
+  const theme = styled ? themeOf(claimed.projectId) : undefined;
+  // An animated reel shows the logo of its project: kept out of the stored job, added here.
+  const owner = claimed.kind === "motion" && claimed.motion?.logo !== false && claimed.projectId ? listProjects().find((p) => p.id === claimed.projectId) : undefined;
+  const logo = owner ? profileOf(owner).look.logo : undefined;
+  if (claimed.motion && logo) claimed.motion = { ...claimed.motion, look: { ...claimed.motion.look, logo } };
+  const job = { ...claimed, ...(voice ? { voice: { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

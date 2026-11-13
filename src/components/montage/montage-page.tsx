@@ -48,7 +48,7 @@ export function MontagePage() {
           )}
           <section>
             <h2 className="mb-2 text-[13px] font-semibold">Montages</h2>
-            {data && data.jobs.filter((j) => j.kind === "montage").length === 0 && !creating && (
+            {data && data.jobs.filter(listed).length === 0 && !creating && (
               <button
                 onClick={() => setCreating(true)}
                 className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-line-strong px-6 py-10 text-center hover:border-accent/50"
@@ -64,7 +64,7 @@ export function MontagePage() {
             )}
             <div className="flex flex-col gap-2">
               {data?.jobs
-                .filter((j) => j.kind === "montage")
+                .filter(listed)
                 .map((j, i) => (
                   <JobRow key={j.id} job={j} index={i} onDeleted={refresh} />
                 ))}
@@ -75,6 +75,9 @@ export function MontagePage() {
     </>
   );
 }
+
+/** Face-cam montages, and the animated reels that reached the editing screen. */
+const listed = (j: MontageJob) => j.kind === "montage" || (j.kind === "motion" && j.versions.length > 0);
 
 function JobRow({ job, index, onDeleted }: { job: MontageJob; index: number; onDeleted: () => void }) {
   const last = job.versions.at(-1);
@@ -103,7 +106,7 @@ function JobRow({ job, index, onDeleted }: { job: MontageJob; index: number; onD
           <JobStatus job={job} />
         </div>
         <p className="mt-0.5 truncate text-[12px] text-ink-3">
-          {job.brief.format} · {job.rushIds.length} rush{job.rushIds.length > 1 ? "es" : ""}
+          {job.kind === "motion" ? "Reel animé" : `${job.brief.format} · ${job.rushIds.length} rush${job.rushIds.length > 1 ? "es" : ""}`}
           {last ? ` · version ${last.n}` : ""} · {fmt(job.updatedAt, "d MMM, HH:mm")}
           {job.status === "failed" && job.error ? ` · ${job.error}` : ""}
         </p>
