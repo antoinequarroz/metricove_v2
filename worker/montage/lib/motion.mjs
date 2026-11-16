@@ -127,7 +127,7 @@ export function cleanMotion(m = {}) {
     look: {
       theme,
       accent: hex(l.accent, "#ff5a1f"),
-      font: pick(l.font, ["serif", "sans", "grotesque"], "sans"),
+      font: pick(l.font, ["serif", "sans", "grotesque", "space"], "sans"),
       fields: theme === "custom" ? (fields.length ? fields : [{ bg: "#15161f", ink: "#f7f5ed" }]) : [],
       grid: l.grid === true,
       pill: l.pill === true,
@@ -171,12 +171,16 @@ const FONTS = {
     display: { family: "Instrument Serif", spec: "Instrument Serif", css: "font-weight:400;letter-spacing:-0.01em;line-height:1.02" },
     body: { family: "Geist", spec: "Geist:wght@100..900", css: "font-weight:400" },
   },
+  space: {
+    display: { family: "Space Grotesk", spec: "Space Grotesk:wght@300..700", css: "font-weight:700;letter-spacing:-0.025em;line-height:0.98" },
+    body: { family: "Inter", spec: "Inter:wght@100..900", css: "font-weight:400" },
+  },
   sans: {
     display: { family: "Geist", spec: "Geist:wght@100..900", css: "font-weight:700;letter-spacing:-0.03em;line-height:1.02" },
     body: { family: "Geist", spec: "Geist:wght@100..900", css: "font-weight:400" },
   },
 };
-const FALLBACK = { grotesque: "'Helvetica Neue', Arial, sans-serif", serif: "Georgia, 'Times New Roman', serif", sans: "-apple-system, 'Helvetica Neue', Arial, sans-serif" };
+const FALLBACK = { grotesque: "'Helvetica Neue', Arial, sans-serif", space: "'Helvetica Neue', Arial, sans-serif", serif: "Georgia, 'Times New Roman', serif", sans: "-apple-system, 'Helvetica Neue', Arial, sans-serif" };
 
 /** Taille du gros texte : il doit tenir en 5 lignes au plus, sans couper un mot. */
 function titleSize(title, condensed) {

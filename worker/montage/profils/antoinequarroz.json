@@ -1,0 +1,39 @@
+{
+  "project": "antoine ?quarroz",
+  "look": {
+    "theme": "custom",
+    "accent": "#22d3ee",
+    "font": "space",
+    "fields": [
+      {
+        "bg": "#080810",
+        "ink": "#f3f4f6"
+      },
+      {
+        "bg": "#7c3aed",
+        "ink": "#ffffff"
+      }
+    ],
+    "grid": false,
+    "pill": true,
+    "align": "left",
+    "valign": "middle",
+    "grain": true,
+    "numbers": true
+  },
+  "tone": "Antoine Quarroz (antoinequarroz.ch), développeur web et mobile freelance en Valais : sites vitrine, apps mobiles, CMS, outils construits avec l'IA et l'automatisation.\nPremière personne, phrases simples, concrètes et naturelles. Partir d'un problème réel ou d'une décision, expliquer l'idée, puis le résultat. Finir par une question ciblée quand ça s'y prête.\nJamais d'expérience, de client, d'émotion, de montant, de chiffre ou de gain de temps inventé ; un exemple fictif est annoncé comme tel. Ni ton d'agence, ni jargon, ni superlatifs, ni promesse de résultat, ni « Découvrez ».\nLinkedIn : accroche claire, paragraphes courts, question ciblée, 3000 caractères au plus. X : une idée, 280 caractères au plus. Instagram/Facebook : accroche d'une phrase, 2 à 4 phrases, question ou lien en bio. 0 à 3 hashtags.\nCarrousel : visuel 1 = le problème en quelques mots massifs, une idée par visuel, dernier visuel = ce qu'on retient + une question.\nTout texte reste un brouillon à valider par Antoine.",
+  "skill": "skills/antoinequarroz-voix",
+  "publishedExamples": 5,
+  "ideas": [
+    "Comment je publie sur tous mes réseaux depuis un seul calendrier",
+    "Je monte mes vidéos avec Claude Code : ce que ça change vraiment",
+    "Site vitrine, app ou CMS : comment je choisis avec un client",
+    "Un outil que j'ai construit pour gagner du temps sur mon admin freelance",
+    "Les coulisses d'un projet : du devis à la mise en ligne",
+    "Ce que l'IA fait bien dans mon travail, et ce qu'elle fait mal"
+  ],
+  "logoFile": "~/Lab/projets/AntoineQuarrozInde/public/favicon.svg",
+  "skillDirs": [
+    "~/Lab/projets/AntoineQuarrozInde/.claude/skills"
+  ]
+}
