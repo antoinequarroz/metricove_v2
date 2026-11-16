@@ -11,43 +11,51 @@ Source de vérité : `.protocole/voix-sociale.md` dans le dépôt `~/Lab/projets
 
 ## Ton
 
-- Première personne (« je »), phrases simples, concrètes, naturelles. Ça doit se lire à voix haute sans buter.
-- Partir d'un problème réel ou d'une décision documentée, expliquer l'idée, puis le résultat. Finir par une question ciblée quand le sujet s'y prête.
-- Mots de tous les jours : « site », « app », « outil », « client », « je l'ai branché à… ». Un terme technique seulement s'il est utile, et alors expliqué en une demi-phrase.
-- Emojis rares : un au plus par post, jamais en rafale.
+- Première personne (« je ») et vouvoiement du lecteur (« vous », « votre projet »). On tutoie seulement un client qu'on remercie (« Merci pour ta confiance, Christophe 🙏 »).
+- Chaleureux, simple, concret, avec une touche d'autodérision (« Créer un outil pour présenter les outils que je crée… oui, ça va un peu loin 😄 »).
+- Partir d'un problème réel, d'un vrai projet ou d'un vrai outil, expliquer ce qu'il apporte, puis inviter à en parler.
+- Présentation type : « Moi, c'est Antoine 👋 Médiamaticien et développeur full-stack en Valais. »
+- Mots de tous les jours : « site », « app », « outil sur mesure », « votre activité ». Un terme technique seulement s'il est utile.
 
 ## Interdits
 
 - N'invente jamais une expérience, une émotion, un client, un montant, un chiffre, un gain de temps ni une fonctionnalité qui n'existe pas encore. Un exemple fictif est annoncé comme tel.
 - Pas de ton d'agence, pas de jargon creux, pas de superlatifs (« révolutionnaire », « incroyable »), pas de promesse de résultat.
 - Pas de « Découvrez », pas de « Dans ce carrousel », pas de « premier post » pour une nouvelle publication.
-- Pas de série de hashtags : 0 à 3, pertinents.
 
 ## Par plateforme
 
-- **LinkedIn** : une accroche claire en première ligne, paragraphes courts (1 à 3 lignes), explication utile, question ciblée à la fin. 3000 caractères au plus.
+- **Instagram / Facebook** (modèle : ses posts PhysioBaur et « Salut, moi c'est Antoine », octobre 2026) :
+  1. Accroche en question ou en flèche, avec un emoji : « Votre futur client est sur votre site. Il trouve comment vous contacter ? 👀 », « Une idée dans la tête → un projet qui prend vie 💡 ».
+  2. 2 à 4 paragraphes courts, environ un emoji chacun (💜 📱 🎬 🛠️).
+  3. Si utile, une liste de questions courtes sans puces (« Un site pour votre activité ? / Une app pour votre association ? »).
+  4. Pour un carrousel : « 👉 Faites défiler pour… ».
+  5. Appel : « 💬 Une idée, même encore un peu floue ? Envoyez-moi un message, on en parle. » et « … via le lien en bio 🔗 ».
+  6. Question finale qui appelle un commentaire : « Et vous, … ? 👇 ».
+  7. 5 hashtags, dont #Valais (autres selon le sujet : #WebDesign #CreationSiteWeb #EntrepreneurSuisse #Freelance #MotionDesign #DéveloppementWeb #IA).
+- **LinkedIn** : une accroche claire, paragraphes courts, explication utile, question ciblée. Moins d'emojis. 3000 caractères au plus.
 - **X** : une idée centrale, une question courte si utile. 280 caractères au plus en gardant de la marge pour le lien avec UTM.
-- **Instagram / Facebook** : accroche d'une phrase, 2 à 4 phrases qui expliquent, une question ou un renvoi au lien en bio. 0 à 3 hashtags.
 - L'URL canonique reste dans le texte quand le flux l'exige ; les UTM sont ajoutés par le flux de publication.
 - Tout texte reste un brouillon à valider par Antoine : ne jamais programmer ni publier sans son accord explicite.
 
-## Carrousel
+## Carrousel (série « Réalisations · épisode NN »)
 
-- Visuel 1 : le problème ou la question, en 3 à 7 mots massifs.
-- Visuels du milieu : une idée par visuel, titre court + une phrase qui explique le concret (ce que j'ai fait, comment, pourquoi).
-- Dernier visuel : ce qu'on retient + un appel simple (« Tu ferais comment ? », « Le lien est en bio »).
+- 6 visuels 4:5, fond nuit avec un halo violet discret. En haut : logo AQ + « Antoine Quarroz » à gauche, « DERRIÈRE LE PROJET · 01 » à droite. En bas : « [Projet] · [sous-titre] » à gauche, « 02 / 06 → » à droite.
+- Chaque visuel : un petit label en capitales précédé d'un tiret (« — LE POINT DE DÉPART », « — LE PARCOURS », « — LA VERSION MOBILE »), un titre sur deux lignes dont la seconde est en violet clair (« Un site pensé / pour ses patients. »), une phrase sous le titre, puis une capture du site ou une maquette téléphone.
+- Visuel 1 : « Présentation de projet. [Nom] » + mascotte robot 3D + « Design & développement · Un site sur mesure. »
+- Dernier visuel : « Vous avez une idée ? / Je la rends réelle. », une ligne sur l'offre, bouton pilule violet « Parlons de votre projet → », antoinequarroz.ch.
 
-## Vidéo verticale (texte dit et montage)
+## Vidéo verticale (texte et montage)
 
-- 30 à 60 secondes, 1080 × 1920. Phrases de 8 à 15 mots, faciles à dire.
-- Ordre : accroche (le problème, en une phrase) → ce que j'ai essayé ou construit → comment ça marche, montré à l'écran → le résultat réel, sans chiffre inventé → question ou appel final.
-- Mots mis en valeur : le nom de l'outil, le problème, le résultat. Un ou deux par phrase au plus.
-- À l'oral « antoinequarroz point CH », à l'écran « antoinequarroz.ch ».
+- Modèle : le reel de présentation d'octobre 2026, 50 secondes, en motion design (pas de face caméra), monté avec l'IA et son propre outil, sur musique.
+- Typo cinétique rapide : un mot ou une courte phrase par plan, une ligne d'amorce en italique légère puis la phrase forte en très gras (« Et pourquoi pas depuis / l'Espagne ? », « Une idée, un projet ? / On en parle ? »). Le mot clé est en violet.
+- Alternance de plans nuit et de plans gris clair, avec de grands mots répétés en fond très pâle. Captures d'interface et maquettes pour montrer les vrais projets. Pastilles violettes (« Développeur full-stack », « Valaisan · 25 ans · Médiamaticien »).
+- Ordre : accroche → qui je suis → ce que je construis (sites, apps, logiciels, vidéos) → pour qui → appel final avec photo ronde, « On en parle ? » et la pastille antoinequarroz.ch.
+- Pour une vidéo face caméra : phrases de 8 à 15 mots, faciles à dire ; à l'oral « antoinequarroz point CH ».
 
 ## Charte visuelle
 
-- Couleurs : nuit studio #080810 (fond), violet signature #7c3aed (marque, action), violet studio #a78bfa et violet profond #5b21b6 (dégradés), cyan électrique #22d3ee (énergie, interaction, mots mis en valeur), texte clair #f3f4f6.
-- Règle des deux lumières : le violet porte la marque, le cyan signale l'énergie. Pas de troisième couleur vive décorative.
-- Halos et lueurs seulement sur un point focal, jamais partout. Grain léger en fond.
+- Couleurs : nuit #0b0a14 / #080810 (fond), violet signature #7c3aed et violet #8b5cf6 (marque, boutons, mot clé), violet clair #a78bfa (seconde ligne des titres sur fond nuit), gris clair #f4f4f7 (plans clairs), texte clair #f3f4f6, encre #111827. Cyan #22d3ee seulement en touche rare.
+- Halos violets seulement sur un point focal. Grain léger en fond.
 - Titres en Space Grotesk très gras, interligne serré, courts. Texte courant en Inter.
-- Logo : le carré violet « AQ » aux coins arrondis.
+- Logo : le carré violet « AQ » aux coins arrondis. Mascotte : petit robot 3D à écran violet.

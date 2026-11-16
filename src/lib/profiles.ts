@@ -104,15 +104,15 @@ export const PRESETS: { id: PresetId; label: string; hint: string; look: Look; t
   {
     id: "antoine",
     label: "AntoineQuarroz",
-    hint: "Nuit et violet, cyan, Space Grotesk",
-    // The design system of antoinequarroz.ch: night and violet fields, electric cyan marks, grain.
+    hint: "Nuit et gris clair, violet, Space Grotesk",
+    // As on antoinequarroz.ch and his Instagram: night and light grey fields, violet marks, grain.
     look: {
       theme: "custom",
-      accent: "#22d3ee",
+      accent: "#8b5cf6",
       font: "space",
       fields: [
-        { bg: "#080810", ink: "#f3f4f6" },
-        { bg: "#7c3aed", ink: "#ffffff" },
+        { bg: "#0b0a14", ink: "#f3f4f6" },
+        { bg: "#f4f4f7", ink: "#111827" },
       ],
       grid: false,
       pill: true,
@@ -123,7 +123,7 @@ export const PRESETS: { id: PresetId; label: string; hint: string; look: Look; t
       handle: "",
     },
     tone: `Antoine Quarroz, développeur web et mobile freelance en Valais : sites, apps, CMS, IA et automatisation.
-Première personne, phrases simples, concrètes et naturelles. Partir d'un problème réel ou d'une décision, expliquer l'idée et le résultat, finir par une question quand ça s'y prête.
+Première personne, vouvoiement du lecteur, phrases simples, concrètes et chaleureuses. Partir d'un problème réel ou d'une décision, expliquer l'idée et le résultat, finir par une question quand ça s'y prête.
 Jamais d'expérience, de client, de chiffre ou de gain inventé. Ni ton d'agence, ni jargon, ni superlatifs, ni rafale de hashtags.`,
   },
   {
