@@ -43,6 +43,19 @@
   }
 }
 
+/* Light / dark variants of an image (the logo): only the one for the system theme shows. */
+.theme-dark {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  .theme-light {
+    display: none;
+  }
+  .theme-dark {
+    display: block;
+  }
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-bg-2: var(--bg-2);
