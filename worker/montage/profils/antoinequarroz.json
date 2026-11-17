@@ -1,0 +1,44 @@
+{
+  "project": "antoine ?quarroz",
+  "look": {
+    "theme": "custom",
+    "accent": "#8b5cf6",
+    "font": "space",
+    "fields": [
+      {
+        "bg": "#0b0a14",
+        "ink": "#f3f4f6"
+      },
+      {
+        "bg": "#f4f4f7",
+        "ink": "#111827"
+      }
+    ],
+    "grid": false,
+    "pill": true,
+    "align": "left",
+    "valign": "middle",
+    "grain": true,
+    "numbers": true
+  },
+  "tone": "Antoine Quarroz (antoinequarroz.ch), médiamaticien et développeur web et mobile freelance en Valais : sites, apps, outils sur mesure, vidéos et motion design faits avec l'IA et ses propres outils.\nJe parle à la première personne et je vouvoie le lecteur (« vous », « votre projet »). Ton chaleureux, simple, concret, une touche d'autodérision. Montrer un vrai projet ou un vrai outil, expliquer ce qu'il apporte, remercier le client quand il y en a un.\nLégende Instagram/Facebook : accroche en question ou en flèche (« Une idée → un projet qui prend vie 💡 »), 2 à 4 courts paragraphes, liste de questions courtes si utile, puis « 💬 … Envoyez-moi un message, on en parle », « lien en bio 🔗 », une question finale qui appelle un commentaire (👇), et 5 hashtags (#Valais toujours). Un emoji par paragraphe environ.\nLinkedIn : accroche claire, paragraphes courts, question ciblée, moins d'emojis. X : une idée, 280 caractères au plus.\nJamais de client, chiffre, résultat ou fonctionnalité inventés. Ni ton d'agence, ni superlatifs, ni « Découvrez ». Tout texte reste un brouillon à valider par Antoine.",
+  "skill": "skills/antoinequarroz-voix",
+  "publishedExamples": 5,
+  "ideas": [
+    "Réalisations · épisode 02 : présentation d'un autre projet client",
+    "Comment je publie sur tous mes réseaux depuis un seul calendrier",
+    "Je monte mes vidéos avec Claude Code : ce que ça change vraiment",
+    "Site vitrine, app ou CMS : comment je choisis avec un client",
+    "Un outil que j'ai construit pour gagner du temps sur mon admin freelance",
+    "Les coulisses d'un projet : du devis à la mise en ligne",
+    "Ce que l'IA fait bien dans mon travail, et ce qu'elle fait mal"
+  ],
+  "logoFile": "~/Lab/projets/AntoineQuarrozInde/public/favicon.svg",
+  "skillDirs": [
+    "~/Lab/projets/AntoineQuarrozInde/.claude/skills"
+  ],
+  "examples": [
+    "Votre futur client est sur votre site. Il trouve comment vous contacter ? 👀\nAprès ma vidéo de présentation, je vous montre une réalisation : PhysioBaur, le cabinet de Christophe à Sion 💜\nUn site pour découvrir les soins, trouver les infos pratiques et prendre contact, aussi depuis son téléphone 📱\nDu design à la mise en ligne, j’ai accompagné ce projet avec une attention particulière au parcours des patients.\n\n👉 Faites défiler pour découvrir le site et le retour de Christophe.\n\nMerci pour ta confiance, Christophe 🙏\n\nVous avez une activité à faire connaître ou un site à faire évoluer ? Écrivez-moi en DM : on parle de votre projet 💬\nLe projet complet est à découvrir sur mon site, via le lien en bio.\nEt vous, quand vous découvrez un professionnel, vous regardez quoi en premier sur son site ? 👇\n\n#WebDesign #CreationSiteWeb #Valais #EntrepreneurSuisse #Freelance",
+    "Une idée dans la tête → un projet qui prend vie 💡\n\nSites web, apps, outils sur mesure… Voilà ce que je construis, en 50 secondes 🎬\n\nPour créer cette vidéo, j’ai utilisé l’IA et mon propre outil de motion design, que je développe pour simplifier la création de contenus animés.\n\nCréer un outil pour présenter les outils que je crée… oui, ça va un peu loin 😄\n\nMoi, c’est Antoine 👋 Médiamaticien et développeur full-stack en Valais. J’aime mêler le code, le design et la communication pour donner forme à vos idées.\n\nUn site pour votre activité ?\nUne app pour votre association ?\nMoins de tâches répétitives ?\nUne vidéo pour montrer ce que vous faites ?\n\nJe peux vous aider à construire tout ça, et bien d’autres choses sur mesure 🛠️\n\n💬 Une idée, même encore un peu floue ? Envoyez-moi un message, on en parle.\n\nMes projets sont à découvrir via le lien en bio 🔗\n\nEt vous, vous aimeriez créer quoi ?\n\n#MotionDesign #DéveloppementWeb #CréationDeContenu #IA #Valais"
+  ]
+}

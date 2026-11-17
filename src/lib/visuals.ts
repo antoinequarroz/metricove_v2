@@ -123,7 +123,7 @@ function palette(deck: Deck, onPhoto: boolean, field?: LookField): Palette {
 
 /* ---------- Fonts ---------- */
 
-export type Fonts = { serif: string; sans: string; grotesque: string; manrope: string };
+export type Fonts = { serif: string; sans: string; grotesque: string; manrope: string; space: string; inter: string };
 
 /** The app's own fonts, as the canvas must name them. */
 export function appFonts(): Fonts {
@@ -132,19 +132,23 @@ export function appFonts(): Fonts {
   const sans = css.getPropertyValue("--font-geist-sans").trim();
   const grotesque = css.getPropertyValue("--font-grotesque").trim();
   const manrope = css.getPropertyValue("--font-manrope").trim();
+  const space = css.getPropertyValue("--font-space").trim();
+  const inter = css.getPropertyValue("--font-inter").trim();
   const withFallback = (name: string, rest: string) => `${name ? `${name}, ` : ""}${rest}`;
   return {
     serif: withFallback(serif, "Georgia, serif"),
     sans: withFallback(sans, "system-ui, sans-serif"),
     grotesque: withFallback(grotesque, withFallback(sans, "system-ui, sans-serif")),
     manrope: withFallback(manrope, withFallback(sans, "system-ui, sans-serif")),
+    space: withFallback(space, withFallback(sans, "system-ui, sans-serif")),
+    inter: withFallback(inter, withFallback(sans, "system-ui, sans-serif")),
   };
 }
 
 /** Waits until the fonts are ready, so the first drawing does not use a fallback. */
 export async function loadFonts(f: Fonts) {
   if (!document.fonts?.load) return;
-  const wanted = [`400 80px ${f.serif}`, `400 40px ${f.sans}`, `600 40px ${f.sans}`, `700 80px ${f.sans}`, `700 80px ${f.grotesque}`, `500 40px ${f.manrope}`, `700 40px ${f.manrope}`];
+  const wanted = [`400 80px ${f.serif}`, `400 40px ${f.sans}`, `600 40px ${f.sans}`, `700 80px ${f.sans}`, `700 80px ${f.grotesque}`, `500 40px ${f.manrope}`, `700 40px ${f.manrope}`, `700 80px ${f.space}`, `400 40px ${f.inter}`, `600 40px ${f.inter}`];
   await Promise.all(wanted.map((font) => document.fonts.load(font))).catch(() => {});
 }
 
@@ -316,6 +320,7 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
   const field = fieldOf(deck, index);
   const pal = palette(deck, !!photo, field);
   const brand = deck.font === "grotesque";
+  const space = deck.font === "space";
   ctx.save();
   ctx.textBaseline = "alphabetic";
 
@@ -382,7 +387,7 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
   const safe = deck.format === "9:16" ? 150 : 0;
   const top = pad + safe;
   const bottom = H - pad - safe;
-  const small = brand ? `700 30px ${fonts.manrope}` : `600 30px ${fonts.sans}`;
+  const small = brand ? `700 30px ${fonts.manrope}` : space ? `600 30px ${fonts.inter}` : `600 30px ${fonts.sans}`;
   spacing(ctx, 0);
   let headRoom = 0;
   let footRoom = 0;
@@ -450,17 +455,18 @@ export function drawSlide(ctx: CanvasRenderingContext2D, deck: Deck, index: numb
     const box = { x: pad, y: top + headRoom, width: W - pad * 2, height: bottom - footRoom - (top + headRoom) };
     const mark = title ? 46 : 0;
     const gap = title && body ? 44 : 0;
-    // Brand font: tight, slightly narrow titles (as on the site), and Manrope for the texts.
+    // Brand fonts: tight, slightly narrow Bricolage titles with Manrope texts (LivreMatch),
+    // or tight Space Grotesk titles with Inter texts (antoinequarroz.ch).
     const titleStyle: Style = (size) => {
-      ctx.font = brand ? `700 ${size}px ${fonts.grotesque}` : deck.font === "serif" ? `400 ${size}px ${fonts.serif}` : `700 ${size}px ${fonts.sans}`;
-      spacing(ctx, brand ? -0.035 * size : 0, brand ? "semi-condensed" : "normal");
+      ctx.font = brand ? `700 ${size}px ${fonts.grotesque}` : space ? `700 ${size}px ${fonts.space}` : deck.font === "serif" ? `400 ${size}px ${fonts.serif}` : `700 ${size}px ${fonts.sans}`;
+      spacing(ctx, brand ? -0.035 * size : space ? -0.025 * size : 0, brand ? "semi-condensed" : "normal");
     };
     const bodyStyle: Style = (size) => {
-      ctx.font = brand ? `500 ${size}px ${fonts.manrope}` : `400 ${size}px ${fonts.sans}`;
+      ctx.font = brand ? `500 ${size}px ${fonts.manrope}` : space ? `400 ${size}px ${fonts.inter}` : `400 ${size}px ${fonts.sans}`;
       spacing(ctx, 0);
     };
     const titleFrom = brand ? (title.length > 60 ? 100 : 136) : deck.font === "serif" ? (title.length > 60 ? 112 : 148) : title.length > 60 ? 92 : 124;
-    const titleLeading = brand ? 1 : deck.font === "serif" ? 1.04 : 1.1;
+    const titleLeading = brand ? 1 : space ? 1.02 : deck.font === "serif" ? 1.04 : 1.1;
     // The text keeps at least a third of the height when there is a title, and the title takes the rest.
     let b0 = body ? fit(ctx, body, bodyStyle, { width: box.width, height: title ? box.height * 0.42 : box.height }, title ? 44 : 64, 30, 1.42) : undefined;
     let bodyH = b0 ? b0.lines.length * b0.lineHeight : 0;

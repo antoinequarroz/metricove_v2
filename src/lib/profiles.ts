@@ -12,8 +12,8 @@ export type Look = {
   theme: LookTheme;
   /** Accent color, "#rrggbb". */
   accent: string;
-  /** "grotesque": Bricolage Grotesque titles with Manrope texts. */
-  font: "serif" | "sans" | "grotesque";
+  /** "grotesque": Bricolage Grotesque titles with Manrope texts. "space": Space Grotesk titles with Inter texts. */
+  font: "serif" | "sans" | "grotesque" | "space";
   /** Theme "custom": the fields of the brand (1 to 3). The visuals take them in turn. */
   fields: LookField[];
   /** Fine squared lines over a plain background. */
@@ -104,11 +104,27 @@ export const PRESETS: { id: PresetId; label: string; hint: string; look: Look; t
   {
     id: "antoine",
     label: "AntoineQuarroz",
-    hint: "Sombre, orange, texte net",
-    look: { theme: "night", accent: "#ff5a1f", font: "sans", fields: [], grid: false, pill: false, align: "left", valign: "middle", grain: true, numbers: true, handle: "" },
-    tone: `Antoine parle de développement et d'IA (outils, automatisation, retours d'expérience).
-Ton direct, concret, à la première personne, sans jargon inutile.
-Sur LinkedIn : une accroche forte en première ligne, des paragraphes courts, une question ou un appel à l'action à la fin.`,
+    hint: "Nuit et gris clair, violet, Space Grotesk",
+    // As on antoinequarroz.ch and his Instagram: night and light grey fields, violet marks, grain.
+    look: {
+      theme: "custom",
+      accent: "#8b5cf6",
+      font: "space",
+      fields: [
+        { bg: "#0b0a14", ink: "#f3f4f6" },
+        { bg: "#f4f4f7", ink: "#111827" },
+      ],
+      grid: false,
+      pill: true,
+      align: "left",
+      valign: "middle",
+      grain: true,
+      numbers: true,
+      handle: "",
+    },
+    tone: `Antoine Quarroz, développeur web et mobile freelance en Valais : sites, apps, CMS, IA et automatisation.
+Première personne, vouvoiement du lecteur, phrases simples, concrètes et chaleureuses. Partir d'un problème réel ou d'une décision, expliquer l'idée et le résultat, finir par une question quand ça s'y prête.
+Jamais d'expérience, de client, de chiffre ou de gain inventé. Ni ton d'agence, ni jargon, ni superlatifs, ni rafale de hashtags.`,
   },
   {
     id: "livrematch",
@@ -197,7 +213,7 @@ export function cleanLook(raw: unknown, base: Look): Look | string {
   return {
     theme,
     accent: typeof r.accent === "string" && /^#[0-9a-f]{6}$/i.test(r.accent) ? r.accent.toLowerCase() : base.accent,
-    font: pick(r.font, ["serif", "sans", "grotesque"] as const, base.font),
+    font: pick(r.font, ["serif", "sans", "grotesque", "space"] as const, base.font),
     fields: theme === "custom" && !fields.length ? [DEFAULT_FIELD] : fields,
     grid: typeof r.grid === "boolean" ? r.grid : !!base.grid,
     pill: typeof r.pill === "boolean" ? r.pill : !!base.pill,
