@@ -4,15 +4,20 @@ import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui";
 
-/** `lamio`: the suite's messaging app can vouch for the person (see src/server/lamio.ts). */
-export function LoginForm({ lamio }: { lamio: boolean }) {
+const card = "rise w-full max-w-[360px] rounded-2xl border border-line bg-surface/80 p-7 shadow-card backdrop-blur-xl";
+const link = "mt-4 w-full text-center text-[12.5px] text-ink-3 underline-offset-2 hover:text-ink hover:underline";
+
+/** `compte`: the Compte Postmelo is plugged in (see src/server/compte.ts). It is the way in, the password stays as a spare key. */
+export function LoginForm({ compte }: { compte: boolean }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [spare, setSpare] = useState(false);
 
-  // Back from Lamio without a way in: not signed in there, not allowed, or the link expired.
+  // Back from the Compte Postmelo without a way in: refused, unreachable, or the sign-in expired.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("lamio") === "refus") setError("Lamio n'a pas ouvert l'accès. Réessayez, ou entrez le mot de passe.");
+    const message = new URLSearchParams(window.location.search).get("erreur");
+    if (message) setError(message);
   }, []);
 
   const submit = async (e: React.FormEvent) => {
@@ -28,9 +33,27 @@ export function LoginForm({ lamio }: { lamio: boolean }) {
     }
   };
 
+  if (compte && !spare)
+    return (
+      <div className="flex min-h-dvh items-center justify-center p-4">
+        <div className={card}>
+          <Logo className="size-9" />
+          <h1 className="mt-5 font-display text-[30px] leading-none">Metricove</h1>
+          <p className="mt-2 text-[13px] text-ink-3">Connectez-vous avec votre Compte Postmelo, le même pour tous vos outils.</p>
+          {error && <p className="mt-4 text-[12.5px] text-danger">{error}</p>}
+          <a href="/api/auth/compte/start" className="press mt-6 flex h-9 w-full select-none items-center justify-center rounded-lg bg-accent text-[13.5px] font-medium text-accent-ink shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_1px_2px_rgba(0,0,0,0.12),0_6px_16px_-6px_var(--accent)] outline-none hover:brightness-[1.06] focus-visible:ring-2 focus-visible:ring-accent/50">
+            Continuer avec mon Compte Postmelo
+          </a>
+          <button type="button" onClick={() => (setSpare(true), setError(""))} className={link}>
+            Utiliser le mot de passe de Metricove
+          </button>
+        </div>
+      </div>
+    );
+
   return (
     <div className="flex min-h-dvh items-center justify-center p-4">
-      <form onSubmit={submit} className="rise w-full max-w-[360px] rounded-2xl border border-line bg-surface/80 p-7 shadow-card backdrop-blur-xl">
+      <form onSubmit={submit} className={card}>
         <Logo className="size-9" />
         <h1 className="mt-5 font-display text-[30px] leading-none">Metricove</h1>
         <p className="mt-2 text-[13px] text-ink-3">Entrez votre mot de passe pour accéder au calendrier.</p>
@@ -47,17 +70,10 @@ export function LoginForm({ lamio }: { lamio: boolean }) {
         <Button variant="primary" className="mt-4 w-full" disabled={busy || !password}>
           {busy ? "Connexion…" : "Se connecter"}
         </Button>
-        {lamio && (
-          <>
-            <div className="my-4 flex items-center gap-3 text-[12px] text-ink-3">
-              <span className="h-px flex-1 bg-line" />
-              ou
-              <span className="h-px flex-1 bg-line" />
-            </div>
-            <a href="/api/auth/lamio/start" className="press flex h-9 w-full items-center justify-center rounded-lg border border-line-strong bg-surface text-[13.5px] font-medium text-ink hover:bg-surface-2">
-              Se connecter avec Lamio
-            </a>
-          </>
+        {compte && (
+          <button type="button" onClick={() => (setSpare(false), setError(""))} className={link}>
+            Revenir au Compte Postmelo
+          </button>
         )}
       </form>
     </div>
