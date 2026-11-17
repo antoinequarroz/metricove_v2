@@ -2,7 +2,7 @@
 
 À la fin de ce guide, tu auras :
 
-- **https://metricove.antoinequarroz.ch** : le calendrier, protégé par un mot de passe ;
+- **https://metricove.postmelo.ch** : le calendrier, protégé par un mot de passe ;
 - **https://postiz.antoinequarroz.ch** : Postiz, qui publie sur tes réseaux.
 
 Il faut compter environ 45 minutes, dont la plus grande partie pour créer les applications développeur des réseaux sociaux (étape 2).
@@ -27,7 +27,7 @@ Chez ton registraire, crée deux enregistrements **A** qui pointent vers l'IP du
 | `metricove` | A | IP du VPS |
 | `postiz` | A | IP du VPS |
 
-Pour vérifier : `dig +short metricove.antoinequarroz.ch` doit renvoyer l'IP.
+Pour vérifier : `dig +short metricove.postmelo.ch` doit renvoyer l'IP.
 
 ## 2. Installer Postiz et connecter les réseaux
 
@@ -66,7 +66,7 @@ Caddy obtient les certificats HTTPS tout seul, en moins d'une minute.
 
 ## 4. Vérifier que tout marche
 
-1. Ouvre https://metricove.antoinequarroz.ch et connecte-toi.
+1. Ouvre https://metricove.postmelo.ch et connecte-toi.
 2. Va dans **Comptes**, puis clique sur **Synchroniser** : tes comptes Postiz apparaissent.
 3. Crée un post de test sur X, puis clique sur **Publier maintenant**.
 4. Au bout de quelques secondes, le post passe en « Publié ». S'il passe en « Échec », ouvre-le pour lire le message d'erreur.
@@ -116,7 +116,7 @@ Exemple nginx (avec certbot pour HTTPS) :
 
 ```nginx
 server {
-  server_name metricove.antoinequarroz.ch;
+  server_name metricove.postmelo.ch;
   client_max_body_size 500m;
   location / {
     proxy_pass http://127.0.0.1:3000;
@@ -138,4 +138,4 @@ server {
 }
 ```
 
-Puis : `sudo certbot --nginx -d metricove.antoinequarroz.ch -d postiz.antoinequarroz.ch`.
+Puis : `sudo certbot --nginx -d metricove.postmelo.ch -d postiz.antoinequarroz.ch`.

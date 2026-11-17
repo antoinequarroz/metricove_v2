@@ -9,7 +9,7 @@ Les photos marchent comme les vidéos : envoie un `.jpg` (ou un `.png`) à la pl
 C'est la meilleure option quand Claude Code tourne sur ton Mac :
 
 ```bash
-curl -X POST https://metricove.antoinequarroz.ch/api/media \
+curl -X POST https://metricove.postmelo.ch/api/media \
   -H "Authorization: Bearer $METRICOVE_TOKEN" \
   -F "file=@out/teaser.mp4" \
   -F 'post={

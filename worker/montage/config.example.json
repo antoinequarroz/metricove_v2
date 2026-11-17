@@ -1,5 +1,5 @@
 {
-  "metricoveUrl": "https://metricove.antoinequarroz.ch",
+  "metricoveUrl": "https://metricove.postmelo.ch",
   "apiTokenFile": "~/metricove-secrets.txt",
   "rushesDir": "~/Movies/Rushes",
   "workDir": "~/Movies/Metricove/travail",
