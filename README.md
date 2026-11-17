@@ -19,7 +19,7 @@ Copier `.env.example` en `.env.local` et remplir :
 | --- | --- |
 | `APP_PASSWORD` | Mot de passe de l'app. **Obligatoire en ligne**, sinon tout le monde y a accès. Il se change ensuite dans **Réglages** : le nouveau est gardé (haché) dans `data/auth.json` et passe devant `APP_PASSWORD`. Mot de passe oublié : supprime ce fichier, `APP_PASSWORD` revient. |
 | `API_TOKEN` | Jeton pour Hermes et Claude Code (`Authorization: Bearer …` sur `/api`). |
-| `LAMIO_URL`, `LAMIO_SSO_SECRET` | Facultatif. Ajoute « Se connecter avec Lamio » : on entre avec son compte [Lamio](https://github.com/antoinequarroz/lamio), qui décide qui a accès (ses administrateurs, et les membres cochés dans Modules > Accès). Le secret est le même que `METRICOVE_SSO_SECRET` côté Lamio, 32 caractères au moins. Le mot de passe continue de marcher. |
+| `COMPTE_URL`, `COMPTE_CLIENT_SECRET` | Facultatif. Ajoute « Continuer avec mon Compte Postmelo » : on entre avec son [Compte Postmelo](https://github.com/antoinequarroz/postmelo-compte), le même pour tous les outils, et c'est lui qui décide qui a accès. `COMPTE_URL` est l'adresse du service (`https://compte.postmelo.ch`), le secret est le même que `METRICOVE_CLIENT_SECRET` côté compte, 32 caractères au moins. L'adresse de retour se déduit de `PUBLIC_URL`. Le mot de passe continue de marcher en secours. |
 | `PUBLISHER` | `demo` (rien n'est envoyé) ou `postiz`. |
 | `POSTIZ_URL` | API publique de Postiz, par ex. `https://postiz.antoinequarroz.ch/api/public/v1`. |
 | `POSTIZ_API_KEY` | Clé API de Postiz (Réglages → API). |

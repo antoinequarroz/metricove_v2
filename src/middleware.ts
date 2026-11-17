@@ -32,5 +32,5 @@ export async function middleware(req: NextRequest) {
 export const config = {
   // Node runtime: the password changed in Réglages is read from a file in DATA_DIR.
   runtime: "nodejs",
-  matcher: ["/((?!login|api/auth/login|api/auth/lamio|_next/static|_next/image|brand/|favicon.ico|apple-icon|manifest.webmanifest).*)"],
+  matcher: ["/((?!login|api/auth/login|api/auth/compte|_next/static|_next/image|brand/|favicon.ico|apple-icon|manifest.webmanifest).*)"],
 };
