@@ -70,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col p-2 pl-0 max-md:p-0">
         <MobileBar />
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-surface/70 shadow-card backdrop-blur-xl max-md:rounded-none max-md:border-0">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card max-md:rounded-none max-md:border-0">
           {error && !useStore.getState().loaded ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
               <p className="text-[15px] font-medium">Impossible de charger les données</p>
@@ -125,9 +125,7 @@ function Sidebar() {
         <span className="ml-auto rounded-md border border-line px-1.5 py-px font-mono text-[10px] text-ink-3">v2</span>
       </div>
 
-      <ProjectSwitcher />
-
-      <div className="mb-2 flex gap-1.5">
+      <div className="mb-3 flex gap-1.5">
         <button
           onClick={() => openComposer()}
           className="press flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent text-[13px] font-medium text-accent-ink shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_6px_16px_-6px_var(--accent)] hover:brightness-[1.06]"
@@ -170,10 +168,11 @@ function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-5 flex items-center justify-between px-2 pb-1.5">
+      <div className="mt-5 flex items-center justify-between px-2 pb-1">
         <span className="text-[11px] font-medium tracking-wide text-ink-3 uppercase">Comptes</span>
-        <span className="text-[11px] text-ink-3">{accounts.length - hidden.length}/{accounts.length}</span>
+        <span className="tabular text-[11px] text-ink-3">{accounts.length - hidden.length}/{accounts.length}</span>
       </div>
+      <ProjectSwitcher />
       <div className="scroll-thin -mx-1 flex min-h-0 flex-col gap-px overflow-y-auto px-1">
         {groups.map((g) => (
           <div key={g.key} className={cn("flex flex-col gap-px", g.project !== undefined && "mb-2")}>
@@ -198,19 +197,19 @@ function Sidebar() {
                   title={off ? "Afficher dans le calendrier" : "Masquer du calendrier"}
                   className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-ink/[0.04]"
                 >
-                  <Avatar account={a} size={26} dim={off} />
+                  <Avatar account={a} size={24} dim={off} />
                   <span className={cn("min-w-0 flex-1 transition-opacity duration-150", off && "opacity-45")}>
                     <span className="block truncate text-[13px] leading-tight">{a.name}</span>
                     <span className="block truncate text-[11.5px] leading-tight text-ink-3">@{a.handle}</span>
                   </span>
                   <span
                     className={cn(
-                      "flex size-4 items-center justify-center rounded-[5px] border transition-colors duration-150",
+                      "flex size-3.5 items-center justify-center rounded-[4px] border transition-colors duration-150",
                       off ? "border-line-strong" : "border-accent bg-accent text-white",
                     )}
                   >
                     {!off && (
-                      <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2.2">
+                      <svg viewBox="0 0 12 12" className="size-2" fill="none" stroke="currentColor" strokeWidth="2.2">
                         <path d="M2.5 6.2 5 8.5l4.5-5" />
                       </svg>
                     )}
@@ -222,17 +221,63 @@ function Sidebar() {
         ))}
       </div>
 
-      <div className="mt-auto flex flex-col gap-1.5 rounded-xl border border-line bg-surface/60 p-2.5">
-        <Integration name={publisher.name === "demo" ? "Publication" : publisher.label} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
-        <Integration name="Hermes · treg" detail={integrations.hermes ? "antoine-vps" : "À configurer"} ok={integrations.hermes} />
-        <Integration name="Claude Code" detail={integrations.inbox ? "Dossier surveillé" : "Envoi par API"} ok />
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
+      <div className="mt-auto flex flex-col gap-2 pt-3">
+        <ThemeSwitch />
+        <div className="flex flex-col gap-1.5 px-1.5 pt-1">
+          <Integration name={publisher.name === "demo" ? "Publication" : publisher.label} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
+          <Integration name="Hermes · treg" detail={integrations.hermes ? "antoine-vps" : "À configurer"} ok={integrations.hermes} />
+          <Integration name="Claude Code" detail={integrations.inbox ? "Dossier surveillé" : "Envoi par API"} ok />
+        </div>
+        <div className="flex items-center gap-1.5 px-1.5 text-[11px] text-ink-3">
           <Kbd>⌘</Kbd>
           <Kbd>K</Kbd>
           <span>pour tout trouver</span>
         </div>
       </div>
     </aside>
+  );
+}
+
+type Theme = "light" | "dark" | "auto";
+const THEMES: { value: Theme; label: string }[] = [
+  { value: "light", label: "Clair" },
+  { value: "dark", label: "Sombre" },
+  { value: "auto", label: "Auto" },
+];
+
+/** Clair / Sombre / Auto, as in Alfred. Remembered on this device. */
+function ThemeSwitch() {
+  const [theme, setTheme] = useState<Theme>("auto");
+  useEffect(() => {
+    const t = document.documentElement.dataset.theme;
+    if (t === "light" || t === "dark") setTheme(t);
+  }, []);
+  const pick = (t: Theme) => {
+    setTheme(t);
+    if (t === "auto") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
+    try {
+      if (t === "auto") localStorage.removeItem("metricove-theme");
+      else localStorage.setItem("metricove-theme", t);
+    } catch {}
+  };
+  return (
+    <div role="radiogroup" aria-label="Thème" className="flex rounded-lg border border-line bg-ink/[0.035] p-0.5">
+      {THEMES.map(({ value, label }) => (
+        <button
+          key={value}
+          role="radio"
+          aria-checked={theme === value}
+          onClick={() => pick(value)}
+          className={cn(
+            "h-7 flex-1 rounded-md text-[12.5px] transition-[background-color,color,box-shadow] duration-150",
+            theme === value ? "bg-surface font-medium text-ink shadow-card" : "text-ink-3 hover:text-ink",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 

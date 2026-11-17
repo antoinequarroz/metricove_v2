@@ -72,10 +72,10 @@ export function StudioTabs() {
 
 export function PageHeader({ kicker, title, children }: { kicker: string; title: string; children?: React.ReactNode }) {
   return (
-    <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 pt-5 pb-4 max-md:px-4">
+    <header className="flex flex-wrap items-center gap-4 border-b border-line px-6 py-4 max-md:px-4">
       <div>
-        <p className="text-[12px] font-medium text-ink-3">{kicker}</p>
-        <h1 className="font-display text-[34px] leading-[1.05]">{title}</h1>
+        <h1 className="text-[24px] font-semibold leading-[1.15] tracking-[-0.025em]">{title}</h1>
+        <p className="mt-0.5 text-[13px] text-ink-3">{kicker}</p>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>
     </header>
