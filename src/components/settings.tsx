@@ -57,10 +57,10 @@ export function SettingsPage() {
 
   return (
     <>
-      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 pt-5 pb-4 max-md:px-4">
+      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 py-5 max-md:px-4">
         <div>
-          <p className="text-[12px] font-medium text-ink-3">Metricove</p>
-          <h1 className="font-display text-[34px] leading-[1.05]">Réglages</h1>
+          <h1 className="font-display text-[30px] leading-none">Réglages</h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">Metricove</p>
         </div>
       </header>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
@@ -93,7 +93,7 @@ function Section({ title, hint, children, delay = 0 }: { title: string; hint?: R
   return (
     <section className="rise" style={{ animationDelay: `${delay}ms` }}>
       <h2 className="text-[15px] font-semibold">{title}</h2>
-      {hint && <p className="mt-0.5 text-[13px] text-ink-3">{hint}</p>}
+      {hint && <p className="mt-1.5 text-[13px] text-ink-3">{hint}</p>}
       <div className="mt-3 overflow-hidden rounded-xl border border-line bg-surface shadow-card">{children}</div>
     </section>
   );

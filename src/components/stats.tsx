@@ -135,12 +135,12 @@ export function StatsPage() {
 
   return (
     <>
-      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 pt-5 pb-4 max-md:px-4">
+      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 py-5 max-md:px-4">
         <div>
-          <p className="text-[12px] font-medium text-ink-3">
+          <h1 className="font-display text-[30px] leading-none">Statistiques</h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">
             {view.updatedAt ? `Mis à jour ${formatDistanceToNow(view.updatedAt, { locale: fr, addSuffix: true })}` : "Comptes et posts"}
           </p>
-          <h1 className="font-display text-[34px] leading-[1.05]">Statistiques</h1>
         </div>
         <div className="ml-auto">
           <Button onClick={() => refresh()} disabled={refreshing || !data?.available} title="Relit chaque réseau. X coûte quelques centimes par lecture.">
