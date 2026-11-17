@@ -69,13 +69,13 @@ function CalendarHeader() {
   ];
 
   return (
-    <header className="border-b border-line px-6 py-4 max-md:px-4">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <header className="border-b border-line px-6 py-5 max-md:px-4">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <div className="min-w-0">
-          <h1 className="text-[24px] font-semibold leading-[1.15] tracking-[-0.025em] first-letter:uppercase">
-            {title.slice(0, -5)} <span className="font-normal text-ink-3">{title.slice(-4)}</span>
+          <h1 className="font-display text-[30px] leading-none first-letter:uppercase">
+            {title.slice(0, -5)} <span className="text-ink-3">{title.slice(-4)}</span>
           </h1>
-          <p className="mt-0.5 text-[13px] text-ink-3">Calendrier éditorial</p>
+          <p className="mt-1.5 text-[13px] text-ink-3">Calendrier éditorial</p>
         </div>
 
         <div className="flex items-center gap-1.5">

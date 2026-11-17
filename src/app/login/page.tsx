@@ -26,7 +26,7 @@ export default function LoginPage() {
     <div className="flex min-h-dvh items-center justify-center p-4">
       <form onSubmit={submit} className="rise w-full max-w-[360px] rounded-2xl border border-line bg-surface/80 p-7 shadow-card backdrop-blur-xl">
         <Logo className="size-9" />
-        <h1 className="mt-5 text-[26px] font-semibold leading-none tracking-[-0.03em]">Metricove</h1>
+        <h1 className="mt-5 font-display text-[30px] leading-none">Metricove</h1>
         <p className="mt-2 text-[13px] text-ink-3">Entrez votre mot de passe pour accéder au calendrier.</p>
         <input
           type="password"

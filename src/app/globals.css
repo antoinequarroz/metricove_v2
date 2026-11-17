@@ -2,34 +2,31 @@
 
 /* Design tokens. Light is the default, dark follows the system. */
 :root {
-  --bg: #f3eee8;
-  --bg-2: #e8e3db;
-  --surface: #fffefc;
-  --surface-2: #f6f3ee;
-  --line: rgba(23, 22, 20, 0.08);
-  --line-strong: rgba(23, 22, 20, 0.15);
-  --ink: #171614;
-  --ink-2: #55524c;
-  --ink-3: #8a867e;
+  --bg: #efede8;
+  --bg-2: #e7e4dd;
+  --surface: #fbfaf8;
+  --surface-2: #f4f2ee;
+  --line: rgba(23, 22, 20, 0.09);
+  --line-strong: rgba(23, 22, 20, 0.16);
+  --ink: #181715;
+  --ink-2: #57544e;
+  --ink-3: #8c8880;
   --accent: #ff5a1f;
   --accent-ink: #ffffff;
   --accent-soft: rgba(255, 90, 31, 0.12);
   --ok: #1f9d55;
   --warn: #c98a04;
   --danger: #dc3a2f;
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 1px 2px rgba(20, 18, 14, 0.05), 0 10px 30px -14px rgba(20, 18, 14, 0.16);
-  --grain-opacity: 0.1;
-  --glow: rgba(255, 112, 50, 0.22);
-  --glow-2: rgba(255, 170, 110, 0.2);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 1px 2px rgba(20, 18, 14, 0.06), 0 8px 24px -12px rgba(20, 18, 14, 0.18);
+  --grain-opacity: 0.11;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   color-scheme: light;
 }
 
-/* Dark tokens: chosen in the sidebar (Sombre), or following the system (Auto). */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root {
     --bg: #0f0f0e;
     --bg-2: #151513;
     --surface: #1a1a18;
@@ -42,27 +39,8 @@
     --accent-soft: rgba(255, 90, 31, 0.16);
     --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
     --grain-opacity: 0.07;
-    --glow: rgba(255, 90, 31, 0.1);
-    --glow-2: rgba(255, 150, 80, 0.05);
     color-scheme: dark;
   }
-}
-:root[data-theme="dark"] {
-  --bg: #0f0f0e;
-  --bg-2: #151513;
-  --surface: #1a1a18;
-  --surface-2: #222220;
-  --line: rgba(255, 252, 245, 0.07);
-  --line-strong: rgba(255, 252, 245, 0.14);
-  --ink: #f3f1ec;
-  --ink-2: #b2aea6;
-  --ink-3: #75726b;
-  --accent-soft: rgba(255, 90, 31, 0.16);
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px -12px rgba(0, 0, 0, 0.6);
-  --grain-opacity: 0.07;
-  --glow: rgba(255, 90, 31, 0.1);
-  --glow-2: rgba(255, 150, 80, 0.05);
-  color-scheme: dark;
 }
 
 @theme inline {
@@ -81,7 +59,7 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
-  --font-sans: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --font-display: var(--font-display-serif), Georgia, serif;
   --shadow-card: var(--shadow);
@@ -94,8 +72,7 @@ body {
 }
 
 body {
-  font-feature-settings: "cv11", "ss01", "ss03";
-  letter-spacing: -0.005em;
+  font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
 }
 
@@ -112,17 +89,13 @@ body::after {
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) body::after {
+  body::after {
     mix-blend-mode: screen;
     filter: invert(1);
   }
 }
-:root[data-theme="dark"] body::after {
-  mix-blend-mode: screen;
-  filter: invert(1);
-}
 
-/* Warm tint behind the app (like Alfred's, in Metricove's orange) so the grain has something to sit on. */
+/* Soft warm glow behind the app so the grain has something to sit on. */
 body::before {
   content: "";
   position: fixed;
@@ -130,8 +103,8 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(70rem 45rem at 90% -15%, var(--glow), transparent 60%),
-    radial-gradient(40rem 60rem at -12% 85%, var(--glow-2), transparent 65%);
+    radial-gradient(60rem 40rem at 85% -10%, var(--accent-soft), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 110%, rgba(120, 110, 255, 0.07), transparent 60%);
 }
 
 ::selection {

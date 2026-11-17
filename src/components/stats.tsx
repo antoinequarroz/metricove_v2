@@ -135,10 +135,10 @@ export function StatsPage() {
 
   return (
     <>
-      <header className="flex flex-wrap items-center gap-4 border-b border-line px-6 py-4 max-md:px-4">
+      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 py-5 max-md:px-4">
         <div>
-          <h1 className="text-[24px] font-semibold leading-[1.15] tracking-[-0.025em]">Statistiques</h1>
-          <p className="mt-0.5 text-[13px] text-ink-3">
+          <h1 className="font-display text-[30px] leading-none">Statistiques</h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">
             {view.updatedAt ? `Mis à jour ${formatDistanceToNow(view.updatedAt, { locale: fr, addSuffix: true })}` : "Comptes et posts"}
           </p>
         </div>
@@ -294,7 +294,7 @@ function Tile({ label, value, hint, delta, i }: { label: string; value?: number;
         {label}
         <Delta value={delta} />
       </div>
-      <div className="tabular mt-1 text-[28px] font-semibold leading-none tracking-[-0.03em]">{show(value)}</div>
+      <div className="tabular mt-1 font-display text-[30px] leading-none">{show(value)}</div>
       <div className="mt-1.5 truncate text-[11.5px] text-ink-3">{hint}</div>
     </div>
   );

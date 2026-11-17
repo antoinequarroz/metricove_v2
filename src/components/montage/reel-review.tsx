@@ -322,7 +322,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
         </Link>
         <div className="min-w-0">
           <p className="text-[12px] font-medium text-ink-3">Reel animé · montage</p>
-          <h1 className="truncate text-[22px] font-semibold leading-[1.15] tracking-[-0.025em]">{job.title.replace(/^Reel animé : /, "")}</h1>
+          <h1 className="truncate font-display text-[24px] leading-[1.1]">{job.title.replace(/^Reel animé : /, "")}</h1>
         </div>
         <JobStatus job={job} />
         <div className="ml-auto flex flex-wrap items-center gap-2">

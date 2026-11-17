@@ -55,10 +55,10 @@ export function VideosPage() {
 
   return (
     <>
-      <header className="flex flex-wrap items-center gap-4 border-b border-line px-6 py-4 max-md:px-4">
+      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 py-5 max-md:px-4">
         <div>
-          <h1 className="text-[24px] font-semibold leading-[1.15] tracking-[-0.025em]">Médias</h1>
-          <p className="mt-0.5 text-[13px] text-ink-3">Bibliothèque</p>
+          <h1 className="font-display text-[30px] leading-none">Médias</h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">Bibliothèque</p>
         </div>
         <VideoTabs />
         <div className="ml-auto flex items-center gap-2">

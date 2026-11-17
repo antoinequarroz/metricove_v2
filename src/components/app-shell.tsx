@@ -70,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col p-2 pl-0 max-md:p-0">
         <MobileBar />
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card max-md:rounded-none max-md:border-0">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-surface/70 shadow-card backdrop-blur-xl max-md:rounded-none max-md:border-0">
           {error && !useStore.getState().loaded ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
               <p className="text-[15px] font-medium">Impossible de charger les données</p>
@@ -221,63 +221,17 @@ function Sidebar() {
         ))}
       </div>
 
-      <div className="mt-auto flex flex-col gap-2 pt-3">
-        <ThemeSwitch />
-        <div className="flex flex-col gap-1.5 px-1.5 pt-1">
-          <Integration name={publisher.name === "demo" ? "Publication" : publisher.label} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
-          <Integration name="Hermes · treg" detail={integrations.hermes ? "antoine-vps" : "À configurer"} ok={integrations.hermes} />
-          <Integration name="Claude Code" detail={integrations.inbox ? "Dossier surveillé" : "Envoi par API"} ok />
-        </div>
-        <div className="flex items-center gap-1.5 px-1.5 text-[11px] text-ink-3">
+      <div className="mt-auto flex flex-col gap-1.5 rounded-xl border border-line bg-surface/60 p-2.5">
+        <Integration name={publisher.name === "demo" ? "Publication" : publisher.label} detail={publisher.ready ? (publisher.detail ?? "") : "À configurer"} ok={publisher.ready} warn={publisher.name === "demo"} />
+        <Integration name="Hermes · treg" detail={integrations.hermes ? "antoine-vps" : "À configurer"} ok={integrations.hermes} />
+        <Integration name="Claude Code" detail={integrations.inbox ? "Dossier surveillé" : "Envoi par API"} ok />
+        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-3">
           <Kbd>⌘</Kbd>
           <Kbd>K</Kbd>
           <span>pour tout trouver</span>
         </div>
       </div>
     </aside>
-  );
-}
-
-type Theme = "light" | "dark" | "auto";
-const THEMES: { value: Theme; label: string }[] = [
-  { value: "light", label: "Clair" },
-  { value: "dark", label: "Sombre" },
-  { value: "auto", label: "Auto" },
-];
-
-/** Clair / Sombre / Auto, as in Alfred. Remembered on this device. */
-function ThemeSwitch() {
-  const [theme, setTheme] = useState<Theme>("auto");
-  useEffect(() => {
-    const t = document.documentElement.dataset.theme;
-    if (t === "light" || t === "dark") setTheme(t);
-  }, []);
-  const pick = (t: Theme) => {
-    setTheme(t);
-    if (t === "auto") delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = t;
-    try {
-      if (t === "auto") localStorage.removeItem("metricove-theme");
-      else localStorage.setItem("metricove-theme", t);
-    } catch {}
-  };
-  return (
-    <div role="radiogroup" aria-label="Thème" className="flex rounded-lg border border-line bg-ink/[0.035] p-0.5">
-      {THEMES.map(({ value, label }) => (
-        <button
-          key={value}
-          role="radio"
-          aria-checked={theme === value}
-          onClick={() => pick(value)}
-          className={cn(
-            "h-7 flex-1 rounded-md text-[12.5px] transition-[background-color,color,box-shadow] duration-150",
-            theme === value ? "bg-surface font-medium text-ink shadow-card" : "text-ink-3 hover:text-ink",
-          )}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
   );
 }
 
