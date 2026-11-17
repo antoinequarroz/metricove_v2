@@ -29,7 +29,7 @@ Dans le `.env` de Metricove :
 
 ```env
 PUBLISHER=treg
-PUBLIC_URL=https://social.antoinequarroz.ch
+PUBLIC_URL=https://metricove.antoinequarroz.ch
 TREG_TOKENS=perso:<jeton>,ig2:<jeton>,ig3:<jeton>
 ```
 
