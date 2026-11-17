@@ -56,7 +56,7 @@ export function ProjectSwitcher() {
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger className="press mb-2 flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface/70 px-2.5 py-2 text-left shadow-card hover:bg-surface">
+      <Popover.Trigger className="press mb-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-ink/[0.04] data-[popup-open]:bg-ink/[0.04]">
         <ProjectMark project={current} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium">{current?.name ?? "Tous les projets"}</span>

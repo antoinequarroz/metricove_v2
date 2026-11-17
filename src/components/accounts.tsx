@@ -54,10 +54,10 @@ export function AccountsPage() {
 
   return (
     <>
-      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 pt-5 pb-4 max-md:px-4">
+      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 py-5 max-md:px-4">
         <div>
-          <p className="text-[12px] font-medium text-ink-3">Réseaux sociaux</p>
-          <h1 className="font-display text-[34px] leading-[1.05]">Comptes</h1>
+          <h1 className="font-display text-[30px] leading-none">Comptes</h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">Réseaux sociaux</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           {isPostiz && (

@@ -125,9 +125,7 @@ function Sidebar() {
         <span className="ml-auto rounded-md border border-line px-1.5 py-px font-mono text-[10px] text-ink-3">v2</span>
       </div>
 
-      <ProjectSwitcher />
-
-      <div className="mb-2 flex gap-1.5">
+      <div className="mb-3 flex gap-1.5">
         <button
           onClick={() => openComposer()}
           className="press flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent text-[13px] font-medium text-accent-ink shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_6px_16px_-6px_var(--accent)] hover:brightness-[1.06]"
@@ -170,10 +168,11 @@ function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-5 flex items-center justify-between px-2 pb-1.5">
+      <div className="mt-5 flex items-center justify-between px-2 pb-1">
         <span className="text-[11px] font-medium tracking-wide text-ink-3 uppercase">Comptes</span>
-        <span className="text-[11px] text-ink-3">{accounts.length - hidden.length}/{accounts.length}</span>
+        <span className="tabular text-[11px] text-ink-3">{accounts.length - hidden.length}/{accounts.length}</span>
       </div>
+      <ProjectSwitcher />
       <div className="scroll-thin -mx-1 flex min-h-0 flex-col gap-px overflow-y-auto px-1">
         {groups.map((g) => (
           <div key={g.key} className={cn("flex flex-col gap-px", g.project !== undefined && "mb-2")}>
@@ -198,19 +197,19 @@ function Sidebar() {
                   title={off ? "Afficher dans le calendrier" : "Masquer du calendrier"}
                   className="group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-ink/[0.04]"
                 >
-                  <Avatar account={a} size={26} dim={off} />
+                  <Avatar account={a} size={24} dim={off} />
                   <span className={cn("min-w-0 flex-1 transition-opacity duration-150", off && "opacity-45")}>
                     <span className="block truncate text-[13px] leading-tight">{a.name}</span>
                     <span className="block truncate text-[11.5px] leading-tight text-ink-3">@{a.handle}</span>
                   </span>
                   <span
                     className={cn(
-                      "flex size-4 items-center justify-center rounded-[5px] border transition-colors duration-150",
+                      "flex size-3.5 items-center justify-center rounded-[4px] border transition-colors duration-150",
                       off ? "border-line-strong" : "border-accent bg-accent text-white",
                     )}
                   >
                     {!off && (
-                      <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2.2">
+                      <svg viewBox="0 0 12 12" className="size-2" fill="none" stroke="currentColor" strokeWidth="2.2">
                         <path d="M2.5 6.2 5 8.5l4.5-5" />
                       </svg>
                     )}

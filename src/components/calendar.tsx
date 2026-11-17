@@ -69,11 +69,13 @@ function CalendarHeader() {
   ];
 
   return (
-    <header className="border-b border-line px-6 pt-5 pb-4 max-md:px-4">
+    <header className="border-b border-line px-6 py-5 max-md:px-4">
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <div className="min-w-0">
-          <p className="text-[12px] font-medium text-ink-3">Calendrier éditorial</p>
-          <h1 className="font-display text-[34px] leading-[1.05] tracking-[-0.01em] first-letter:uppercase">{title}</h1>
+          <h1 className="font-display text-[30px] leading-none first-letter:uppercase">
+            {title.slice(0, -5)} <span className="text-ink-3">{title.slice(-4)}</span>
+          </h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">Calendrier éditorial</p>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -90,7 +92,15 @@ function CalendarHeader() {
           </div>
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex gap-4 max-xl:hidden">
+            {stats.map((s) => (
+              <div key={s.label} className="flex items-baseline gap-1.5">
+                <span className={cn("tabular text-[16px] font-semibold tracking-tight", s.danger && s.value > 0 && "text-danger")}>{s.value}</span>
+                <span className="text-[12px] text-ink-3">{s.label}</span>
+              </div>
+            ))}
+          </div>
           <Segmented<CalendarView>
             value={view}
             onChange={setView}
@@ -103,7 +113,7 @@ function CalendarHeader() {
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+      <div className="mt-3.5 flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex flex-wrap items-center gap-1">
           <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>
             Tous les réseaux
@@ -113,14 +123,6 @@ function CalendarHeader() {
               <NetworkBadge network={n} size="xs" />
               {NETWORKS[n].label}
             </FilterChip>
-          ))}
-        </div>
-        <div className="ml-auto flex gap-5">
-          {stats.map((s) => (
-            <div key={s.label} className="flex items-baseline gap-1.5">
-              <span className={cn("tabular text-[17px] font-semibold tracking-tight", s.danger && s.value > 0 && "text-danger")}>{s.value}</span>
-              <span className="text-[12px] text-ink-3">{s.label}</span>
-            </div>
           ))}
         </div>
       </div>
@@ -243,7 +245,7 @@ function DayCell({ day, inMonth, posts, index }: { day: Date; inMonth: boolean; 
         index % 7 !== 6 && "border-r",
         "border-b",
         !inMonth && "bg-bg-2/40",
-        past && inMonth && "bg-[repeating-linear-gradient(135deg,transparent_0_6px,var(--line)_6px_7px)]",
+        past && inMonth && "bg-[repeating-linear-gradient(135deg,transparent_0_7px,color-mix(in_oklab,var(--line)_50%,transparent)_7px_8px)]",
         isOver && "bg-accent-soft",
       )}
     >
