@@ -4,6 +4,7 @@ import path from "node:path";
 import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_TEXTS, MUSIC_FADE, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
 import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db } from "./db";
+import { removeSources } from "./sources";
 
 /* ---------- Tables ---------- */
 
@@ -261,6 +262,9 @@ export function saveJob(job: MontageJob, claimed?: number | null) {
 }
 
 export function deleteJob(id: string) {
+  // The documents a reading request was made of go with it.
+  const job = getJob(id);
+  if (job?.brand && job.projectId) removeSources(job.projectId, job.brand.files.map((f) => f.id));
   init().prepare("delete from montage_jobs where id = ?").run(id);
   fs.rmSync(path.join(DATA_DIR, "montage", path.basename(id)), { recursive: true, force: true });
 }
