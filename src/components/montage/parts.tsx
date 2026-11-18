@@ -70,6 +70,23 @@ export function StudioTabs() {
   );
 }
 
+/**
+ * Header of every Médias page (Bibliothèque, Montage IA, Studio). The title and the subtitle are the same on all
+ * of them, so the three tabs right after them never move; the page's own buttons go to the right.
+ */
+export function MediaHeader({ children }: { children?: React.ReactNode }) {
+  return (
+    <header className="flex flex-wrap items-end gap-x-5 gap-y-3 border-b border-line px-6 py-5 max-md:px-4">
+      <div className="shrink-0">
+        <h1 className="font-display text-[30px] leading-none">Médias</h1>
+        <p className="mt-1.5 text-[13px] text-ink-3">Vidéos, photos et montages</p>
+      </div>
+      <VideoTabs />
+      {children && <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>}
+    </header>
+  );
+}
+
 export function PageHeader({ kicker, title, children }: { kicker: string; title: string; children?: React.ReactNode }) {
   return (
     <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 py-5 max-md:px-4">

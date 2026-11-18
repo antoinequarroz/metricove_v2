@@ -10,7 +10,7 @@ import { uploadInChunks } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
-import { fmtSec, PageHeader, StudioTabs, VideoTabs } from "./parts";
+import { fmtSec, MediaHeader, StudioTabs } from "./parts";
 import { useVoiceFollow } from "./use-voice-follow";
 import { montageApi, useMontage } from "./use-montage";
 
@@ -249,9 +249,7 @@ export function StudioPage() {
 
   return (
     <>
-      <PageHeader kicker="Vidéos" title="Studio">
-        <VideoTabs />
-      </PageHeader>
+      <MediaHeader />
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
         <div className="mx-auto mb-4 flex max-w-[1680px]">
           <StudioTabs />

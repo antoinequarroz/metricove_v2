@@ -32,7 +32,7 @@ import {
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
 import { Field, inputClass, LookControls, SlideCanvas, Toggle } from "./look-parts";
-import { PageHeader, Progress, StudioTabs, VideoTabs } from "./parts";
+import { MediaHeader, Progress, StudioTabs } from "./parts";
 import { montageApi, useMontage } from "./use-montage";
 
 /** Oldest Mac program that knows how to write a whole post, and the one that animates a reel. */
@@ -443,9 +443,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
 
   return (
     <>
-      <PageHeader kicker="Vidéos" title="Studio">
-        <VideoTabs />
-      </PageHeader>
+      <MediaHeader />
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
         <div className="mx-auto max-w-[1680px]">
           <div className="mb-4 flex flex-wrap items-center gap-3">
