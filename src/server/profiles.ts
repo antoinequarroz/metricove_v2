@@ -2,6 +2,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { cleanLook, cleanRefs, emptyRefs, MAX_REF_IMAGE_BYTES, MAX_REF_IMAGES, MAX_SKILL, MAX_TONE, PRESETS, presetFor, type ProfileRefs, sameLook, starterProfile, type StyleProfile } from "@/lib/profiles";
+import { MAX_STRATEGY } from "@/lib/strategy";
 import type { Project } from "@/lib/types";
 import { DATA_DIR, getSetting, listAccounts, listProjects, setSetting } from "./db";
 
@@ -29,6 +30,8 @@ export function profileOf(project: Project): StyleProfile {
     lookSet: typeof saved.lookSet === "boolean" ? saved.lookSet : !sameLook(kept, starter.look),
     tone: typeof saved.tone === "string" ? saved.tone : starter.tone,
     skill: typeof saved.skill === "string" ? saved.skill : "",
+    strategy: typeof saved.strategy === "string" ? saved.strategy : "",
+    ...(typeof saved.strategySource === "string" && saved.strategySource ? { strategySource: saved.strategySource } : {}),
     refs: storedRefs(saved.refs),
     saved: true,
   };
@@ -65,6 +68,12 @@ export function saveProfile(project: Project, raw: unknown): StyleProfile | stri
     look,
     tone: typeof r.tone === "string" ? r.tone.trim().slice(0, MAX_TONE) : current.tone,
     skill,
+    strategy: typeof r.strategy === "string" ? r.strategy.replace(/\r\n?/g, "\n").trim().slice(0, MAX_STRATEGY) : current.strategy,
+    ...(() => {
+      // The name of the document goes with the text: a strategy typed by hand has none.
+      const source = r.strategySource === undefined ? current.strategySource : typeof r.strategySource === "string" ? r.strategySource.replace(/[\0-\x1f]/g, "").trim().slice(0, 120) : "";
+      return source ? { strategySource: source } : {};
+    })(),
     refs: r.refs === undefined ? current.refs : cleanRefs(r.refs, current.refs),
     // Saving the tone or a skill alone does not make the starter look a choice.
     lookSet: !!current.lookSet || !sameLook(look, current.look),
@@ -166,7 +175,7 @@ export function themeOf(projectId: string | undefined): VideoTheme | undefined {
   };
 }
 
-export type Voice = { tone?: string; skill?: string; examples?: string[]; images?: string[] };
+export type Voice = { tone?: string; skill?: string; examples?: string[]; images?: string[]; strategy?: string };
 
 /** What Claude needs to write in the project's voice. Sent to the Mac with each writing request. */
 export function voiceOf(projectId: string | undefined): Voice | undefined {
@@ -176,6 +185,8 @@ export function voiceOf(projectId: string | undefined): Voice | undefined {
   const voice: Voice = {
     ...(p.tone.trim() ? { tone: p.tone.trim() } : {}),
     ...(p.skill ? { skill: p.skill } : {}),
+    // Old Mac programs ignore it; from worker 0.14.0 it guides posts, descriptions and scripts.
+    ...(p.strategy.trim() ? { strategy: p.strategy.trim() } : {}),
     ...(p.refs.examples.length ? { examples: p.refs.examples.map((e) => e.text) } : {}),
     // Addresses the Mac downloads with its token.
     ...(p.refs.images.length ? { images: p.refs.images.map((i) => `/api/profiles/${project.id}/images/${i.id}`) } : {}),

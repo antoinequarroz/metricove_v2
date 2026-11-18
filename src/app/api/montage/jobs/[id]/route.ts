@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ingestVideo } from "@/server/media";
 import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, restoreReel, saveJob, touchJob } from "@/server/montage";
 import fs from "node:fs";
+import { cleanCharteResult, cleanPlanResult, cleanStrategyResult } from "@/lib/strategy";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -37,6 +38,8 @@ type Body = {
   caption?: string;
   youtubeTitle?: string;
   post?: { caption?: unknown; slides?: unknown };
+  brand?: unknown;
+  plan?: unknown;
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -168,6 +171,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (!slides.length) return NextResponse.json({ error: "Post vide" }, { status: 400 });
     job.post.result = { caption, slides };
     return NextResponse.json({ job: release(job, "done") });
+  }
+  if (b.status === "done" && job.kind === "brand" && job.brand) {
+    const result = job.brand.mode === "charte" ? cleanCharteResult(b.brand) : cleanStrategyResult(b.brand);
+    if (typeof result === "string") return NextResponse.json({ error: result }, { status: 400 });
+    job.brand.result = result;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
+  }
+  if (b.status === "done" && job.kind === "plan" && job.plan) {
+    const result = cleanPlanResult(b.plan, job.plan);
+    if (typeof result === "string") return NextResponse.json({ error: result }, { status: 400 });
+    job.plan.result = result;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.step !== undefined || b.progress !== undefined) {
     if (typeof b.step === "string") job.step = b.step.slice(0, 200);

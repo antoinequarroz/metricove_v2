@@ -42,7 +42,7 @@ Le serveur refuse les corps de plus de 10 Mo. Tout fichier passe donc par morcea
 ```ts
 type Job = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan";
   title: string;
   projectId?: string;
   status: "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
@@ -322,3 +322,30 @@ Les deux écrans de montage (face caméra : `timeline.tsx` + `review-page.tsx` ;
 **« Claude, propose du B-roll ici » (worker 0.13.0)** — glisser sur la piste B-roll choisit un passage (un clic seul ajoute un plan de 2 s). `PATCH /api/montage/jobs/:id` `{ brollAsk: { range: [de, à], note? }, edl }` : l'EDL à l'écran devient une version « edit », `job.brollAsk` est gardé et l'action `broll` part au Mac. Le worker donne à Claude les mots dits dans le passage (temps de timeline) et les fichiers du dossier B-roll (`proposeBroll`), garde 1 à 3 plans entièrement dans le passage, remplace ceux qui y étaient, cherche les fichiers, rend l'aperçu et l'envoie avec `POST …/versions/:n/preview` `{ upload, broll, notes }`. Si Claude échoue, l'aperçu part quand même avec une note, sans changement dans le passage.
 
 **Autre prise (A-roll)** — dans l'inspecteur d'un plan, « Autre prise » liste les passages coupés qui disent la même chose (mots en commun, `otherTakes` dans `src/lib/montage.ts`). Le choix prend la place du plan dans l'ordre du montage, avec sa vitesse ; l'ancien plan passe dans les coupés (« autre prise »). Rien à faire côté Mac.
+
+## Stratégie digitale et charte graphique (worker 0.14.0)
+
+Deux tâches sans vidéo, demandées depuis la page **Stratégie** et **Réglages → Styles**.
+
+### `kind: "brand"` — lire une stratégie ou une charte
+
+1. La page envoie chaque document : `POST /api/profiles/:projectId/sources?name=<nom>` avec le fichier brut
+   (PDF, JPEG, PNG, WebP, texte, Markdown, CSS ou HTML ; 9 Mo au plus) → `{ source: { id, name, type } }`.
+2. `POST /api/montage/jobs` `{ kind: "brand", mode: "strategy" | "charte", projectId, sources, url?, text? }`.
+3. Le Mac télécharge les documents (`GET /api/profiles/:projectId/sources/:id`), lit le site lui-même s'il y en a un
+   (`lib/site.mjs` : variables CSS, couleurs, polices, logos possibles ; Claude n'a pas accès au web), puis Claude lit les fichiers avec Read.
+4. Le Mac répond `PATCH { status: "done", brand }` :
+   - stratégie : `{ strategy, ideas[], tone? }` ;
+   - charte : `{ look: { theme, accent, font, fields, grid, align, logo? }, colors[], fonts[], tone?, notes }` (logo en `data:` URL, récupéré par le worker).
+5. La page montre le résultat ; rien ne change dans le profil avant « Appliquer ». Supprimer la tâche supprime ses documents
+   (un document jamais utilisé est effacé après deux jours).
+
+La stratégie retenue est gardée dans le profil du projet (`strategy`, 12 000 caractères au plus) et part avec `job.voice.strategy`
+pour les posts, descriptions et textes de prompteur.
+
+### `kind: "plan"` — proposer du contenu
+
+`POST /api/montage/jobs` `{ kind: "plan", projectId, from: "AAAA-MM-JJ", days: 7 | 14 | 30, count: 1..15, formats[], focus? }`.
+Le serveur y joint la stratégie, les comptes du projet et les posts déjà prévus autour de la période (`plan.taken`).
+Le Mac répond `PATCH { status: "done", plan: { items: [{ date, time, format, pillar, idea, why, caption, networks }], notes } }`.
+La page met chaque proposition en brouillon au calendrier, l'ouvre dans le Studio (`?idee=…`) ou la garde dans les idées du projet.
