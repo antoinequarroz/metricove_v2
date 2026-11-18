@@ -11,7 +11,7 @@ import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import { appFonts, type Deck, type Fonts, loadFonts, newSlide } from "@/lib/visuals";
 import { Field, inputClass, LookControls, SlideCanvas } from "./montage/look-parts";
-import type { CharteResult } from "@/lib/strategy";
+import { CHARTE_ACCEPT, type CharteResult } from "@/lib/strategy";
 import { JobProgress, OldWorkerNote, SourcePicker, startReading, useProjectJob, workerTooOld } from "./brand-reading";
 import { Button } from "./ui";
 
@@ -441,7 +441,7 @@ function CharteImport({ project, draft, setDraft, fonts }: { project: Project; d
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2/40 p-3">
       <p className="text-[12.5px] text-ink-2">Dépose la charte (PDF, captures du brand book, fichier CSS) ou donne l&apos;adresse du site : Claude la lit sur ton Mac et propose le style. Rien ne change avant que tu l&apos;appliques.</p>
-      <SourcePicker files={files} setFiles={setFiles} url={url} setUrl={setUrl} text={text} setText={setText} accept=".pdf,.css,.md,.txt,image/png,image/jpeg,image/webp" hint="PDF, images, CSS ou texte · 4 fichiers, 9 Mo chacun" onError={(m) => toast.error(m)} />
+      <SourcePicker files={files} setFiles={setFiles} url={url} setUrl={setUrl} text={text} setText={setText} accept={CHARTE_ACCEPT} hint="PDF, images, PowerPoint, Word, CSS ou texte · 4 fichiers, 9 Mo chacun" onError={(m) => toast.error(m)} />
       {old && <OldWorkerNote />}
       <div className="flex items-center gap-2">
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>

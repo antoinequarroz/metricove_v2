@@ -11,7 +11,7 @@ import { montageApi, useMontage, type WorkerStatus } from "./montage/use-montage
 import { Button } from "./ui";
 
 /** First Mac program that reads strategies and chartes and plans content. */
-export const BRAND_WORKER = [0, 14, 0];
+export const BRAND_WORKER = [0, 14, 1];
 export const atLeast = (version: string | undefined, min: number[]) => {
   const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
   for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
@@ -177,7 +177,7 @@ export function JobProgress({ job, worker, onCancel }: { job: MontageJob; worker
 export function OldWorkerNote() {
   return (
     <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-[12.5px] text-ink-2">
-      Le programme du Mac doit d&apos;abord être mis à jour (version 0.14.0) : <code className="font-mono text-[11.5px]">git pull</code> puis redémarrer « montage » dans Portly.
+      Le programme du Mac doit d&apos;abord être mis à jour (version 0.14.1) : <code className="font-mono text-[11.5px]">git pull</code> puis redémarrer « montage » dans Portly.
     </p>
   );
 }

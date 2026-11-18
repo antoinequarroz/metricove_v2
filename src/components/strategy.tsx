@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import type { MontageJob } from "@/lib/montage";
 import { NetworkGlyph } from "@/lib/networks";
 import { MAX_IDEAS } from "@/lib/profiles";
-import { MAX_FOCUS, MAX_PLAN_ITEMS, MAX_STRATEGY, PLAN_DAYS, PLAN_FORMATS, type PlanFormat, type PlanItem, type StrategyResult } from "@/lib/strategy";
+import { MAX_FOCUS, MAX_PLAN_ITEMS, MAX_STRATEGY, PLAN_DAYS, PLAN_FORMATS, STRATEGY_ACCEPT, type PlanFormat, type PlanItem, type StrategyResult } from "@/lib/strategy";
 import { useStore } from "@/lib/store";
 import type { Network, Project } from "@/lib/types";
 import { useProfiles } from "@/lib/use-profiles";
@@ -178,8 +178,8 @@ function StrategyCard({ project, strategy, source, ideas, tone, save }: { projec
 
       {importing && !job && (
         <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2/40 p-3">
-          <p className="text-[12.5px] text-ink-2">Importe ton document de stratégie : Claude le lit sur ton Mac, le range par rubriques (objectifs, public, piliers, rythme…) et en tire des idées. Tu relis avant de l&apos;appliquer.</p>
-          <SourcePicker files={files} setFiles={setFiles} url={url} setUrl={setUrl} text={pasted} setText={setPasted} accept=".pdf,.md,.markdown,.txt,image/png,image/jpeg,image/webp" hint="PDF, Markdown, texte ou captures · 4 fichiers, 9 Mo chacun" withUrl={false} onError={(m) => toast.error(m)} />
+          <p className="text-[12.5px] text-ink-2">Importe ton document de stratégie (PDF, Word, PowerPoint, texte…) : Claude le lit sur ton Mac, le range par rubriques (objectifs, public, piliers, rythme…) et en tire des idées. Tu relis avant de l&apos;appliquer.</p>
+          <SourcePicker files={files} setFiles={setFiles} url={url} setUrl={setUrl} text={pasted} setText={setPasted} accept={STRATEGY_ACCEPT} hint="PDF, Word, PowerPoint, OpenDocument, RTF, texte, Markdown ou captures · 4 fichiers, 9 Mo chacun" withUrl={false} onError={(m) => toast.error(m)} />
           {old && <OldWorkerNote />}
           <div className="flex flex-wrap items-center gap-2">
             {strategy.trim() && (

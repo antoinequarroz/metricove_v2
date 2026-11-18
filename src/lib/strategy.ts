@@ -12,7 +12,11 @@ export const MAX_SOURCE_BYTES = 9_000_000;
 /** Text pasted in place of a document. */
 export const MAX_SOURCE_TEXT = 30_000;
 
-export type SourceType = "pdf" | "png" | "jpg" | "webp" | "txt" | "md" | "css" | "html";
+export type SourceType = "pdf" | "png" | "jpg" | "webp" | "txt" | "md" | "css" | "html" | "csv" | "docx" | "doc" | "odt" | "rtf" | "pptx";
+
+/** What the file pickers accept for a strategy (documents of all kinds) and for a charte. */
+export const STRATEGY_ACCEPT = ".pdf,.docx,.doc,.odt,.rtf,.pptx,.md,.markdown,.txt,.csv,image/png,image/jpeg,image/webp";
+export const CHARTE_ACCEPT = ".pdf,.pptx,.docx,.css,.md,.txt,image/png,image/jpeg,image/webp";
 export type SourceFile = { id: string; name: string; type: SourceType };
 
 /** What the strategy reading gives back: a summary Claude can follow, ideas, and maybe a tone. */
