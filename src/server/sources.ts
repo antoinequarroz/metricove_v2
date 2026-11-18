@@ -3,13 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { MAX_SOURCE_BYTES, type SourceFile, type SourceType } from "@/lib/strategy";
 import { DATA_DIR } from "./db";
+import { documentText } from "./doc-text";
 
 // Documents sent to be read by Claude (a strategy, a charte): kept until the reading is done with,
 // then deleted with its request. One never used is deleted after two days.
 
 const ID = /^[0-9a-f-]{36}\.(pdf|png|jpg|webp|txt|md|css|html)$/;
 const dir = (projectId: string) => path.join(DATA_DIR, "sources", projectId.replace(/[^\w-]/g, ""));
-const TEXT_TYPES: Record<string, SourceType> = { txt: "txt", md: "md", markdown: "md", css: "css", html: "html", htm: "html" };
+const TEXT_TYPES: Record<string, SourceType> = { txt: "txt", text: "txt", csv: "txt", tsv: "txt", md: "md", markdown: "md", css: "css", html: "html", htm: "html" };
 
 /** What the bytes really are: a PDF, an image, or text with a known extension. */
 function kindOf(b: Buffer, name: string): SourceType | undefined {
@@ -44,8 +45,12 @@ export function addSource(projectId: string, bytes: Buffer, name: string): Sourc
   if (!bytes.length) return "Fichier vide";
   if (bytes.length > MAX_SOURCE_BYTES) return "Fichier trop lourd (9 Mo au plus) : exporte une version allégée";
   const clean = name.replace(/[\0-\x1f]/g, "").trim().slice(0, 120) || "Document";
-  const type = kindOf(bytes, clean);
-  if (!type) return "Format non lu : PDF, image (JPEG, PNG, WebP), texte, Markdown, CSS ou HTML";
+  // Word, OpenDocument and RTF are read here and kept as Markdown, which Claude reads directly.
+  const doc = documentText(bytes, clean);
+  if (doc && "error" in doc) return `${clean} : ${doc.error}`;
+  if (doc) bytes = Buffer.from(doc.text, "utf8");
+  const type = doc ? "md" : kindOf(bytes, clean);
+  if (!type) return "Format non lu : PDF, Word (.docx), OpenDocument (.odt), RTF, image (JPEG, PNG, WebP), texte, Markdown, CSV, CSS ou HTML";
   sweep(projectId);
   const id = `${crypto.randomUUID()}.${type}`;
   fs.mkdirSync(dir(projectId), { recursive: true });

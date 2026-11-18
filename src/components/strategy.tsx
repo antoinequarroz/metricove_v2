@@ -179,7 +179,7 @@ function StrategyCard({ project, strategy, source, ideas, tone, save }: { projec
       {importing && !job && (
         <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2/40 p-3">
           <p className="text-[12.5px] text-ink-2">Importe ton document de stratégie : Claude le lit sur ton Mac, le range par rubriques (objectifs, public, piliers, rythme…) et en tire des idées. Tu relis avant de l&apos;appliquer.</p>
-          <SourcePicker files={files} setFiles={setFiles} url={url} setUrl={setUrl} text={pasted} setText={setPasted} accept=".pdf,.md,.markdown,.txt,image/png,image/jpeg,image/webp" hint="PDF, Markdown, texte ou captures · 4 fichiers, 9 Mo chacun" withUrl={false} onError={(m) => toast.error(m)} />
+          <SourcePicker files={files} setFiles={setFiles} url={url} setUrl={setUrl} text={pasted} setText={setPasted} accept=".pdf,.docx,.odt,.rtf,.doc,.pages,.md,.markdown,.txt,.csv,image/png,image/jpeg,image/webp" hint="PDF, Word, OpenDocument, RTF, texte, Markdown ou captures · 4 fichiers, 9 Mo chacun" withUrl={false} onError={(m) => toast.error(m)} />
           {old && <OldWorkerNote />}
           <div className="flex flex-wrap items-center gap-2">
             {strategy.trim() && (

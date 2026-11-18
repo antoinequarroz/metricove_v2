@@ -330,7 +330,7 @@ Deux tâches sans vidéo, demandées depuis la page **Stratégie** et **Réglage
 ### `kind: "brand"` — lire une stratégie ou une charte
 
 1. La page envoie chaque document : `POST /api/profiles/:projectId/sources?name=<nom>` avec le fichier brut
-   (PDF, JPEG, PNG, WebP, texte, Markdown, CSS ou HTML ; 9 Mo au plus) → `{ source: { id, name, type } }`.
+   (PDF, JPEG, PNG, WebP, texte, CSV, Markdown, CSS ou HTML ; Word .docx, OpenDocument .odt et RTF sont convertis en Markdown à l’envoi ; 9 Mo au plus) → `{ source: { id, name, type } }`.
 2. `POST /api/montage/jobs` `{ kind: "brand", mode: "strategy" | "charte", projectId, sources, url?, text? }`.
 3. Le Mac télécharge les documents (`GET /api/profiles/:projectId/sources/:id`), lit le site lui-même s'il y en a un
    (`lib/site.mjs` : variables CSS, couleurs, polices, logos possibles ; Claude n'a pas accès au web), puis Claude lit les fichiers avec Read.
