@@ -1,0 +1,312 @@
+{
+  "_doc": [
+    "Fixture du moteur : chaque mise en page (hero, stack, number, list, cta), chaque liaison (rise, morph, carry avec un mot commun, zoom après une emphase, cut), chaque état de la forme (rest, dot, underline, highlight, bar, hidden) et chaque caméra (drift, push, still).",
+    "Look : dégradé, police sans, texte centré, quadrillage, sans grain ; cible 30 s. raw → cleanScore(raw, options) → plan (la partition doit passer sans correction)."
+  ],
+  "job": {
+    "id": "8b7e4f21-6c0d-4a3b-9e51-2f7a0c9d1e64",
+    "kind": "motion",
+    "motion": {
+      "mode": "video",
+      "request": "Idée : pourquoi la régularité bat le talent sur Instagram, avec un plan simple en 3 étapes",
+      "source": "idea",
+      "music": true,
+      "logo": false,
+      "seconds": 30,
+      "look": {
+        "theme": "gradient",
+        "accent": "#4f46e5",
+        "font": "sans",
+        "fields": [],
+        "grid": true,
+        "pill": false,
+        "align": "center",
+        "valign": "middle",
+        "grain": false,
+        "numbers": true,
+        "handle": "@metricove"
+      }
+    }
+  },
+  "options": {
+    "request": "Idée : pourquoi la régularité bat le talent sur Instagram, avec un plan simple en 3 étapes",
+    "source": "idea",
+    "seed": 844278823,
+    "target": 30
+  },
+  "raw": {
+    "title": "La régularité bat le talent",
+    "shape": "orb",
+    "pace": "normal",
+    "beats": [
+      {
+        "id": "accroche",
+        "title": "Accroche",
+        "text": "Publier plus ne suffit pas",
+        "emphasis": "ne suffit pas",
+        "layout": "hero",
+        "bridge": "rise",
+        "actor": "highlight",
+        "camera": "push",
+        "seconds": 2.4
+      },
+      {
+        "id": "chiffre",
+        "title": "Le chiffre",
+        "text": "87 % regardent sans le son",
+        "count": true,
+        "layout": "number",
+        "bridge": "morph",
+        "actor": "dot",
+        "camera": "drift",
+        "seconds": 3.4
+      },
+      {
+        "id": "talent",
+        "title": "Le talent",
+        "text": "La régularité bat le talent",
+        "sub": "Un compte moyen qui publie souvent dépasse un compte brillant qui se tait.",
+        "emphasis": "régularité",
+        "layout": "stack",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "still",
+        "seconds": 3.8
+      },
+      {
+        "id": "plan",
+        "title": "Le plan",
+        "text": "La régularité se planifie",
+        "emphasis": "se planifie",
+        "layout": "stack",
+        "bridge": "carry",
+        "actor": "bar",
+        "camera": "drift",
+        "seconds": 3
+      },
+      {
+        "id": "etapes",
+        "title": "3 étapes",
+        "text": "Ton plan en 3 étapes",
+        "items": [
+          "Une idée par jour",
+          "Un format fixe",
+          "Un créneau réservé"
+        ],
+        "layout": "list",
+        "bridge": "zoom",
+        "actor": "rest",
+        "camera": "drift",
+        "seconds": 4.4
+      },
+      {
+        "id": "pause",
+        "title": "Sans pause",
+        "text": "Sans pause.",
+        "layout": "hero",
+        "bridge": "cut",
+        "actor": "hidden",
+        "camera": "push",
+        "seconds": 2
+      },
+      {
+        "id": "mesure",
+        "title": "Mesure",
+        "text": "Garde ce qui retient",
+        "sub": "Les formats qui tiennent l’attention reviennent la semaine suivante.",
+        "emphasis": "ce qui retient",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "highlight",
+        "camera": "drift",
+        "seconds": 3.6
+      },
+      {
+        "id": "abonne",
+        "title": "Abonne-toi",
+        "text": "Ton prochain reel commence ici",
+        "sub": "Abonne-toi",
+        "emphasis": "prochain reel",
+        "layout": "cta",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "push",
+        "seconds": 3.6
+      }
+    ],
+    "moments": [],
+    "caption": "La régularité bat le talent. Mon plan en 3 étapes pour publier sans s’épuiser.\n\n#reels #instagram #createurdecontenu",
+    "notes": "Un seul rond indigo voyage d’une idée à l’autre ; le mot « régularité » est porté d’un temps fort au suivant, puis la caméra plonge dans le plan."
+  },
+  "clean": {
+    "pace": "normal",
+    "fixes": [],
+    "findings": []
+  },
+  "timed": {
+    "duration": 30.866666666666667,
+    "frames": 926,
+    "settle": [
+      1.2,
+      3.6,
+      7,
+      12.933333333333334,
+      15.933333333333334,
+      21.933333333333334,
+      23.933333333333334,
+      28.466666666666665
+    ]
+  },
+  "plan": {
+    "scenes": [],
+    "look": {
+      "theme": "gradient",
+      "accent": "#4f46e5",
+      "font": "sans",
+      "fields": [],
+      "grid": true,
+      "pill": false,
+      "align": "center",
+      "valign": "middle",
+      "grain": false,
+      "numbers": true,
+      "handle": "@metricove",
+      "logo": ""
+    },
+    "logo": false,
+    "music": true,
+    "volume": 0.7,
+    "track": "",
+    "texts": [],
+    "pace": "normal",
+    "duration": 30.866666666666667,
+    "video": {
+      "engine": 1,
+      "request": "Idée : pourquoi la régularité bat le talent sur Instagram, avec un plan simple en 3 étapes",
+      "source": "idea",
+      "target": 30,
+      "title": "La régularité bat le talent",
+      "shape": "orb",
+      "beats": [
+        {
+          "id": "accroche",
+          "title": "Accroche",
+          "text": "Publier plus ne suffit pas",
+          "emphasis": "ne suffit pas",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "highlight",
+          "camera": "push",
+          "seconds": 2.4,
+          "start": 0,
+          "end": 2.4
+        },
+        {
+          "id": "chiffre",
+          "title": "Le chiffre",
+          "text": "87 % regardent sans le son",
+          "count": true,
+          "layout": "number",
+          "bridge": "morph",
+          "actor": "dot",
+          "camera": "drift",
+          "seconds": 3.4,
+          "start": 2.4,
+          "end": 5.8
+        },
+        {
+          "id": "talent",
+          "title": "Le talent",
+          "text": "La régularité bat le talent",
+          "sub": "Un compte moyen qui publie souvent dépasse un compte brillant qui se tait.",
+          "emphasis": "régularité",
+          "layout": "stack",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "still",
+          "seconds": 5.933333333333334,
+          "start": 5.8,
+          "end": 11.733333333333333
+        },
+        {
+          "id": "plan",
+          "title": "Le plan",
+          "text": "La régularité se planifie",
+          "emphasis": "se planifie",
+          "layout": "stack",
+          "bridge": "carry",
+          "actor": "bar",
+          "camera": "drift",
+          "seconds": 3,
+          "start": 11.733333333333333,
+          "end": 14.733333333333333
+        },
+        {
+          "id": "etapes",
+          "title": "3 étapes",
+          "text": "Ton plan en 3 étapes",
+          "items": [
+            "Une idée par jour",
+            "Un format fixe",
+            "Un créneau réservé"
+          ],
+          "layout": "list",
+          "bridge": "zoom",
+          "actor": "rest",
+          "camera": "drift",
+          "seconds": 6,
+          "start": 14.733333333333333,
+          "end": 20.733333333333334
+        },
+        {
+          "id": "pause",
+          "title": "Sans pause",
+          "text": "Sans pause.",
+          "layout": "hero",
+          "bridge": "cut",
+          "actor": "hidden",
+          "camera": "push",
+          "seconds": 2,
+          "start": 20.733333333333334,
+          "end": 22.733333333333334
+        },
+        {
+          "id": "mesure",
+          "title": "Mesure",
+          "text": "Garde ce qui retient",
+          "sub": "Les formats qui tiennent l’attention reviennent la semaine suivante.",
+          "emphasis": "ce qui retient",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "highlight",
+          "camera": "drift",
+          "seconds": 4.533333333333333,
+          "start": 22.733333333333334,
+          "end": 27.266666666666666
+        },
+        {
+          "id": "abonne",
+          "title": "Abonne-toi",
+          "text": "Ton prochain reel commence ici",
+          "sub": "Abonne-toi",
+          "emphasis": "prochain reel",
+          "layout": "cta",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "push",
+          "seconds": 3.6,
+          "start": 27.266666666666666,
+          "end": 30.866666666666667
+        }
+      ],
+      "moments": [],
+      "caption": "La régularité bat le talent. Mon plan en 3 étapes pour publier sans s’épuiser.\n\n#reels #instagram #createurdecontenu",
+      "seed": 844278823,
+      "tools": {
+        "worker": "0.14.0",
+        "hyperframes": "0.8.137"
+      }
+    }
+  },
+  "notes": "Un seul rond indigo voyage d’une idée à l’autre ; le mot « régularité » est porté d’un temps fort au suivant, puis la caméra plonge dans le plan."
+}

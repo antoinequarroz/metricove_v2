@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
+import { isVideoJob, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
 import { ingestVideo } from "@/server/media";
-import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, restoreReel, saveJob, touchJob } from "@/server/montage";
+import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, reportRun, restoreReel, saveJob, staleWrite, touchJob, touchWorker, workerStatus } from "@/server/montage";
 import fs from "node:fs";
+import { cleanCharteResult, cleanPlanResult, cleanStrategyResult } from "@/lib/strategy";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, { params }: Ctx) {
   const job = getJob((await params).id);
   if (!job) return NextResponse.json({ error: "Montage introuvable" }, { status: 404 });
-  // The Mac only asks whether the job still exists: nobody needs Claude's code or the drawings from here.
-  return NextResponse.json({ job: pageJob(job) });
+  // The Mac only asks whether the job still exists (and whether it is still its own: `run`, `action`): nobody needs
+  // Claude's code or the drawings from here. The Studio follows one job with it: the Mac's presence and the server's
+  // clock come along.
+  return NextResponse.json({ job: pageJob(job), worker: workerStatus(), now: Date.now() });
 }
 
 type Body = {
@@ -27,27 +31,50 @@ type Body = {
   cancel?: boolean;
   /** Animated reel: take back a request the Mac has not started. */
   withdraw?: boolean;
+  /** Video reel: a new video from the request (version n+1), optionally with a new request or length. */
+  regenerate?: boolean;
+  request?: unknown;
+  seconds?: unknown;
+  /** Video reel: stop the generation running on the Mac, back to the last good version. */
+  stop?: boolean;
   title?: string;
   // From the worker
   step?: string;
   progress?: number;
+  /** Video reel (worker 0.15.0): where the Mac is. */
+  phase?: unknown;
+  phases?: unknown;
+  eta?: unknown;
+  frames?: unknown;
+  beats?: unknown;
+  done?: unknown;
+  /** Worker ≥ 0.15.0 (optional): the `run.startedAt` of its claim. A write from a run that is over gets 409 (staleWrite). */
+  run?: unknown;
   status?: "failed" | "done";
   error?: string;
   script?: string;
   caption?: string;
   youtubeTitle?: string;
   post?: { caption?: unknown; slides?: unknown };
+  brand?: unknown;
+  plan?: unknown;
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
-  const job = getJob((await params).id);
+  const { id } = await params;
+  // The body first, the job after: from here on everything is synchronous (SQLite, files), so a stop, a cancel or a
+  // DELETE that arrived while the body was coming in is seen, and a deleted job is never saved back by a late write.
+  const raw: unknown = await req.json().catch(() => null);
+  const b = (raw && typeof raw === "object" ? raw : {}) as Body;
+  const job = getJob(id);
   if (!job) return NextResponse.json({ error: "Montage introuvable" }, { status: 404 });
-  const b = (await req.json().catch(() => ({}))) as Body;
   const busy = job.action !== null;
 
   // ---- Page ----
   if (b.cancel) {
     job.action = null;
+    // A regeneration asked for and then cancelled is over: a later request to Claude retouches the last version.
+    job.regen = undefined;
     return NextResponse.json({ job: pageJob(release(job, "cancelled")) });
   }
   if (b.withdraw) {
@@ -57,7 +84,38 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (job.status !== "queued") return NextResponse.json({ error: "Le Mac a déjà commencé : attends la fin" }, { status: 409 });
     restoreReel(job);
     job.feedback = undefined;
+    job.regen = undefined;
     return NextResponse.json({ job: pageJob(release(job, "review")) });
+  }
+  if (b.stop === true) {
+    // A generation (regeneration, retouch, edit) on a video reel that already has videos: the Mac sees the action gone,
+    // stops within seconds and sends nothing. A first generation has nothing to go back to: it is cancelled (DELETE).
+    // Only a video job: the worker of a reel of scenes only stops when the job is deleted, it keeps withdraw and cancel.
+    // The Mac may have finished between the click (after a confirm) and this request: nothing to stop, the video is there.
+    if (isVideoJob(job) && !busy) return NextResponse.json({ job: pageJob(job) });
+    if (!isVideoJob(job) || !job.versions.some((v) => v.reel && v.preview)) return NextResponse.json({ error: "Rien à rétablir : annule plutôt" }, { status: 400 });
+    restoreReel(job);
+    job.regen = undefined;
+    return NextResponse.json({ job: pageJob(release(job, "review")) });
+  }
+  if (b.regenerate === true) {
+    // A whole new video from the request (Claude is asked for a clearly different idea); the versions stay.
+    if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce reel" }, { status: 409 });
+    if (!isVideoJob(job) || !job.motion) return NextResponse.json({ error: "Seulement pour un reel vidéo" }, { status: 400 });
+    if (b.request !== undefined) {
+      const request = typeof b.request === "string" ? b.request.replace(/\r\n?/g, "\n").trim().slice(0, REEL_VIDEO.request) : "";
+      if (request.length < REEL_VIDEO.minRequest) return NextResponse.json({ error: `Écris ta demande (${REEL_VIDEO.minRequest} caractères au moins)` }, { status: 400 });
+      job.motion.request = request;
+    }
+    if (b.seconds !== undefined) {
+      // A length among REEL_TARGETS, anything else (null, 0, "auto") = Auto.
+      const seconds = REEL_TARGETS.find((t) => t === Number(b.seconds));
+      job.motion.seconds = seconds;
+      job.brief = { ...job.brief, seconds };
+    }
+    job.regen = true;
+    job.feedback = job.marks = job.range = job.base = undefined;
+    return NextResponse.json({ job: pageJob(queue(job, "motion")) });
   }
   if (typeof b.title === "string" && b.title.trim()) {
     job.title = b.title.trim().slice(0, 120);
@@ -76,6 +134,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
       const [a, z] = Array.isArray(b.range) ? (b.range as unknown[]).map(Number) : [];
       job.range = Number.isFinite(a) && Number.isFinite(z) && z - a >= 0.1 && a >= 0 ? [Math.round(a * 100) / 100, Math.round(z * 100) / 100] : undefined;
       job.base = base?.n;
+      // A retouch is never a regeneration (a regeneration left over from a withdraw or a failure must not come back).
+      job.regen = undefined;
       return NextResponse.json({ job: pageJob(queue(job, "motion")) });
     }
     // A note left empty is not a request: Claude would start again from nothing.
@@ -135,29 +195,36 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 
   // ---- Worker ----
+  const fromWorker = b.status !== undefined || b.step !== undefined || b.progress !== undefined || b.phase !== undefined;
+  // The tail of a run that is over (stopped, cancelled, taken back, or a new request queued after a stop): stored
+  // nowhere, so that it neither cancels the next request nor brings an old run back on screen.
+  const stale = fromWorker ? staleWrite(job, b.run) : undefined;
+  if (stale) return NextResponse.json({ error: stale }, { status: 409 });
   if (b.status === "failed") {
     job.error = (b.error ?? "Erreur inconnue sur le Mac").slice(0, 2000);
+    // A regeneration that failed is over: the next request to Claude retouches the last good version again.
+    job.regen = undefined;
     if (job.kind === "motion" && job.versions.some((v) => v.reel && v.preview)) {
       // A retouch that failed must not lock a reel that already has good versions: it stays open, with the error
       // on show and the text of the request kept so that it can be reworded.
       restoreReel(job);
-      return NextResponse.json({ job: release(job, "review") });
+      return NextResponse.json({ job: pageJob(release(job, "review")) });
     }
-    return NextResponse.json({ job: release(job, "failed") });
+    return NextResponse.json({ job: pageJob(release(job, "failed")) });
   }
   if (b.status === "done" && job.kind === "script") {
     job.script = (b.script ?? "").slice(0, 10_000);
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "cover") {
     // The image itself was sent to /api/media/:id/cover just before.
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "caption" && job.caption) {
     const text = (b.caption ?? "").trim().slice(0, 5000);
     if (!text) return NextResponse.json({ error: "Description vide" }, { status: 400 });
     job.caption.result = { caption: text, youtubeTitle: b.youtubeTitle?.trim().slice(0, 100) || undefined };
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "post" && job.post) {
     const caption = typeof b.post?.caption === "string" ? b.post.caption.trim().slice(0, 5000) : "";
@@ -167,13 +234,33 @@ export async function PATCH(req: Request, { params }: Ctx) {
       .filter((s) => s.title || s.body);
     if (!slides.length) return NextResponse.json({ error: "Post vide" }, { status: 400 });
     job.post.result = { caption, slides };
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
-  if (b.step !== undefined || b.progress !== undefined) {
+  if (b.status === "done" && job.kind === "brand" && job.brand) {
+    const result = job.brand.mode === "charte" ? cleanCharteResult(b.brand) : cleanStrategyResult(b.brand);
+    if (typeof result === "string") return NextResponse.json({ error: result }, { status: 400 });
+    job.brand.result = result;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
+  }
+  if (b.status === "done" && job.kind === "plan" && job.plan) {
+    const result = cleanPlanResult(b.plan, job.plan);
+    if (typeof result === "string") return NextResponse.json({ error: result }, { status: 400 });
+    job.plan.result = result;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
+  }
+  if (b.step !== undefined || b.progress !== undefined || b.phase !== undefined) {
+    // Only while the job is the Mac's: a report on a job nobody holds (finished, cancelled, or waiting in the queue
+    // again) is the tail of a run that is over. Ignored (an older worker does not read the answer): no step on show,
+    // no `run` brought back, and the Mac is not marked busy with a job it does not hold.
+    if (!job.action || job.status === "queued") return NextResponse.json({ job: pageJob(job) });
     if (typeof b.step === "string") job.step = b.step.slice(0, 200);
     if (typeof b.progress === "number" && Number.isFinite(b.progress)) job.progress = Math.min(1, Math.max(0, b.progress));
+    // The live state of the run (phase, eta, frames, markers…).
+    reportRun(job, b as Record<string, unknown>);
     saveJob(job);
     touchJob(job.id);
+    // A busy Mac sends no claim: its reports say it is there (any worker version).
+    touchWorker(job.id);
   }
   return NextResponse.json({ job: pageJob(job) });
 }

@@ -1,0 +1,448 @@
+{
+  "_doc": [
+    "Fixture de contrat du reel vidéo continu (paquets A et B, engine 1). Night / grotesque, Auto, environ 20 s, 6 temps forts, 1 moment.",
+    "job : ce que le Mac reçoit à la réclamation (job.motion en mode video ; seconds absent = Auto, pace absent = Claude choisit).",
+    "options : le 2e argument de cleanScore(raw, options) : request et source du job, seed = seedOf(job.id) (vocab.mjs) ; target et pace absents (Auto, Claude choisit).",
+    "raw : la réponse de Claude (structured_output de SCORE_SCHEMA). Les scories sub \"\", count false et items [] sont effacées sans correction.",
+    "clean : ce que cleanScore(raw, options) doit rendre : {video, pace, fixes, findings} (aucune correction, aucun constat attendus).",
+    "timed : ce que timeScore(clean.video, {pace}) rend en plus de la video (dont les temps forts portent start et end, voir plan.video.beats).",
+    "stage : ce que stagePage(cfg, plan, hfDir, {}) rend {duration, settle, marks, momentIds} ; momentSpans (pas dans le retour) = placement attendu des moments : début = start(from) − 0,2 s, fin = end(to), D = fin − début, frame = ZONE_FRAMES[zone].moment.",
+    "plan : le ReelPlan rendu, envoyé par POST /versions {reel: plan, notes, upload} (scenes [], look sans logo, video avec start/end et tools).",
+    "notes : les notes de Claude pour Antoine (le début des notes de la version)."
+  ],
+  "job": {
+    "id": "5d1f0c8e-2a47-4b9e-8f3a-6c2e91b7d4a0",
+    "kind": "motion",
+    "motion": {
+      "mode": "video",
+      "request": "Idée : 3 erreurs qui font décrocher sur un reel Instagram, finir par Abonne-toi",
+      "source": "idea",
+      "music": true,
+      "logo": false,
+      "look": {
+        "theme": "night",
+        "accent": "#ff5a1f",
+        "font": "grotesque",
+        "fields": [],
+        "grid": false,
+        "pill": false,
+        "align": "left",
+        "valign": "middle",
+        "grain": true,
+        "numbers": true,
+        "handle": "@metricove"
+      }
+    }
+  },
+  "options": {
+    "request": "Idée : 3 erreurs qui font décrocher sur un reel Instagram, finir par Abonne-toi",
+    "source": "idea",
+    "seed": 542867949
+  },
+  "raw": {
+    "title": "3 erreurs qui font zapper un reel",
+    "shape": "orb",
+    "pace": "normal",
+    "beats": [
+      {
+        "id": "accroche",
+        "title": "Accroche",
+        "text": "Ils zappent en 3 secondes",
+        "sub": "",
+        "emphasis": "3 secondes",
+        "count": false,
+        "layout": "hero",
+        "bridge": "rise",
+        "actor": "highlight",
+        "camera": "push",
+        "seconds": 2.4
+      },
+      {
+        "id": "erreurs",
+        "title": "3 erreurs",
+        "text": "3 erreurs qui font fuir",
+        "count": true,
+        "layout": "number",
+        "bridge": "morph",
+        "actor": "dot",
+        "camera": "drift",
+        "seconds": 3.2
+      },
+      {
+        "id": "intro",
+        "title": "Erreur 1",
+        "text": "Erreur 1 : te présenter d’abord",
+        "emphasis": "te présenter",
+        "layout": "hero",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "drift",
+        "seconds": 2.8
+      },
+      {
+        "id": "son",
+        "title": "Erreur 2",
+        "text": "Erreur 2 : tout miser sur le son",
+        "sub": "Écris l’essentiel à l’écran.",
+        "emphasis": "le son",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "rest",
+        "camera": "still",
+        "seconds": 4.2
+      },
+      {
+        "id": "plan",
+        "title": "Erreur 3",
+        "text": "Erreur 3 : un plan figé",
+        "sub": "Relance l’œil toutes les 2 secondes.",
+        "emphasis": "plan figé",
+        "layout": "stack",
+        "bridge": "cut",
+        "actor": "bar",
+        "camera": "drift",
+        "seconds": 4.2
+      },
+      {
+        "id": "abonne",
+        "title": "Abonne-toi",
+        "text": "Zéro erreur dans ton prochain reel",
+        "sub": "Abonne-toi",
+        "emphasis": "prochain reel",
+        "items": [],
+        "layout": "cta",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "push",
+        "seconds": 3.2
+      }
+    ],
+    "moments": [
+      {
+        "id": "egaliseur",
+        "brief": "Une onde sonore s’agite puis s’éteint sous un trait : la plupart regardent sans le son.",
+        "from": "son",
+        "to": "son",
+        "zone": "below",
+        "html": "<svg class=\"eq\" viewBox=\"0 0 900 540\" aria-hidden=\"true\"><g class=\"bars\"><rect class=\"bar\" x=\"188\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"268\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"348\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"428\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"508\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"588\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"668\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/></g><line class=\"slash\" x1=\"290\" y1=\"440\" x2=\"610\" y2=\"100\" stroke=\"currentColor\" stroke-width=\"20\" stroke-linecap=\"round\" stroke-dasharray=\"520 600\" stroke-dashoffset=\"540\"/></svg>",
+        "css": "svg{display:block;width:900px;height:540px}.bars{color:var(--accent)}.slash{color:var(--ink)}",
+        "js": "const bars = root.querySelectorAll(\".bar\");\nconst slash = root.querySelector(\".slash\");\nconst peaks = [120, 210, 160, 260, 150, 230, 110];\nfor (let i = 0; i < bars.length; i++) {\n  mt.to(bars[i], { attr: { y: 270 - peaks[i] / 2, height: peaks[i] }, duration: 0.3, ease: \"sine.inOut\", repeat: 3, yoyo: true }, 0.25 + i * 0.05);\n}\nconst hush = Math.min(2.1, D * 0.5);\nmt.to(bars, { opacity: 0.35, duration: 0.5, ease: \"power2.out\", stagger: 0.03 }, hush);\nmt.to(slash, { strokeDashoffset: 0, duration: 0.7, ease: \"expo.out\" }, hush + 0.25);"
+      }
+    ],
+    "caption": "3 erreurs qui font zapper ton reel dès les premières secondes.\n\n1. Te présenter avant la promesse\n2. Tout miser sur le son\n3. Garder un plan figé\n\nTu en fais combien ? Abonne-toi pour la suite.\n\n#reels #instagram #createurdecontenu",
+    "notes": "Un seul rond orange relie les trois erreurs : il surligne, ponctue, souligne puis s’efface devant l’onde muette. Une coupe sèche marque le plan figé."
+  },
+  "clean": {
+    "video": {
+      "engine": 1,
+      "request": "Idée : 3 erreurs qui font décrocher sur un reel Instagram, finir par Abonne-toi",
+      "source": "idea",
+      "title": "3 erreurs qui font zapper un reel",
+      "shape": "orb",
+      "beats": [
+        {
+          "id": "accroche",
+          "title": "Accroche",
+          "text": "Ils zappent en 3 secondes",
+          "emphasis": "3 secondes",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "highlight",
+          "camera": "push",
+          "seconds": 2.4
+        },
+        {
+          "id": "erreurs",
+          "title": "3 erreurs",
+          "text": "3 erreurs qui font fuir",
+          "count": true,
+          "layout": "number",
+          "bridge": "morph",
+          "actor": "dot",
+          "camera": "drift",
+          "seconds": 3.2
+        },
+        {
+          "id": "intro",
+          "title": "Erreur 1",
+          "text": "Erreur 1 : te présenter d’abord",
+          "emphasis": "te présenter",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "drift",
+          "seconds": 2.8
+        },
+        {
+          "id": "son",
+          "title": "Erreur 2",
+          "text": "Erreur 2 : tout miser sur le son",
+          "sub": "Écris l’essentiel à l’écran.",
+          "emphasis": "le son",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "rest",
+          "camera": "still",
+          "seconds": 4.2
+        },
+        {
+          "id": "plan",
+          "title": "Erreur 3",
+          "text": "Erreur 3 : un plan figé",
+          "sub": "Relance l’œil toutes les 2 secondes.",
+          "emphasis": "plan figé",
+          "layout": "stack",
+          "bridge": "cut",
+          "actor": "bar",
+          "camera": "drift",
+          "seconds": 4.2
+        },
+        {
+          "id": "abonne",
+          "title": "Abonne-toi",
+          "text": "Zéro erreur dans ton prochain reel",
+          "sub": "Abonne-toi",
+          "emphasis": "prochain reel",
+          "layout": "cta",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "push",
+          "seconds": 3.2
+        }
+      ],
+      "moments": [
+        {
+          "id": "egaliseur",
+          "brief": "Une onde sonore s’agite puis s’éteint sous un trait : la plupart regardent sans le son.",
+          "from": "son",
+          "to": "son",
+          "zone": "below",
+          "code": {
+            "html": "<svg class=\"eq\" viewBox=\"0 0 900 540\" aria-hidden=\"true\"><g class=\"bars\"><rect class=\"bar\" x=\"188\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"268\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"348\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"428\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"508\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"588\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"668\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/></g><line class=\"slash\" x1=\"290\" y1=\"440\" x2=\"610\" y2=\"100\" stroke=\"currentColor\" stroke-width=\"20\" stroke-linecap=\"round\" stroke-dasharray=\"520 600\" stroke-dashoffset=\"540\"/></svg>",
+            "css": "svg{display:block;width:900px;height:540px}.bars{color:var(--accent)}.slash{color:var(--ink)}",
+            "js": "const bars = root.querySelectorAll(\".bar\");\nconst slash = root.querySelector(\".slash\");\nconst peaks = [120, 210, 160, 260, 150, 230, 110];\nfor (let i = 0; i < bars.length; i++) {\n  mt.to(bars[i], { attr: { y: 270 - peaks[i] / 2, height: peaks[i] }, duration: 0.3, ease: \"sine.inOut\", repeat: 3, yoyo: true }, 0.25 + i * 0.05);\n}\nconst hush = Math.min(2.1, D * 0.5);\nmt.to(bars, { opacity: 0.35, duration: 0.5, ease: \"power2.out\", stagger: 0.03 }, hush);\nmt.to(slash, { strokeDashoffset: 0, duration: 0.7, ease: \"expo.out\" }, hush + 0.25);"
+          }
+        }
+      ],
+      "caption": "3 erreurs qui font zapper ton reel dès les premières secondes.\n\n1. Te présenter avant la promesse\n2. Tout miser sur le son\n3. Garder un plan figé\n\nTu en fais combien ? Abonne-toi pour la suite.\n\n#reels #instagram #createurdecontenu",
+      "seed": 542867949
+    },
+    "pace": "normal",
+    "fixes": [],
+    "findings": []
+  },
+  "timed": {
+    "duration": 20,
+    "frames": 600,
+    "settle": [
+      1.2,
+      3.6,
+      6.8,
+      9.6,
+      13.8,
+      18
+    ]
+  },
+  "stage": {
+    "duration": 20,
+    "settle": [
+      1.2,
+      3.6,
+      6.8,
+      9.6,
+      13.8,
+      18
+    ],
+    "marks": [
+      {
+        "id": "accroche",
+        "title": "Accroche",
+        "start": 0,
+        "end": 2.4
+      },
+      {
+        "id": "erreurs",
+        "title": "3 erreurs",
+        "start": 2.4,
+        "end": 5.6
+      },
+      {
+        "id": "intro",
+        "title": "Erreur 1",
+        "start": 5.6,
+        "end": 8.4
+      },
+      {
+        "id": "son",
+        "title": "Erreur 2",
+        "start": 8.4,
+        "end": 12.6
+      },
+      {
+        "id": "plan",
+        "title": "Erreur 3",
+        "start": 12.6,
+        "end": 16.8
+      },
+      {
+        "id": "abonne",
+        "title": "Abonne-toi",
+        "start": 16.8,
+        "end": 20
+      }
+    ],
+    "momentIds": [
+      "egaliseur"
+    ],
+    "momentSpans": [
+      {
+        "id": "egaliseur",
+        "zone": "below",
+        "start": 8.2,
+        "end": 12.6,
+        "D": 4.4,
+        "frame": {
+          "x": 90,
+          "y": 900,
+          "w": 900,
+          "h": 540
+        }
+      }
+    ]
+  },
+  "plan": {
+    "scenes": [],
+    "look": {
+      "theme": "night",
+      "accent": "#ff5a1f",
+      "font": "grotesque",
+      "fields": [],
+      "grid": false,
+      "pill": false,
+      "align": "left",
+      "valign": "middle",
+      "grain": true,
+      "numbers": true,
+      "handle": "@metricove",
+      "logo": ""
+    },
+    "logo": false,
+    "music": true,
+    "volume": 0.7,
+    "track": "",
+    "texts": [],
+    "pace": "normal",
+    "duration": 20,
+    "video": {
+      "engine": 1,
+      "request": "Idée : 3 erreurs qui font décrocher sur un reel Instagram, finir par Abonne-toi",
+      "source": "idea",
+      "title": "3 erreurs qui font zapper un reel",
+      "shape": "orb",
+      "beats": [
+        {
+          "id": "accroche",
+          "title": "Accroche",
+          "text": "Ils zappent en 3 secondes",
+          "emphasis": "3 secondes",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "highlight",
+          "camera": "push",
+          "seconds": 2.4,
+          "start": 0,
+          "end": 2.4
+        },
+        {
+          "id": "erreurs",
+          "title": "3 erreurs",
+          "text": "3 erreurs qui font fuir",
+          "count": true,
+          "layout": "number",
+          "bridge": "morph",
+          "actor": "dot",
+          "camera": "drift",
+          "seconds": 3.2,
+          "start": 2.4,
+          "end": 5.6
+        },
+        {
+          "id": "intro",
+          "title": "Erreur 1",
+          "text": "Erreur 1 : te présenter d’abord",
+          "emphasis": "te présenter",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "drift",
+          "seconds": 2.8,
+          "start": 5.6,
+          "end": 8.4
+        },
+        {
+          "id": "son",
+          "title": "Erreur 2",
+          "text": "Erreur 2 : tout miser sur le son",
+          "sub": "Écris l’essentiel à l’écran.",
+          "emphasis": "le son",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "rest",
+          "camera": "still",
+          "seconds": 4.2,
+          "start": 8.4,
+          "end": 12.6
+        },
+        {
+          "id": "plan",
+          "title": "Erreur 3",
+          "text": "Erreur 3 : un plan figé",
+          "sub": "Relance l’œil toutes les 2 secondes.",
+          "emphasis": "plan figé",
+          "layout": "stack",
+          "bridge": "cut",
+          "actor": "bar",
+          "camera": "drift",
+          "seconds": 4.2,
+          "start": 12.6,
+          "end": 16.8
+        },
+        {
+          "id": "abonne",
+          "title": "Abonne-toi",
+          "text": "Zéro erreur dans ton prochain reel",
+          "sub": "Abonne-toi",
+          "emphasis": "prochain reel",
+          "layout": "cta",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "push",
+          "seconds": 3.2,
+          "start": 16.8,
+          "end": 20
+        }
+      ],
+      "moments": [
+        {
+          "id": "egaliseur",
+          "brief": "Une onde sonore s’agite puis s’éteint sous un trait : la plupart regardent sans le son.",
+          "from": "son",
+          "to": "son",
+          "zone": "below",
+          "code": {
+            "html": "<svg class=\"eq\" viewBox=\"0 0 900 540\" aria-hidden=\"true\"><g class=\"bars\"><rect class=\"bar\" x=\"188\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"268\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"348\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"428\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"508\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"588\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/><rect class=\"bar\" x=\"668\" y=\"248\" width=\"44\" height=\"44\" rx=\"22\" fill=\"currentColor\"/></g><line class=\"slash\" x1=\"290\" y1=\"440\" x2=\"610\" y2=\"100\" stroke=\"currentColor\" stroke-width=\"20\" stroke-linecap=\"round\" stroke-dasharray=\"520 600\" stroke-dashoffset=\"540\"/></svg>",
+            "css": "svg{display:block;width:900px;height:540px}.bars{color:var(--accent)}.slash{color:var(--ink)}",
+            "js": "const bars = root.querySelectorAll(\".bar\");\nconst slash = root.querySelector(\".slash\");\nconst peaks = [120, 210, 160, 260, 150, 230, 110];\nfor (let i = 0; i < bars.length; i++) {\n  mt.to(bars[i], { attr: { y: 270 - peaks[i] / 2, height: peaks[i] }, duration: 0.3, ease: \"sine.inOut\", repeat: 3, yoyo: true }, 0.25 + i * 0.05);\n}\nconst hush = Math.min(2.1, D * 0.5);\nmt.to(bars, { opacity: 0.35, duration: 0.5, ease: \"power2.out\", stagger: 0.03 }, hush);\nmt.to(slash, { strokeDashoffset: 0, duration: 0.7, ease: \"expo.out\" }, hush + 0.25);"
+          }
+        }
+      ],
+      "caption": "3 erreurs qui font zapper ton reel dès les premières secondes.\n\n1. Te présenter avant la promesse\n2. Tout miser sur le son\n3. Garder un plan figé\n\nTu en fais combien ? Abonne-toi pour la suite.\n\n#reels #instagram #createurdecontenu",
+      "seed": 542867949,
+      "tools": {
+        "worker": "0.14.0",
+        "hyperframes": "0.8.137"
+      }
+    }
+  },
+  "notes": "Un seul rond orange relie les trois erreurs : il surligne, ponctue, souligne puis s’efface devant l’onde muette. Une coupe sèche marque le plan figé."
+}

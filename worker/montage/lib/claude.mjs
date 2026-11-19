@@ -1,6 +1,6 @@
 // Propositions de Claude Code (abonnement du Mac) : choix des phrases, ordre, mots coupés, 3 accroches, fin, zooms,
 // mots clés, emojis, musique ; textes de prompteur. Read reste permis : Claude lit les images des notes dessinées.
-import { run, log } from "./util.mjs";
+import { run, log, sleep, fmtDelay } from "./util.mjs";
 import { voiceRules } from "./voice.mjs";
 
 const wordRefs = (description) => ({
@@ -165,4 +165,187 @@ RÈGLES
 Réponds uniquement avec le JSON demandé.`;
   log("B-roll d'un passage demandé à Claude");
   return ask(cfg, prompt, BROLL_SCHEMA, cwd);
+}
+
+// ─── Reel vidéo : appels en flux, outils restreints, délais (worker 0.15.0) ─────────────────────────────────────────
+
+/** Drapeaux lus par `claude --help`, par binaire : { f, until } (une lecture réussie vaut pour tout le processus). */
+const flagsCache = new Map();
+const FLAGS_RETRY_MS = 5 * 60_000;
+
+/**
+ * Ce que le `claude` du Mac sait faire, lu dans `claude --help` : --restricted, --tools, stream-json,
+ * --include-partial-messages, --effort… `ok` = le chemin vidéo complet est possible (sinon : écriture par l'ancien
+ * appel, sans relecture). `cfg.reel.restricted === false` (écrit par --setup-reel quand le mode restreint échoue à
+ * l'authentification) force aussi l'ancien appel. Une lecture réussie est gardée pour tout le processus ; un échec
+ * (délai, Claude Code en pleine mise à jour) est retenté une fois tout de suite, puis gardé 5 min seulement.
+ */
+export async function claudeFlags(cfg, { refresh = false, retryMs = 2000 } = {}) {
+  const bin = cfg.claude.bin;
+  const hit = flagsCache.get(bin);
+  let f = !refresh && hit && hit.until > Date.now() ? hit.f : null;
+  if (!f) {
+    let help = "", gone = false;
+    // Un binaire absent (ENOENT, EACCES) ne se répare pas en 2 s : pas de second essai.
+    for (let k = 0; k < 2 && !help && !gone; k++) {
+      if (k) await sleep(retryMs);
+      try { help = await run(bin, ["--help"], { timeoutMs: 20_000 }); } catch (e) { help = ""; gone = !!binMissing(e); }
+    }
+    const has = (re) => re.test(help);
+    f = {
+      found: !!help, gone: !help && gone,
+      restricted: has(/--restricted\b/), tools: has(/--tools\b/), stream: has(/stream-json/), partial: has(/--include-partial-messages/),
+      effort: has(/--effort\b/), strictMcp: has(/--strict-mcp-config/), noSession: has(/--no-session-persistence/), schema: has(/--json-schema/),
+    };
+    f.missing = [!f.restricted && "--restricted", !f.tools && "--tools", !f.stream && "stream-json"].filter(Boolean);
+    flagsCache.set(bin, { f, until: help ? Infinity : Date.now() + FLAGS_RETRY_MS });
+    if (!help) log(gone ? `Claude Code introuvable (claude.bin = ${bin}) : les vidéos échoueront tant que config.json n'est pas corrigé (nouvel essai dans 5 min)` : "claude --help ne répond pas : les vidéos passent par l'ancien appel (nouvel essai dans 5 min)");
+  }
+  const refused = cfg.reel?.restricted === false;
+  // why : pourquoi le chemin complet n'est pas possible ("absent" : --help ne répond pas ; "old" : Claude Code trop
+  // ancien ; "restricted-refused" : --setup-reel a vu le mode restreint refusé à la connexion ; "" : tout va bien).
+  const why = !f.found ? "absent" : f.missing.length ? "old" : refused ? "restricted-refused" : "";
+  return { ...f, ok: f.restricted && f.tools && f.stream && !refused, why };
+}
+
+/** Pourquoi la relecture en images est désactivée, en clair pour Antoine (why de claudeFlags). */
+export function flagsNote(why) {
+  if (why === "restricted-refused") return "Relecture en images désactivée : Claude refuse le mode restreint sur ce Mac. Dans un Terminal, lance « claude » puis /login, puis node montage.mjs --setup-reel.";
+  if (why === "absent") return "Relecture en images sautée : Claude Code ne répond pas sur le Mac (nouvel essai à la prochaine vidéo).";
+  return "Relecture en images désactivée : mets Claude Code à jour sur le Mac.";
+}
+
+const TIMEOUT_TEXT = {
+  write: (d) => `Claude n'a pas fini d'écrire la vidéo en ${d} et a été arrêté. Réessaie, ou raccourcis la demande.`,
+  review: (d) => `Claude n'a pas fini de relire les images en ${d}.`,
+  revise: (d) => `Claude n'a pas fini la retouche en ${d} et a été arrêté. Réessaie avec une demande plus précise.`,
+};
+
+/** Classe une erreur de Claude : connexion, limite de l'abonnement, erreur passagère (une nouvelle tentative) ou autre. */
+function claudeTrouble(text, rate) {
+  const t = String(text || "");
+  if (/OAuth|authenticat|not logged|log ?in|\/login|invalid api key|401\b/i.test(t)) {
+    return { kind: "auth", message: "Claude Code n'est plus connecté sur le Mac. Ouvre un Terminal, lance « claude » puis /login, puis réessaie." };
+  }
+  if (/rate.?limit|usage limit|limit reached|reached your|quota|429\b|weekly limit|5-hour limit/i.test(t) || rate?.status === "rejected") {
+    const at = Number(rate?.resetsAt) > 0 ? new Date(rate.resetsAt * 1000).toLocaleString("fr-CH", { weekday: "long", hour: "2-digit", minute: "2-digit" }) : "";
+    return { kind: "limit", message: `Limite de l'abonnement Claude atteinte${at ? ` (remise à zéro ${at})` : ""} : réessaie plus tard.` };
+  }
+  if (/overloaded|\b529\b|\b50[234]\b|timed? ?out|ECONNRESET|ETIMEDOUT|socket hang up|network/i.test(t)) return { kind: "transient", message: `Claude est momentanément indisponible (${t.slice(0, 160)}).` };
+  return { kind: "other", message: `Claude : ${t.slice(0, 400) || "erreur inconnue"}` };
+}
+
+const err = (message, code, extra = {}) => Object.assign(new Error(message), { code }, extra);
+
+/** Le lancement même de la commande a échoué (binaire absent ou non exécutable) : le code (ENOENT, EACCES), sinon null. */
+const binMissing = (e) => (e && /^spawn\b/.test(String(e.syscall || "")) && ["ENOENT", "EACCES"].includes(e.code) ? e.code : null);
+
+/** Le message clair quand Claude Code manque sur le Mac (au lieu de « spawn …/claude ENOENT »). */
+export const claudeMissing = (cfg, code = "ENOENT") =>
+  err(`Claude Code est introuvable sur le Mac (claude.bin = ${cfg.claude.bin}, ${code}) : corrige « claude.bin » dans config.json, puis lance node montage.mjs --check.`, "CLAUDE_MISSING");
+
+/**
+ * Appel de Claude Code pour le reel vidéo, en flux : `claude -p --output-format stream-json --verbose
+ * --include-partial-messages --json-schema S --restricted --strict-mcp-config --no-session-persistence --tools T`.
+ * Le prompt passe par stdin ; `cwd` = le dossier dédié de l'appel (seules ses entrées s'y trouvent : Read reste confiné).
+ * - `tools` : "" (aucun outil) ou "Read" ;
+ * - `timeoutMs`, `signal` : arrêt du groupe de processus ; `what` ("write" | "review" | "revise") choisit le message ;
+ * - `onDelta(texte, total)` : chaque morceau de la réponse en cours d'écriture (avancement de la phase write) ;
+ * - `effort` : --effort (cfg.reel.effort par défaut) ; `stats` : objet rempli avec { ms, chars, cost, degraded, retried }.
+ * Renvoie structured_output. Une seule nouvelle tentative, 20 s plus tard, sur une erreur passagère. Erreurs : `code`
+ * TIMEOUT, AUTH, LIMIT, BAD_OUTPUT (sortie illisible : l'appelant peut redemander une fois) ou CLAUDE.
+ * Si le claude du Mac est trop ancien (claudeFlags().ok faux), passe par l'appel JSON d'origine (avec délai), sans flux.
+ */
+export async function askStream(cfg, prompt, schema, cwd, { tools = "", timeoutMs = 360_000, signal, onDelta, effort = cfg.reel?.effort, what = "write", stats = {}, retry = true, retryMs = 20_000 } = {}) {
+  // Jamais sans délai : 0, NaN ou une valeur illisible (coquille de config.json) reprend 6 min.
+  if (!(Number.isFinite(timeoutMs) && timeoutMs > 0)) timeoutMs = 360_000;
+  if (typeof effort !== "string" || !/^[a-z]{1,12}$/.test(effort.trim())) effort = "";
+  const f = await claudeFlags(cfg);
+  const t0 = Date.now();
+  if (!f.ok) {
+    stats.degraded = true;
+    return plainAsk(cfg, prompt, schema, cwd, { timeoutMs, signal, what, stats, t0, tools, f });
+  }
+  const args = ["-p", "--output-format", "stream-json", "--verbose", ...(f.partial ? ["--include-partial-messages"] : []),
+    "--json-schema", JSON.stringify(schema), "--restricted", ...(f.strictMcp ? ["--strict-mcp-config"] : []), ...(f.noSession ? ["--no-session-persistence"] : [])];
+  if (cfg.claude.model) args.push("--model", cfg.claude.model);
+  if (effort && f.effort) args.push("--effort", effort.trim());
+  args.push("--tools", tools);
+  let result = null, rate = null, chars = 0;
+  const onLine = (line, which) => {
+    if (which !== "stdout" || line[0] !== "{") return;
+    let j;
+    try { j = JSON.parse(line); } catch { return; }
+    if (j.type === "stream_event" && j.event?.type === "content_block_delta") {
+      const d = j.event.delta || {};
+      const t = typeof d.partial_json === "string" ? d.partial_json : typeof d.text === "string" ? d.text : "";
+      if (t) { chars += t.length; onDelta?.(t, chars); }
+    } else if (j.type === "result") result = j;
+    else if (j.type === "rate_limit_event") rate = j.rate_limit_info || null;
+  };
+  let failure = null;
+  try {
+    await run(cfg.claude.bin, args, { input: prompt, cwd, timeoutMs, signal, onLine, keep: 64 * 1024 });
+  } catch (e) {
+    if (e.code === "TIMEOUT") throw err((TIMEOUT_TEXT[what] || TIMEOUT_TEXT.write)(fmtDelay(timeoutMs)), "TIMEOUT");
+    if (signal?.aborted) throw e;
+    if (binMissing(e)) throw claudeMissing(cfg, binMissing(e));
+    failure = e;
+  }
+  stats.ms = Date.now() - t0; stats.chars = chars;
+  if (result) { stats.cost = result.total_cost_usd; }
+  const trouble = result?.is_error || !result ? claudeTrouble(result?.result || result?.subtype || failure?.stderr || failure?.message, rate) : null;
+  if (trouble) {
+    if (trouble.kind === "transient" && retry) {
+      log(`Claude indisponible (${trouble.message.slice(0, 120)}) : nouvel essai dans ${Math.round(retryMs / 1000)} s`);
+      await sleep(retryMs);
+      if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : err("Annulé.", "ABORT");
+      stats.retried = true;
+      return askStream(cfg, prompt, schema, cwd, { tools, timeoutMs, signal, onDelta, effort, what, stats, retry: false, retryMs });
+    }
+    if (trouble.kind === "auth") throw err(trouble.message, "AUTH");
+    if (trouble.kind === "limit") throw err(trouble.message, "LIMIT");
+    if (result && /structured|schema|max_turns/i.test(`${result.subtype} ${result.result}`)) throw err(`réponse hors du format demandé (${String(result.result || result.subtype).slice(0, 160)})`, "BAD_OUTPUT");
+    throw err(trouble.message, "CLAUDE");
+  }
+  log(`Claude (${what}) : ${(stats.ms / 1000).toFixed(0)} s, ${chars} caractères${stats.cost ? `, ${stats.cost.toFixed(2)} $` : ""}`);
+  return structured(result);
+}
+
+/** La réponse structurée d'un événement result (ou le premier objet JSON de son texte). */
+function structured(result) {
+  if (result?.structured_output && typeof result.structured_output === "object") return result.structured_output;
+  const m = String(result?.result || "").match(/\{[\s\S]*\}/);
+  if (!m) throw err("Claude n'a pas renvoyé de JSON.", "BAD_OUTPUT");
+  try { return JSON.parse(m[0]); } catch (e) { throw err(`JSON illisible (${e.message.slice(0, 80)})`, "BAD_OUTPUT"); }
+}
+
+/**
+ * L'appel d'origine (ask) avec un délai et une annulation : pour un claude trop ancien pour le mode restreint, ou
+ * quand le mode restreint échoue à l'authentification (reel.restricted = false). Ce que le claude du Mac sait faire
+ * sans --restricted est quand même pris : --tools (seuls les outils demandés, Read ou aucun), --strict-mcp-config
+ * (aucun serveur MCP de l'utilisateur) et --no-session-persistence ; --disallowedTools reste en plus.
+ */
+async function plainAsk(cfg, prompt, schema, cwd, { timeoutMs, signal, what, stats, t0, tools = "", f = {} }) {
+  const args = ["-p", "--output-format", "json", "--disallowedTools", "Bash", "Edit", "Write", "WebFetch", "WebSearch", "NotebookEdit", "--json-schema", JSON.stringify(schema)];
+  if (f.tools) args.push("--tools", tools);
+  if (f.strictMcp) args.push("--strict-mcp-config");
+  if (f.noSession) args.push("--no-session-persistence");
+  if (cfg.claude.model) args.push("--model", cfg.claude.model);
+  let out;
+  try {
+    out = await run(cfg.claude.bin, args, { input: prompt, cwd, timeoutMs, signal });
+  } catch (e) {
+    if (e.code === "TIMEOUT") throw err((TIMEOUT_TEXT[what] || TIMEOUT_TEXT.write)(fmtDelay(timeoutMs)), "TIMEOUT");
+    if (signal?.aborted) throw e;
+    if (binMissing(e)) throw claudeMissing(cfg, binMissing(e));
+    const t = claudeTrouble(e.message);
+    throw err(t.message, t.kind === "auth" ? "AUTH" : t.kind === "limit" ? "LIMIT" : "CLAUDE");
+  }
+  stats.ms = Date.now() - t0;
+  let j;
+  try { j = JSON.parse(out); } catch { throw err("Claude n'a pas renvoyé de JSON.", "BAD_OUTPUT"); }
+  if (j.is_error) { const t = claudeTrouble(j.result); throw err(t.message, t.kind === "auth" ? "AUTH" : t.kind === "limit" ? "LIMIT" : "CLAUDE"); }
+  stats.cost = j.total_cost_usd;
+  return structured(j);
 }

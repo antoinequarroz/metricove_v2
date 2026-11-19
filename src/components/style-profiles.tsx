@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDown, ImagePlus, Lightbulb, Loader2, Plus, Save, X } from "lucide-react";
+import { Check, ChevronDown, Compass, ImagePlus, Lightbulb, Loader2, Palette, Plus, Save, Sparkles, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type Look, MAX_EXAMPLE, MAX_EXAMPLES, MAX_IDEA, MAX_IDEAS, MAX_REF_IMAGES, MAX_SKILL, MAX_TONE, PRESETS, presetOf, sameLook, sameTexts, type StyleProfile } from "@/lib/profiles";
@@ -10,6 +11,8 @@ import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import { appFonts, type Deck, type Fonts, loadFonts, newSlide } from "@/lib/visuals";
 import { Field, inputClass, LookControls, SlideCanvas } from "./montage/look-parts";
+import { CHARTE_ACCEPT, type CharteResult } from "@/lib/strategy";
+import { JobProgress, OldWorkerNote, SourcePicker, startReading, useProjectJob, workerTooOld } from "./brand-reading";
 import { Button } from "./ui";
 
 /** The style profile of each project: the look of its visuals and the voice Claude writes in. */
@@ -116,6 +119,7 @@ function ProfileCard({ project, profile, fonts, open, onToggle, hooks }: { proje
           <span className="block truncate text-[12px] text-ink-3">
             {profile.saved ? "Style personnalisé" : `Style de départ ${presetOf(profile.preset).label}`}
             {profile.skill ? " · skill relié" : ""}
+            {profile.strategy.trim() ? " · stratégie" : ""}
             {dirty ? " · modifications non enregistrées" : ""}
           </span>
         </span>
@@ -128,6 +132,7 @@ function ProfileCard({ project, profile, fonts, open, onToggle, hooks }: { proje
             <p className="mt-2 text-center text-[11.5px] text-ink-3">Aperçu d&apos;un visuel</p>
           </div>
           <div className="flex min-w-0 flex-col gap-3">
+            <CharteImport project={project} draft={draft} setDraft={setDraft} fonts={fonts} />
             <LookControls look={draft.look} onChange={(p) => setDraft((d) => ({ ...d, look: { ...d.look, ...p } }))} suggestedHandle={suggestedHandle} />
             <Field label="Ton de Claude (descriptions, posts, textes de prompteur)">
               <textarea
@@ -315,6 +320,138 @@ function References({ project, profile, draft, setDraft, hooks }: { project: Pro
         </div>
         <span className="text-[11.5px] text-ink-3">Elles apparaissent dans Studio → Carrousel et photo, sous « Écrit par Claude ».</span>
       </Field>
+    </div>
+  );
+}
+
+const FONT_NAME = { serif: "Serif", sans: "Sans", grotesque: "Grotesque" } as const;
+
+/** A charte (PDF, images, the website) read by Claude, turned into a look for this profile. */
+function CharteImport({ project, draft, setDraft, fonts }: { project: Project; draft: Draft; setDraft: React.Dispatch<React.SetStateAction<Draft>>; fonts: Fonts | null }) {
+  const reading = useProjectJob(project.id, (j) => j.kind === "brand" && j.brand?.mode === "charte");
+  const [open, setOpen] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [url, setUrl] = useState("");
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [withTone, setWithTone] = useState(false);
+  const old = workerTooOld(reading.worker);
+  const job = reading.job;
+  const result = job?.status === "done" ? (job.brand?.result as CharteResult | undefined) : undefined;
+  const failed = job && (job.status === "failed" || job.status === "cancelled") ? job : undefined;
+  const proposed: Look | undefined = result ? { ...draft.look, ...result.look, logo: result.look.logo ?? draft.look.logo } : undefined;
+  const slides = useMemo(() => [newSlide(project.name, "Le style tiré de ta charte."), newSlide("Suite", "")], [project.name]);
+
+  const read = async () => {
+    if (sending) return;
+    setSending(true);
+    try {
+      await startReading(project.id, "charte", { files, url, text });
+      setFiles([]);
+      setUrl("");
+      setText("");
+      setOpen(false);
+      reading.refresh();
+    } catch (e) {
+      toast.error("Lecture impossible", { description: (e as Error).message });
+    } finally {
+      setSending(false);
+    }
+  };
+  const apply = () => {
+    if (!proposed || !job) return;
+    setDraft((d) => ({ ...d, look: proposed, ...(withTone && result?.tone ? { tone: result.tone } : {}) }));
+    reading.dismiss(job.id);
+    toast.success("Charte appliquée au style", { description: "Vérifie l'aperçu, puis clique sur Enregistrer." });
+  };
+
+  if (job && reading.running) return <JobProgress job={job} worker={reading.worker} onCancel={() => reading.dismiss(job.id)} />;
+  if (failed)
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-danger/25 bg-danger/[0.06] px-3 py-2 text-[12.5px]">
+        <p className="min-w-0 flex-1">Claude n&apos;a pas pu lire la charte{failed.error ? ` : ${failed.error}` : "."}</p>
+        <Button size="sm" variant="ghost" onClick={() => reading.dismiss(failed.id)}>
+          Fermer
+        </Button>
+      </div>
+    );
+  if (result && proposed && job)
+    return (
+      <div className="rise flex flex-col gap-3 rounded-xl border border-accent/30 bg-accent-soft/40 p-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-4 text-accent" />
+          <p className="min-w-0 flex-1 text-[13px] font-medium">Style tiré de la charte</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)]">
+          <div className="max-sm:mx-auto max-sm:w-32">
+            <SlideCanvas deck={{ ...proposed, format: "4:5", slides, caption: "" }} index={0} fonts={fonts} className="rounded-lg shadow-[0_10px_24px_-12px_rgba(0,0,0,0.4)]" />
+          </div>
+          <div className="flex min-w-0 flex-col gap-2 text-[12.5px]">
+            {result.colors.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {result.colors.map((c) => (
+                  <span key={c.hex} title={c.name ? `${c.name} ${c.hex}` : c.hex} className="flex items-center gap-1 rounded-full border border-line bg-surface py-0.5 pr-2 pl-0.5 text-[11px] text-ink-2">
+                    <span className="size-4 rounded-full shadow-[0_0_0_1px_var(--line-strong)]" style={{ background: c.hex }} />
+                    {c.name ?? c.hex}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="text-ink-2">
+              Police : <span className="font-medium text-ink">{FONT_NAME[proposed.font]}</span>
+              {result.fonts.length ? <span className="text-ink-3"> (la charte utilise {result.fonts.join(", ")})</span> : null}
+              {result.look.logo ? " · logo récupéré" : ""}
+            </p>
+            {result.notes && <p className="leading-snug text-ink-3">{result.notes}</p>}
+            {result.tone && (
+              <label className="flex cursor-pointer items-start gap-2 text-ink-2">
+                <input type="checkbox" checked={withTone} onChange={(e) => setWithTone(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]" />
+                <span>
+                  Prendre aussi le ton de la charte :<span className="block whitespace-pre-line text-ink-3">{result.tone}</span>
+                </span>
+              </label>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => reading.dismiss(job.id)}>
+            Ignorer
+          </Button>
+          <Button size="sm" variant="primary" className="ml-auto" onClick={apply}>
+            <Check className="size-3.5" />
+            Appliquer au style
+          </Button>
+        </div>
+      </div>
+    );
+  if (!open)
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-2/50 px-3 py-2.5">
+        <Palette className="size-4 shrink-0 text-accent" />
+        <p className="min-w-0 flex-1 text-[12.5px] text-ink-2">Une charte graphique ? Claude en tire les couleurs, la police et le logo.</p>
+        <Button size="sm" onClick={() => setOpen(true)}>
+          Importer une charte
+        </Button>
+        <Link href="/strategy" className="press inline-flex h-7 items-center gap-1 rounded-lg px-2 text-[12.5px] font-medium text-ink-2 hover:bg-ink/5 hover:text-ink">
+          <Compass className="size-3.5" />
+          Stratégie
+        </Link>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2/40 p-3">
+      <p className="text-[12.5px] text-ink-2">Dépose la charte (PDF, captures du brand book, fichier CSS) ou donne l&apos;adresse du site : Claude la lit sur ton Mac et propose le style. Rien ne change avant que tu l&apos;appliques.</p>
+      <SourcePicker files={files} setFiles={setFiles} url={url} setUrl={setUrl} text={text} setText={setText} accept={CHARTE_ACCEPT} hint="PDF, images, PowerPoint, Word, CSS ou texte · 4 fichiers, 9 Mo chacun" onError={(m) => toast.error(m)} />
+      {old && <OldWorkerNote />}
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Annuler
+        </Button>
+        <Button size="sm" variant="primary" className="ml-auto" onClick={read} disabled={sending || old || (!files.length && !url.trim() && !text.trim())}>
+          <Sparkles className="size-3.5" />
+          {sending ? "Envoi…" : "Lire avec Claude"}
+        </Button>
+      </div>
     </div>
   );
 }

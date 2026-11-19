@@ -1,0 +1,59 @@
+{
+  "_doc": [
+    "Rendu de mesure (node montage.mjs --setup-reel, paquet B) : un ReelPlan direct de 3 s (un temps fort fixé), sans moment ni Claude.",
+    "Il ne passe pas par cleanScore (qui impose 15 s au moins) : stagePage le rend tel quel. Grain, halos, forme et dérive : le coût par image est celui d'une vraie vidéo."
+  ],
+  "plan": {
+    "scenes": [],
+    "look": {
+      "theme": "night",
+      "accent": "#ff5a1f",
+      "font": "grotesque",
+      "fields": [],
+      "grid": false,
+      "pill": false,
+      "align": "left",
+      "valign": "middle",
+      "grain": true,
+      "numbers": true,
+      "handle": "@metricove",
+      "logo": ""
+    },
+    "logo": false,
+    "music": false,
+    "volume": 0.7,
+    "track": "",
+    "texts": [],
+    "pace": "normal",
+    "duration": 3,
+    "video": {
+      "engine": 1,
+      "request": "Rendu de mesure",
+      "source": "idea",
+      "title": "Le plateau est prêt",
+      "shape": "orb",
+      "beats": [
+        {
+          "id": "pret",
+          "title": "Prêt",
+          "text": "Le plateau est prêt",
+          "emphasis": "prêt",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "highlight",
+          "camera": "drift",
+          "seconds": 3,
+          "fixed": true,
+          "start": 0,
+          "end": 3
+        }
+      ],
+      "moments": [],
+      "seed": 1096763727,
+      "tools": {
+        "worker": "0.14.0",
+        "hyperframes": "0.8.137"
+      }
+    }
+  }
+}

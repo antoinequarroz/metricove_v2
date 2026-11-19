@@ -11,6 +11,7 @@ import { lookOf, sameLook } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
+import { atLeast } from "@/lib/worker-version";
 import {
   appFonts,
   type Deck,
@@ -32,24 +33,19 @@ import {
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
 import { Field, inputClass, LookControls, SlideCanvas, Toggle } from "./look-parts";
-import { PageHeader, Progress, StudioTabs, VideoTabs } from "./parts";
+import { MediaHeader, Progress, StudioTabs } from "./parts";
 import { montageApi, useMontage } from "./use-montage";
 
 /** Oldest Mac program that knows how to write a whole post, and the one that animates a reel. */
-const POST_WORKER = [0, 2, 0];
-const MOTION_WORKER = [0, 6, 0];
+const POST_WORKER = "0.2.0";
+const MOTION_WORKER = "0.6.0";
 /** Oldest Mac program that lets Claude write a scene's animation (free motion design). */
-const ANIM_WORKER = [0, 7, 0];
+const ANIM_WORKER = "0.7.0";
 /** First worker that follows a direction for the whole reel and a pace. */
-const DIRECT_WORKER = [0, 8, 0];
+const DIRECT_WORKER = "0.8.0";
 const PACES = { calm: 1.25, normal: 1, fast: 0.8 } as const;
 type Pace = keyof typeof PACES;
 const DIRECTION_KEY = "metricove-reel-direction-v1";
-const atLeast = (version: string | undefined, min: number[]) => {
-  const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
-  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
-  return true;
-};
 
 /** Seconds a scene stays on screen. Same rule as the Mac (worker/montage/lib/motion.mjs). */
 const sceneSeconds = (s: Slide, last: boolean) =>
@@ -183,6 +179,18 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   const { data, refresh } = useMontage();
   const [idea, setIdea] = useState("");
   const [count, setCount] = useState(5);
+  // An idea sent from the Stratégie page (?idee=…&n=…): it waits in the field, nothing is asked yet.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const sent = q.get("idee")?.trim();
+    if (!sent) return;
+    setIdea(sent.slice(0, 3000));
+    const n = parseInt(q.get("n") ?? "", 10);
+    if (n >= 1) setCount(Math.min(n, max));
+    // The old scene editor lives at ?editeur=scenes: a reload must stay on it.
+    const editor = q.get("editeur");
+    window.history.replaceState(null, "", window.location.pathname + (editor ? `?editeur=${encodeURIComponent(editor)}` : ""));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [jobId, setJobId] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   // Posts already taken into the editor: their request is being deleted, the list may still show it for a moment.
@@ -300,7 +308,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   const reel = data?.jobs.find((j) => j.id === reelId);
   const motionOld = motion && !!data?.worker.version && !atLeast(data.worker.version, MOTION_WORKER);
   // An older Mac program sends the reel straight to the library, without the editing screen.
-  const reviewOld = motion && !!data?.worker.version && !atLeast(data.worker.version, [0, 9, 0]);
+  const reviewOld = motion && !!data?.worker.version && !atLeast(data.worker.version, "0.9.0");
   const animOld = motion && !motionOld && !!data?.worker.version && !atLeast(data.worker.version, ANIM_WORKER) && deck.slides.some((s) => s.anim?.trim());
   const baseSeconds = deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0);
   // With a direction and no pace, Claude chooses the pace: the length is only known as a range. An old Mac ignores both.
@@ -313,12 +321,15 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
         : `environ ${Math.round(baseSeconds)} s`;
   const playMedia = useStore((s) => s.playMedia);
   const router = useRouter();
+  /** The settings column, which scrolls on its own on a computer. */
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   // A reel asked earlier (this visit or another): follow it, show it when it is there, clean up after it.
   useEffect(() => {
     if (!motion || !data) return;
     // A reel with a version lives in the editing screen: this page only waits for the first one.
-    const reels = data.jobs.filter((j) => j.kind === "motion" && !j.versions.length && !taken.includes(j.id));
+    // A continuous video (mode "video") belongs to the Studio "Reel animé": this older editor neither follows nor deletes it.
+    const reels = data.jobs.filter((j) => j.kind === "motion" && j.motion?.mode !== "video" && !j.versions.length && !taken.includes(j.id));
     const arrived = reelId ? data.jobs.find((j) => j.id === reelId && j.kind === "motion" && j.versions.length > 0) : undefined;
     if (arrived) {
       setReelId(null);
@@ -378,6 +389,8 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
       setReelMedia(null);
       setReelId(job.id);
       refresh();
+      // On a computer the progress shows at the top of the settings: brought into view if they were scrolled.
+      settingsRef.current?.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     } catch (e) {
       toast.error("Demande impossible", { description: (e as Error).message });
     } finally {
@@ -391,6 +404,72 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
     setReelId(null);
   };
   const reelFile = reelMedia ? media.find((m) => m.id === reelMedia) : undefined;
+
+  // ---- Layout on a computer: the preview follows the window, the thumbnails and the settings scroll on their own ----
+  const previewRef = useRef<HTMLDivElement>(null);
+  const thumbsRef = useRef<HTMLDivElement>(null);
+  // The preview's size follows the window: once a resize ends, it is drawn again at its new size, so it stays sharp.
+  const [redraw, setRedraw] = useState(0);
+  useEffect(() => {
+    const box = previewRef.current;
+    if (!box || !fonts) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let density: MediaQueryList | undefined;
+    function check() {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const canvas = box?.querySelector("canvas");
+        if (!canvas?.clientWidth) return;
+        // Same size as SlideCanvas draws (look-parts.tsx): only a bitmap that no longer fits is drawn again.
+        if (canvas.width !== Math.min(W, Math.round(canvas.clientWidth * Math.min(2, window.devicePixelRatio || 1)))) setRedraw((n) => n + 1);
+      }, 150);
+    }
+    // A window moved to a screen of another density keeps its size in CSS pixels: only its density tells.
+    function watchDensity() {
+      density?.removeEventListener("change", onDensity);
+      density = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      density.addEventListener("change", onDensity);
+    }
+    function onDensity() {
+      check();
+      watchDensity();
+    }
+    const observer = new ResizeObserver(check);
+    observer.observe(box);
+    watchDensity();
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+      density?.removeEventListener("change", onDensity);
+    };
+  }, [fonts]);
+  // SlideCanvas draws again when what it draws changes: the redraw count is part of it.
+  const previewDeck = useMemo(() => ({ ...deck, redraw }), [deck, redraw]);
+  const thumbEdges = useScrollEdges(thumbsRef, [deck.slides.length, deck.format, max]);
+  const settingsEdges = useScrollEdges(settingsRef, [reelId, editing.length, animOld, motionOld, reelFile?.id, motion]);
+  // The selected slide is always in view in the thumbnails, also right after a "+" at the end of a long list.
+  useEffect(() => {
+    const list = thumbsRef.current;
+    const item = list?.querySelectorAll<HTMLElement>("[role=tab]")[index];
+    if (!list || !item) return;
+    const l = list.getBoundingClientRect();
+    const r = item.getBoundingClientRect();
+    const room = 20; // Clear of the fade at the edges.
+    const top = r.top < l.top + room ? r.top - l.top - room : r.bottom > l.bottom - room ? r.bottom - l.bottom + room : 0;
+    const left = r.left < l.left + room ? r.left - l.left - room : r.right > l.right - room ? r.right - l.right + room : 0;
+    if (top || left) list.scrollBy({ top, left, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [index, deck.slides.length]);
+  // A classic scrollbar (Windows, Linux) takes its width from the settings' right padding: the panels stay aligned with the buttons above.
+  const [scrollbar, setScrollbar] = useState(0);
+  useEffect(() => {
+    const el = settingsRef.current;
+    if (!el) return;
+    const measure = () => setScrollbar(el.offsetWidth ? Math.max(0, el.offsetWidth - el.clientWidth) : 0);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // ---- Create the post ----
   const [making, setMaking] = useState<{ done: number; total: number } | null>(null);
@@ -441,19 +520,22 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
     return a ? `@${a.handle}` : "";
   }, [project, accounts]);
 
+  const motionHelp =
+    "L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut. Pour un motion design sur mesure, décris-le dans « Animation » : Claude écrit la scène.";
+
   return (
     <>
-      <PageHeader kicker="Vidéos" title="Studio">
-        <VideoTabs />
-      </PageHeader>
-      <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
-        <div className="mx-auto max-w-[1680px]">
+      <MediaHeader />
+      {/* On a computer the screen fits the window: only the settings column scrolls, the preview never leaves the view. */}
+      <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4 lg:flex lg:min-h-0 lg:flex-col">
+        <div className="mx-auto w-full max-w-[1680px] lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <StudioTabs />
             <div className="ml-auto flex items-center gap-2">
               <Button variant="ghost" onClick={reset} disabled={!!making} title={motion ? "Repartir d'une scène vide" : "Repartir d'un visuel vide"}>
                 <RotateCcw className="size-4" />
-                <span className="max-sm:hidden">Recommencer</span>
+                {/* Just above a tablet, the button stays on the line of the tabs: the height goes to the preview. */}
+                <span className="max-sm:hidden lg:max-xl:hidden">Recommencer</span>
               </Button>
               {motion ? (
                 reelId ? (
@@ -476,119 +558,140 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
             </div>
           </div>
 
-          {motion && reelId && (
-            <div className="mb-4 rounded-xl border border-line bg-surface p-4" aria-live="polite">
-              <p className="mb-2 flex items-center gap-2 text-[13px] font-medium">
-                <Loader2 className="size-4 animate-spin text-accent" />
-                {reel?.step ?? (data?.worker.online ? "Ton Mac prépare le reel…" : "En attente de ton Mac (éteint ou en veille)…")}
-              </p>
-              <Progress value={reel?.status === "working" ? reel.progress : undefined} />
-              <p className="mt-2 text-[12px] text-ink-3">{reviewOld ? "Compte une à deux minutes. Tu peux quitter la page : le reel arrivera dans la bibliothèque." : "Compte une à deux minutes. Dès qu'il est prêt, il s'ouvre dans l'écran de montage pour le retoucher. Tu peux aussi quitter la page."}</p>
-            </div>
-          )}
-          {editing.length > 0 && (
-            <div className="mb-4 rounded-xl border border-line bg-surface p-3">
-              <p className="mb-2 text-[12.5px] font-medium text-ink-2">Reels à retoucher ou à valider</p>
-              <div className="flex flex-wrap gap-2">
-                {editing.slice(0, 6).map((j) => (
-                  <Link key={j.id} href={`/videos/montage/${j.id}`} className="press flex items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 text-[12.5px] hover:border-accent/50">
-                    <Clapperboard className="size-3.5 text-accent" />
-                    <span className="max-w-[220px] truncate">{j.title}</span>
-                    <span className="text-ink-3">version {j.versions.at(-1)!.n}</span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-          {animOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">{"Le programme de ton Mac ne sait pas encore écrire les animations demandées (version 0.7.0) : ces scènes auront l'animation standard."}</p>}
-          {motion && motionOld && <p className="mb-4 rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">Le programme de ton Mac est trop ancien pour animer un reel : mets-le à jour (version 0.6.0).</p>}
-          {motion && reelFile && !reelId && (
-            <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface p-4">
-              {reelFile.url && <video src={reelFile.url} controls playsInline preload="metadata" className="h-[280px] rounded-lg bg-black" />}
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <p className="text-[14px] font-semibold">Ton reel animé est prêt</p>
-                <p className="text-[12.5px] text-ink-3">Il est dans la bibliothèque. Si un texte ne va pas, corrige la scène et génère-le à nouveau.</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="primary" onClick={() => openComposer({ mediaId: reelFile.id, caption: deck.caption })}>
-                    <CalendarPlus className="size-4" />
-                    Programmer
-                  </Button>
-                  <Button onClick={() => playMedia(reelFile.id)}>Voir en grand</Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] 2xl:grid-cols-[minmax(0,1fr)_800px]">
-            {/* ---------- Preview and slides: stays in view while the settings scroll ---------- */}
-            <div className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
+          <div className="grid gap-5 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_clamp(360px,27vw,420px)] lg:grid-rows-[minmax(0,1fr)] min-[112.5rem]:grid-cols-[minmax(0,1fr)_800px]">
+            {/* ---------- Preview and slides: always whole in the window, the settings scroll beside them ---------- */}
+            <div className="flex min-w-0 flex-col gap-3 lg:min-h-0">
               {/* On a computer the small visuals stand in a column beside the big one: the height goes to the preview. */}
-              <div className="flex min-w-0 flex-col gap-3 lg:flex-row-reverse">
-              <div className="flex min-w-0 flex-1 items-center justify-center rounded-2xl border border-line bg-bg-2/60 p-5 max-sm:p-3">
-                {/* On a wide screen the visual is as tall as the window allows, so the whole column fits without scrolling. */}
-                <div
-                  className={cn("w-full lg:max-w-[var(--fit)]", deck.format === "9:16" ? "max-lg:max-w-[300px]" : deck.format === "1:1" ? "max-lg:max-w-[460px]" : "max-lg:max-w-[400px]")}
-                  style={{ "--fit": `max(200px, calc((100dvh - 310px) * ${W / HEIGHTS[deck.format]}))` } as React.CSSProperties}
-                >
-                  <SlideCanvas deck={deck} index={index} fonts={fonts} className="rounded-xl shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)]" />
+              <div className="flex min-w-0 flex-col gap-3 lg:min-h-0 lg:flex-1 lg:flex-row-reverse">
+                <div className="flex min-w-0 flex-1 items-center justify-center rounded-2xl border border-line bg-bg-2/60 p-5 max-sm:p-3 lg:min-h-0 lg:p-3 lg:[container-type:size] xl:p-5">
+                  {/* On a computer the visual takes the whole box it is given, in width or in height, without ever going past it. */}
+                  <div
+                    ref={previewRef}
+                    className={cn("w-full lg:w-[min(100cqw,calc(100cqh*var(--ratio)))]", deck.format === "9:16" ? "max-lg:max-w-[300px]" : deck.format === "1:1" ? "max-lg:max-w-[460px]" : "max-lg:max-w-[400px]")}
+                    style={{ "--ratio": W / HEIGHTS[deck.format] } as React.CSSProperties}
+                  >
+                    <SlideCanvas deck={previewDeck} index={index} fonts={fonts} className="rounded-xl shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)]" />
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 lg:items-start">
-                <div className="scroll-thin flex min-w-0 flex-1 gap-2 overflow-x-auto p-1 lg:max-h-[max(240px,calc(100dvh-270px))] lg:flex-none lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto" role="tablist" aria-label={motion ? "Scènes" : "Visuels"}>
-                  {deck.slides.map((s, i) => (
-                    <button
-                      key={s.id}
-                      role="tab"
-                      aria-selected={i === index}
-                      aria-label={`${unit} ${i + 1}`}
-                      onClick={() => setCurrent(i)}
-                      className={cn(
-                        "press relative w-[68px] shrink-0 overflow-hidden rounded-lg outline-none transition-shadow duration-150 focus-visible:ring-2 focus-visible:ring-accent/50",
-                        i === index ? "shadow-[0_0_0_2px_var(--accent)]" : "shadow-[0_0_0_1px_var(--line-strong)] hover:shadow-[0_0_0_1px_var(--ink-3)]",
-                      )}
-                    >
-                      <SlideCanvas deck={deck} index={i} fonts={fonts} small />
-                      <span className="tabular absolute bottom-1 left-1 rounded bg-black/55 px-1 text-[10px] font-medium text-white">{i + 1}</span>
-                    </button>
-                  ))}
+                {/* The "+" stays outside the list: always in view, however many slides there are. */}
+                <div className="flex items-center gap-1 lg:min-h-0 lg:flex-col lg:items-stretch">
+                  <div
+                    ref={thumbsRef}
+                    className="scroll-thin flex min-w-0 gap-2 overflow-x-auto p-1 [--fade-dir:to_right] lg:min-h-0 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:[scrollbar-width:none]! lg:[--fade-dir:to_bottom] lg:[&::-webkit-scrollbar]:hidden"
+                    style={fadeEdges(thumbEdges, 16)}
+                    role="tablist"
+                    aria-label={motion ? "Scènes" : "Visuels"}
+                  >
+                    {deck.slides.map((s, i) => (
+                      <button
+                        key={s.id}
+                        role="tab"
+                        aria-selected={i === index}
+                        aria-label={`${unit} ${i + 1}`}
+                        onClick={() => setCurrent(i)}
+                        className={cn(
+                          "press relative w-[68px] shrink-0 overflow-hidden rounded-lg outline-none transition-shadow duration-150 focus-visible:ring-2 focus-visible:ring-accent/50 lg:max-xl:w-14",
+                          i === index ? "shadow-[0_0_0_2px_var(--accent)]" : "shadow-[0_0_0_1px_var(--line-strong)] hover:shadow-[0_0_0_1px_var(--ink-3)]",
+                        )}
+                      >
+                        <SlideCanvas deck={deck} index={i} fonts={fonts} small />
+                        <span className="tabular absolute bottom-1 left-1 rounded bg-black/55 px-1 text-[10px] font-medium text-white">{i + 1}</span>
+                      </button>
+                    ))}
+                  </div>
                   {deck.slides.length < max && (
                     <button
                       onClick={addSlide}
                       aria-label={motion ? "Ajouter une scène" : "Ajouter un visuel"}
                       title={motion ? "Ajouter une scène" : "Ajouter un visuel"}
-                      className="press grid w-[68px] shrink-0 place-items-center rounded-lg border border-dashed border-line-strong text-ink-3 hover:border-ink-3 hover:text-ink"
-                      style={{ aspectRatio: `${W} / ${HEIGHTS[deck.format]}` }}
+                      className="press grid aspect-(--thumb-ratio) w-[68px] shrink-0 place-items-center rounded-lg border border-dashed border-line-strong text-ink-3 hover:border-ink-3 hover:text-ink lg:mx-1 lg:aspect-auto lg:h-10 lg:max-xl:w-14"
+                      style={{ "--thumb-ratio": `${W} / ${HEIGHTS[deck.format]}` } as React.CSSProperties}
                     >
                       <Plus className="size-4" />
                     </button>
                   )}
                 </div>
               </div>
-              </div>
               <div className="flex flex-wrap items-center gap-1 text-[12.5px] text-ink-3">
                 <span className="mr-1">
                   {motion ? `Scène ${index + 1} sur ${deck.slides.length} · ${seconds} en tout` : deck.slides.length > 1 ? `Visuel ${index + 1} sur ${deck.slides.length} · carrousel` : "Un seul visuel · post photo"}
                 </span>
-                <IconButton label={motion ? "Reculer cette scène" : "Reculer ce visuel"} onClick={() => move(-1)} disabled={index === 0}>
-                  <ArrowUp className="size-3.5 -rotate-90" />
-                </IconButton>
-                <IconButton label={motion ? "Avancer cette scène" : "Avancer ce visuel"} onClick={() => move(1)} disabled={index === deck.slides.length - 1}>
-                  <ArrowDown className="size-3.5 -rotate-90" />
-                </IconButton>
-                <IconButton label={motion ? "Dupliquer cette scène" : "Dupliquer ce visuel"} onClick={duplicate} disabled={deck.slides.length >= max}>
-                  <Copy className="size-3.5" />
-                </IconButton>
-                <IconButton label={motion ? "Supprimer cette scène" : "Supprimer ce visuel"} onClick={remove} disabled={deck.slides.length <= 1} danger>
-                  <Trash2 className="size-3.5" />
-                </IconButton>
+                {/* The four buttons go to the next line together, never one alone. */}
+                <div className="flex items-center gap-1">
+                  <IconButton label={motion ? "Reculer cette scène" : "Reculer ce visuel"} onClick={() => move(-1)} disabled={index === 0}>
+                    <ArrowUp className="size-3.5 -rotate-90" />
+                  </IconButton>
+                  <IconButton label={motion ? "Avancer cette scène" : "Avancer ce visuel"} onClick={() => move(1)} disabled={index === deck.slides.length - 1}>
+                    <ArrowDown className="size-3.5 -rotate-90" />
+                  </IconButton>
+                  <IconButton label={motion ? "Dupliquer cette scène" : "Dupliquer ce visuel"} onClick={duplicate} disabled={deck.slides.length >= max}>
+                    <Copy className="size-3.5" />
+                  </IconButton>
+                  <IconButton label={motion ? "Supprimer cette scène" : "Supprimer ce visuel"} onClick={remove} disabled={deck.slides.length <= 1} danger>
+                    <Trash2 className="size-3.5" />
+                  </IconButton>
+                </div>
                 {story && deck.slides.length > 1 && <span className="ml-auto text-warn">En story, chaque visuel devient une story à part.</span>}
               </div>
-              {motion && <p className="text-[12px] text-ink-3 lg:[@media(max-height:860px)]:hidden">{"L'aperçu montre chaque scène à l'arrêt. Ton Mac l'anime : le texte monte mot à mot, les scènes s'enchaînent avec une transition et une barre de progression avance en haut. Pour un motion design sur mesure, décris-le dans « Animation » : Claude écrit la scène."}</p>}
+              {/* On a computer this text is in the "Animations" panel: its height goes to the preview. */}
+              {motion && <p className="text-[12px] text-ink-3 lg:hidden">{motionHelp}</p>}
             </div>
 
-            {/* ---------- Settings: two columns of panels on a very wide screen ---------- */}
-            <div className="flex min-w-0 flex-col gap-4 2xl:block 2xl:columns-2 2xl:gap-4 2xl:[&>*]:mb-4 2xl:[&>*]:break-inside-avoid">
+            {/* ---------- Settings: they scroll on their own on a computer, in two columns of panels on a very wide screen ---------- */}
+            {/* On a phone this column dissolves into the page: its cards go above the preview (order-first), its panels below. */}
+            <div
+              ref={settingsRef}
+              className="scroll-thin min-w-0 max-lg:contents lg:-mr-3 lg:min-h-0 lg:overflow-y-auto lg:pr-[calc(12px-var(--scrollbar))] lg:[scrollbar-gutter:stable]"
+              style={{ "--scrollbar": `${scrollbar}px`, ...fadeEdges(settingsEdges) } as React.CSSProperties}
+            >
+              {/* The cards about the reels: on a computer at the top of the settings, where their height does not shrink the preview. */}
+              {motion && reelId && (
+                <div className="rounded-xl border border-line bg-surface p-4 max-lg:order-first lg:mb-4" aria-live="polite">
+                  <p className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+                    <Loader2 className="size-4 shrink-0 animate-spin text-accent" />
+                    <span className="min-w-0">{reel?.step ?? (data?.worker.online ? "Ton Mac prépare le reel…" : "En attente de ton Mac (éteint ou en veille)…")}</span>
+                  </p>
+                  <Progress value={reel?.status === "working" ? reel.progress : undefined} />
+                  <p className="mt-2 text-[12px] text-ink-3">{reviewOld ? "Compte une à deux minutes. Tu peux quitter la page : le reel arrivera dans la bibliothèque." : "Compte une à deux minutes. Dès qu'il est prêt, il s'ouvre dans l'écran de montage pour le retoucher. Tu peux aussi quitter la page."}</p>
+                </div>
+              )}
+              {editing.length > 0 && (
+                <div className="rounded-xl border border-line bg-surface p-3 max-lg:order-first lg:mb-4">
+                  <p className="mb-2 text-[12.5px] font-medium text-ink-2">Reels à retoucher ou à valider</p>
+                  <div className="flex flex-wrap gap-2">
+                    {editing.slice(0, 6).map((j) => (
+                      <Link key={j.id} href={`/videos/montage/${j.id}`} className="press flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-line-strong px-3 py-1.5 text-[12.5px] hover:border-accent/50 lg:flex-[1_1_240px]">
+                        <Clapperboard className="size-3.5 shrink-0 text-accent" />
+                        <span className="min-w-0 max-w-[220px] truncate lg:max-w-none lg:flex-1" title={j.title}>
+                          {j.title}
+                        </span>
+                        <span className="shrink-0 text-ink-3">version {j.versions.at(-1)!.n}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {animOld && <p className="rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn max-lg:order-first lg:mb-4">{"Le programme de ton Mac ne sait pas encore écrire les animations demandées (version 0.7.0) : ces scènes auront l'animation standard."}</p>}
+              {motion && motionOld && <p className="rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn max-lg:order-first lg:mb-4">Le programme de ton Mac est trop ancien pour animer un reel : mets-le à jour (version 0.6.0).</p>}
+              {/* The reel that just came back: on a phone above the scenes, on a computer at the top of the settings. */}
+              {motion && reelFile && !reelId && (
+                <div className="flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface p-4 max-lg:order-first lg:mb-4">
+                  {reelFile.url && <video src={reelFile.url} controls playsInline preload="metadata" className="h-[280px] rounded-lg bg-black lg:h-[240px]" />}
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <p className="text-[14px] font-semibold">Ton reel animé est prêt</p>
+                    <p className="text-[12.5px] text-ink-3">Il est dans la bibliothèque. Si un texte ne va pas, corrige la scène et génère-le à nouveau.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="primary" onClick={() => openComposer({ mediaId: reelFile.id, caption: deck.caption })}>
+                        <CalendarPlus className="size-4" />
+                        Programmer
+                      </Button>
+                      <Button onClick={() => playMedia(reelFile.id)}>Voir en grand</Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="flex min-w-0 flex-col gap-4 min-[112.5rem]:block min-[112.5rem]:columns-2 min-[112.5rem]:gap-4 min-[112.5rem]:[&>*]:mb-4 min-[112.5rem]:[&>*]:break-inside-avoid">
               <Panel title="Écrit par Claude" icon={<Sparkles className="size-3.5 text-accent" />}>
                 <textarea
                   value={idea}
@@ -687,6 +790,8 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
 
               {motion && (
                 <Panel title="Animations">
+                  {/* On a computer, beside the preview it explains (on a phone it sits under the preview). */}
+                  <p className="hidden text-[12px] text-ink-3 lg:block">{motionHelp}</p>
                   <Field label="Consignes pour tout le reel (facultatif)">
                     <textarea
                       aria-label="Consignes pour tout le reel"
@@ -831,11 +936,43 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
                 />
               </Panel>
             </div>
+            </div>
           </div>
         </div>
       </div>
     </>
   );
+}
+
+/** Whether a scrolling box shows its start and its end (either way), followed through scrolls and size changes. */
+function useScrollEdges(ref: React.RefObject<HTMLElement | null>, deps: unknown[]) {
+  const [edges, setEdges] = useState({ start: true, end: true });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const start = el.scrollTop <= 1 && el.scrollLeft <= 1;
+      const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 1 && el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+      setEdges((e) => (e.start === start && e.end === end ? e : { start, end }));
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    for (const child of el.children) observer.observe(child);
+    return () => {
+      el.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+  return edges;
+}
+
+/** Fades the side of a scrolling box that has more to show. Its direction comes from --fade-dir (to bottom by default). */
+function fadeEdges({ start, end }: { start: boolean; end: boolean }, size = 20): React.CSSProperties {
+  if (start && end) return {};
+  const mask = `linear-gradient(var(--fade-dir, to bottom), transparent, #000 ${start ? 0 : size}px, #000 calc(100% - ${end ? 0 : size}px), transparent)`;
+  return { maskImage: mask, WebkitMaskImage: mask };
 }
 
 function Panel({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {

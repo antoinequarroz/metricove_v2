@@ -10,7 +10,7 @@ import { useStore } from "@/lib/store";
 import { cn, fmt } from "@/lib/utils";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
-import { fmtSec, fmtSize, JobStatus, PageHeader, Progress, VideoTabs, WorkerBanner } from "./parts";
+import { fmtSec, fmtSize, JobStatus, MediaHeader, Progress, WorkerBanner } from "./parts";
 import { montageApi, useMontage } from "./use-montage";
 
 export function MontagePage() {
@@ -21,15 +21,14 @@ export function MontagePage() {
 
   return (
     <>
-      <PageHeader kicker="Vidéos" title="Montage IA">
-        <VideoTabs />
+      <MediaHeader>
         {!creating && (
           <Button variant="primary" onClick={() => setCreating(true)}>
             <Wand2 className="size-4" />
             Nouveau montage
           </Button>
         )}
-      </PageHeader>
+      </MediaHeader>
       <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
         <div className="mx-auto flex max-w-5xl flex-col gap-5">
           <WorkerBanner worker={data?.worker} />

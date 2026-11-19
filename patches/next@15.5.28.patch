@@ -1,0 +1,30 @@
+diff --git a/dist/esm/server/next-server.js b/dist/esm/server/next-server.js
+index 4235cad61c6041dffe3c9ac345e47c0082ca8f89..bb846583cd9144b8c53360cb2d5d1e345cedfde0 100644
+--- a/dist/esm/server/next-server.js
++++ b/dist/esm/server/next-server.js
+@@ -1187,7 +1187,8 @@ export default class NextNodeServer extends BaseServer {
+                 });
+             } finally{
+                 if (hasRequestBody) {
+-                    requestData.body.finalize();
++                    // Metricove patch: same as dist/server/next-server.js.
++                    await requestData.body.finalize();
+                 }
+             }
+         } else {
+diff --git a/dist/server/next-server.js b/dist/server/next-server.js
+index 52680a1f9f290cd9da0f2d8898f0e9a27ed2eda0..13f51a04bc5b79486e7e7ddeb99f2ee1f6d1626c 100644
+--- a/dist/server/next-server.js
++++ b/dist/server/next-server.js
+@@ -1256,7 +1256,10 @@ class NextNodeServer extends _baseserver.default {
+                 });
+             } finally{
+                 if (hasRequestBody) {
+-                    requestData.body.finalize();
++                    // Metricove patch: wait for the original body to be swapped back before the route reads it.
++                    // Without await, a body still arriving (over ~64 KB) reaches the route handler disturbed:
++                    // "TypeError: Response body object should not be disturbed or locked" (Node.js middleware).
++                    await requestData.body.finalize();
+                 }
+             }
+         } else {

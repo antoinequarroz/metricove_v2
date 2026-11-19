@@ -1,0 +1,2139 @@
+{
+  "_doc": [
+    "Corpus d’attaques statiques contre checkMoment (sandbox.mjs) : chaque moment DOIT être refusé (ok false, why non vide).",
+    "part = la partie visée (js, html, css, all). Le moment de base (un rond qui apparaît) est accepté seul ; chaque attaque y ajoute ou y remplace une partie.",
+    "accepted = des moments réels comme Claude les écrit (DrawSVG, MorphSVG, anchors, beats) : chacun DOIT être accepté."
+  ],
+  "attacks": [
+    {
+      "name": "anchors relié à root puis indexé par beats",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nanchors = root;\nconst d = anchors[beats[0].id];"
+      }
+    },
+    {
+      "name": "beats relié puis anchors indexé",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nbeats = [{ id: \"ownerDocument\" }];\nconst d = anchors[beats[0].id];"
+      }
+    },
+    {
+      "name": "beats déstructuré puis anchors indexé",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n[beats] = [[{ id: \"ownerDocument\" }]];\nconst d = anchors[beats[0].id];"
+      }
+    },
+    {
+      "name": "anchors indexé par une variable chaîne",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst k = beats[0].id;\nconst d = anchors[k];"
+      }
+    },
+    {
+      "name": "root indexé par beats[0].id",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst d = root[beats[0].id];"
+      }
+    },
+    {
+      "name": "anchors indexé par beats[0].title",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst d = anchors[beats[0].title];"
+      }
+    },
+    {
+      "name": "évasion final-csp 1 : root[\"owner\"+\"Document\"]",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ntry { const d = root[\"owner\" + \"Document\"]; const s = d[\"create\" + \"Element\"](\"script\"); s.textContent = \"window.__pwned = 1\"; d.body[\"append\" + \"Child\"](s); } catch (e) { }"
+      }
+    },
+    {
+      "name": "évasion final-csp 2 : ({})[\"constr\"+\"uctor\"]",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ntry { ({})[\"constr\" + \"uctor\"][\"constr\" + \"uctor\"](\"window.__pwned2 = 1\")(); } catch (e) { }"
+      }
+    },
+    {
+      "name": "index par chaîne : const k = \"owner\"+\"Document\"; root[k]",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst k = \"owner\" + \"Document\";\nconst d = root[k];"
+      }
+    },
+    {
+      "name": "index par variable chaîne indirecte",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst a = \"owner\";\nconst b = a + \"Document\";\nconst c = b;\nconst d = root[c];"
+      }
+    },
+    {
+      "name": "index par membre : root[o.k]",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst o = { k: \"ownerDocument\" };\nconst d = root[o.k];"
+      }
+    },
+    {
+      "name": "clé calculée {[\"inner\"+\"HTML\"]: …}",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.set(dot, { [\"inner\" + \"HTML\"]: \"x\" });"
+      }
+    },
+    {
+      "name": "fetch direct",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfetch(\"/assets/score.js\");"
+      }
+    },
+    {
+      "name": "fetch par alias",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst f = fetch;\nf(\"/x\");"
+      }
+    },
+    {
+      "name": "XMLHttpRequest",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst x = XMLHttpRequest;"
+      }
+    },
+    {
+      "name": "gabarit",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: `${1}` });"
+      }
+    },
+    {
+      "name": "paramètre eval",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfunction f(eval) { return 1; }"
+      }
+    },
+    {
+      "name": "arguments",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfunction f() { return arguments; }"
+      }
+    },
+    {
+      "name": "window.x",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nwindow.x = 1;"
+      }
+    },
+    {
+      "name": "this.constructor",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst c = this.constructor;"
+      }
+    },
+    {
+      "name": "new Array(1e9)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst a = new Array(1e9);"
+      }
+    },
+    {
+      "name": "Array(1e9) sans new",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst a = Array(1e9).fill(0);"
+      }
+    },
+    {
+      "name": "while(true)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nwhile (true) { }"
+      }
+    },
+    {
+      "name": "for(;;)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (;;) { }"
+      }
+    },
+    {
+      "name": "for (k in o)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst o = {};\nfor (const k in o) { }"
+      }
+    },
+    {
+      "name": "for borne non littérale",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i < D * 1e9; i++) { }"
+      }
+    },
+    {
+      "name": "for borne 1e6",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i < 1000000; i++) { }"
+      }
+    },
+    {
+      "name": "do…while",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nlet n = 0;\ndo { n++; } while (n < 3);"
+      }
+    },
+    {
+      "name": "\"ab\".repeat(1e9)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst s = \"ab\".repeat(1e9);"
+      }
+    },
+    {
+      "name": "Date.now()",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst t = Date.now();"
+      }
+    },
+    {
+      "name": "Math.random()",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst r = Math.random();"
+      }
+    },
+    {
+      "name": "gsap.utils.random",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst r = gsap.utils.random(0, 1);"
+      }
+    },
+    {
+      "name": "setTimeout",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nsetTimeout(function () { }, 10);"
+      }
+    },
+    {
+      "name": "requestAnimationFrame",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nrequestAnimationFrame(function () { });"
+      }
+    },
+    {
+      "name": "repeat:-1",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { rotation: 360, repeat: -1, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "repeat:50",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { rotation: 360, repeat: 50, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "repeat non littéral",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst n = 3;\nmt.to(dot, { rotation: 360, repeat: n, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "repeat en clé chaîne",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { rotation: 360, \"repeat\": -1, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "gsap.to",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.to(dot, { x: 100, duration: 1 });"
+      }
+    },
+    {
+      "name": "gsap.timeline",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst t2 = gsap.timeline();"
+      }
+    },
+    {
+      "name": "mt.add(()=>…)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.add(() => { }, 1);"
+      }
+    },
+    {
+      "name": "mt.call(f)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.call(function () { }, [], 1);"
+      }
+    },
+    {
+      "name": "onUpdate:",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: 10, duration: 1, onUpdate: function () { } });"
+      }
+    },
+    {
+      "name": "mt.seek(2)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.seek(2);"
+      }
+    },
+    {
+      "name": "mt.timeScale(9)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.timeScale(9);"
+      }
+    },
+    {
+      "name": "tl",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ntl.to(dot, { x: 10 });"
+      }
+    },
+    {
+      "name": "then (promesse de fin)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.then(function () { });"
+      }
+    },
+    {
+      "name": "ease en fonction (rappel à chaque image)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: 10, duration: 1, ease: function (p) { return p; } });"
+      }
+    },
+    {
+      "name": "modifiers (rappel à chaque image)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: 10, duration: 1, modifiers: { x: function (v) { return v; } } });"
+      }
+    },
+    {
+      "name": "getBoundingClientRect",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst r = root.getBoundingClientRect();"
+      }
+    },
+    {
+      "name": "left animé",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { left: 100, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "top animé",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { top: 100, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "fontSize animé",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { fontSize: 100, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "marginTop animé",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { marginTop: 100, duration: 1, ease: \"none\" });"
+      }
+    },
+    {
+      "name": "innerHTML",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.set(dot, { innerHTML: \"x\" });"
+      }
+    },
+    {
+      "name": "textContent (le texte appartient au moteur)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndot.textContent = \"x\";"
+      }
+    },
+    {
+      "name": "attr onload",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.set(dot, { attr: { onload: \"x\" } });"
+      }
+    },
+    {
+      "name": "attr \"onanimationstart\" en chaîne",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.set(dot, { attr: { \"onanimationstart\": \"x\" } });"
+      }
+    },
+    {
+      "name": "style brut",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndot.style.animation = \"x 1s\";"
+      }
+    },
+    {
+      "name": "async",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nasync function f() { }"
+      }
+    },
+    {
+      "name": "Promise",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst p = Promise;"
+      }
+    },
+    {
+      "name": "Object.getPrototypeOf",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst p = Object.getPrototypeOf(mt);"
+      }
+    },
+    {
+      "name": "__proto__",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst p = mt.__proto__;"
+      }
+    },
+    {
+      "name": "prototype par chaîne",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst p = mt[\"__pro\" + \"to__\"];"
+      }
+    },
+    {
+      "name": "open()",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nopen(\"/x\");"
+      }
+    },
+    {
+      "name": "navigation",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nnavigation.navigate(\"/x\");"
+      }
+    },
+    {
+      "name": "global inconnu (scrollTo)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nscrollTo(0, 0);"
+      }
+    },
+    {
+      "name": "global inconnu (console)",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconsole.error(\"x\");"
+      }
+    },
+    {
+      "name": "parentNode",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst p = dot.parentNode;"
+      }
+    },
+    {
+      "name": "nextElementSibling",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst s = root.nextElementSibling;"
+      }
+    },
+    {
+      "name": "addEventListener",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.addEventListener(\"hf-seek\", function () { });"
+      }
+    },
+    {
+      "name": "gestionnaire root.onclick",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.onclick = function () { };"
+      }
+    },
+    {
+      "name": "expression régulière",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst ok = /x/.test(\"x\");"
+      }
+    },
+    {
+      "name": "antislash",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst s = \"\\x3c\";"
+      }
+    },
+    {
+      "name": "chaîne avec <",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst s = \"<img>\";"
+      }
+    },
+    {
+      "name": "chaîne avec adresse",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst s = \"https://cdn.x\";"
+      }
+    },
+    {
+      "name": "chaîne trop longue",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst s = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";"
+      }
+    },
+    {
+      "name": "non ASCII",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst café = 1;"
+      }
+    },
+    {
+      "name": "CustomEase sans préfixe",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nCustomEase.create(\"expo.out\", \"M0,0 C0.5,0 0.5,1 1,1\");"
+      }
+    },
+    {
+      "name": "JS illisible",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: 1 "
+      }
+    },
+    {
+      "name": "class",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nclass A { }"
+      }
+    },
+    {
+      "name": "debugger",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndebugger;"
+      }
+    },
+    {
+      "name": "<img src>",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<img src=\"x.png\">",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "<script>",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<script>1</script>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "style=",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\" style=\"color:red\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "onload=",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<svg onload=\"x\"></svg>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "<a href>",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<a href=\"/x\">x</a>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "commentaire",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div><!-- x -->",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "<!doctype",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<!doctype html><div></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "fill en couleur",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<svg viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" fill=\"#ff0000\"/></svg>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "id sans préfixe",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<div id=\"type\" class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "url(https://…) en attribut",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<svg><rect clip-path=\"url(https://x/y#a)\"/></svg>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "//cdn en attribut",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\" data-x=\"//cdn.x/a.js\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "trop de balises",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<svg viewBox=\"0 0 10 10\"><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/><rect width=\"1\" height=\"1\"/></svg>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "trop de textes",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<div><span>un</span><span>deux</span><span>trois</span><span>quatre</span><span>cinq</span><span>six</span><span>sept</span></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "texte trop long",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<div>Ceci est un texte bien trop long pour un moment</div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "balise non fermée",
+      "part": "html",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "url(https://…)",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{background:url(https://x/y.png)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "@import",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}@import x;",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "//cdn",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{background:image(//cdn.x)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "commentaire",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{color:red}/* x */",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "position:fixed",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{position:fixed}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "font-family Poppins",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{font-family:Poppins}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "raccourci font:",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{font:12px x}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "css non équilibré",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{color:red",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "sortie par }",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}} #type{display:none} .x{",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "sélecteur & ~",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}& ~ *{display:none}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "sélecteur ~ relatif",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}~ .x{display:none}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": ":root:has()",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}:root:has(.dot) .w{opacity:0}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "animation CSS",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{animation:x 1s infinite}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "transition CSS",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{transition:opacity 1s}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "guillemets",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{content:\"x\"}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "antislash",
+      "part": "css",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{content:\\41}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "code trop gros",
+      "part": "js",
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\nmt.set(dot, { x: 1 });\n"
+      }
+    },
+    {
+      "name": "id de moment invalide",
+      "part": "id",
+      "moment": {
+        "id": "Evil-1",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);"
+      }
+    },
+    {
+      "name": "revue 1 : setHTMLUnsafe + fromCharCode + click (évasion furtive du piège)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar lt = String.fromCharCode(60), q = String.fromCharCode(39);\nvar h1 = \"MutationObserver.prototype.takeRecords=function(){return []};\";\nroot.setHTMLUnsafe(lt + \"b onclick=\" + q + h1 + q + \">x\" + lt + \"/b>\");\nroot.firstElementChild.click();"
+      }
+    },
+    {
+      "name": "revue 1 : click() sur un enfant",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.firstElementChild.click();"
+      }
+    },
+    {
+      "name": "revue 1 : JSON.parse fabrique une clé onclick pour attr",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(dot, { attr: JSON.parse(\"{}\") });"
+      }
+    },
+    {
+      "name": "revue 1 : JSON.parse fabrique une clé innerHTML",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(root, JSON.parse(\"{}\"));"
+      }
+    },
+    {
+      "name": "revue 1 : attr: variable (clés invisibles)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = { y: 1 };\ngsap.set(dot, { attr: a });"
+      }
+    },
+    {
+      "name": "revue 1 : attr: { id }",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(dot, { attr: { id: \"chrome\" } });"
+      }
+    },
+    {
+      "name": "revue 1 : attr: { class }",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(dot, { attr: { class: \"beat\" } });"
+      }
+    },
+    {
+      "name": "revue 1 : attr: { \"onclick\" }",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(dot, { attr: { \"onclick\": \"x\" } });"
+      }
+    },
+    {
+      "name": "revue 1 : clé id dans un tween (gsap écrit el.id)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(dot, { id: \"chrome\" });"
+      }
+    },
+    {
+      "name": "revue 1 : clé id en raccourci { id }",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar id = \"chrome\";\ngsap.set(dot, { id });"
+      }
+    },
+    {
+      "name": "revue 1 : clé \"parent\" entre guillemets",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { \"parent\": 1, x: 1, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : clé _ts (interne GSAP)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(dot, { _ts: 0 });"
+      }
+    },
+    {
+      "name": "revue 1 : décomposition { ...beats[0] } (id d'un temps fort)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ngsap.set(dot, { ...beats[0] });"
+      }
+    },
+    {
+      "name": "revue 1 : el[\"id\"] = … (index par chaîne hors anchors)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndot[\"id\"] = \"chrome\";"
+      }
+    },
+    {
+      "name": "revue 1 : root[\"click\"]()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot[\"click\"]();"
+      }
+    },
+    {
+      "name": "revue 1 : [el.id] = [...] (décomposition)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = [\"chrome\"];\n[dot.id] = a;"
+      }
+    },
+    {
+      "name": "revue 1 : ({ x: el.id } = …)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar o = { x: 1 };\n({ x: dot.id } = o);"
+      }
+    },
+    {
+      "name": "revue 1 : el.id = … (propriété en lecture seule)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndot.id = \"chrome\";"
+      }
+    },
+    {
+      "name": "revue 1 : el.title = …",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndot.title = \"x\";"
+      }
+    },
+    {
+      "name": "revue 1 : a.length = 4e9",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = [];\na.length = 4e9;"
+      }
+    },
+    {
+      "name": "revue 1 : const { firstChild } = root",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst { firstChild } = root;"
+      }
+    },
+    {
+      "name": "revue 1 : paramètre décomposé ({ firstChild })",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar f = function ({ firstChild }) { return 1; };\nf(root);"
+      }
+    },
+    {
+      "name": "revue 1 : Math = {} (global réaffecté)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nMath = { round: 1 };"
+      }
+    },
+    {
+      "name": "revue 1 : String = … (global réaffecté)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nString = 1;"
+      }
+    },
+    {
+      "name": "revue 1 : Web Animations : el.animate()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndot.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 3000, iterations: 99 });"
+      }
+    },
+    {
+      "name": "revue 1 : getAnimations()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = dot.getAnimations();"
+      }
+    },
+    {
+      "name": "revue 1 : focus()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ndot.focus();"
+      }
+    },
+    {
+      "name": "revue 1 : before()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.before(dot);"
+      }
+    },
+    {
+      "name": "revue 1 : after()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.after(root.firstElementChild);"
+      }
+    },
+    {
+      "name": "revue 1 : insertAdjacentElement",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.insertAdjacentElement(\"beforebegin\", dot);"
+      }
+    },
+    {
+      "name": "revue 1 : scrollIntoView",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.scrollIntoView();"
+      }
+    },
+    {
+      "name": "revue 1 : remove()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.firstElementChild.remove();"
+      }
+    },
+    {
+      "name": "revue 1 : mt._dp : timeline globale de GSAP",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar g = mt._dp;"
+      }
+    },
+    {
+      "name": "revue 1 : mt._dp.getChildren() puis targets() (nœuds du moteur)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar all = mt._dp.getChildren(false, false, true);\nfor (const t of all) {\n  var tw = t.getChildren(true, true, false);\n  for (let i = 0; i < tw.length; i++) { mt.fromTo(tw[i].targets(), { rotation: 0 }, { rotation: 8, duration: 1 }, 0); }\n}"
+      }
+    },
+    {
+      "name": "revue 1 : mt.recent()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar r = mt.recent();"
+      }
+    },
+    {
+      "name": "revue 1 : mt.vars",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar v = mt.vars;"
+      }
+    },
+    {
+      "name": "revue 1 : gsap.getById",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar t = gsap.getById ? 1 : 0;"
+      }
+    },
+    {
+      "name": "revue 1 : Number.constructor",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar n = Number.constructor;"
+      }
+    },
+    {
+      "name": "revue 1 : (1).toString(36)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar y = (1).toString(36);"
+      }
+    },
+    {
+      "name": "revue 1 : \"abc\".split",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar p = \"abc\".split(\"\");"
+      }
+    },
+    {
+      "name": "revue 1 : String.raw",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar s = String.raw;"
+      }
+    },
+    {
+      "name": "revue 1 : gsap.utils.distribute",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar d = gsap.utils.distribute({ each: 1 });"
+      }
+    },
+    {
+      "name": "revue 1 : gsap.utils.pipe",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar p = gsap.utils.pipe(1);"
+      }
+    },
+    {
+      "name": "revue 1 : gsap.utils.shuffle",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = gsap.utils.shuffle([1, 2]);"
+      }
+    },
+    {
+      "name": "revue 1 : x: \"random(-200, 200)\" (hasard dans une chaîne)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: \"random(-200, 200)\", duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : stagger from: \"random\"",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(root.querySelectorAll(\".dot\"), { x: 10, duration: 1, stagger: { each: 0.1, from: \"random\" } }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : valeur de fonction x: function (i)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: function (i) { return i * 10; }, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : valeur de fonction stagger: function",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(root.querySelectorAll(\".dot\"), { x: 100, stagger: function (i) { return i; }, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : valeur fléchée x: (i) => i * 10",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: (i) => i * 10, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : valeur fléchée x: i => i",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: i => i, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : fonction déclarée passée comme valeur",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfunction f(i) { return i * 10; }\nmt.to(dot, { x: f, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : fonction nommée passée comme valeur",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst f = (i) => i * 10;\nmt.to(dot, { x: f, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : fonction rangée dans un champ (o.x = function)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar o = { x: 1 };\no.x = function () { return 1; };\nmt.to(dot, o, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : fonction dans un tableau",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = [function () { return 1; }];"
+      }
+    },
+    {
+      "name": "revue 1 : fonction renvoyée par une fonction",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfunction mk() { return function () { return 1; }; }\nvar g = mk();"
+      }
+    },
+    {
+      "name": "revue 1 : flèche qui renvoie une flèche",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nconst mk = (a) => (b) => a + b;"
+      }
+    },
+    {
+      "name": "revue 1 : accesseur get x()",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar o = { get x() { return 1; } };\nmt.to(o, { x: 2, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : méthode raccourcie { x() {} }",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar o = { x() { return 1; } };"
+      }
+    },
+    {
+      "name": "revue 1 : mt.to passé comme valeur",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: mt.to, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : root.querySelector passé comme valeur",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: root.querySelector, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : Math.max passé comme valeur",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: Math.max, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : parseInt passé comme valeur",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nmt.to(dot, { x: parseInt, duration: 1 }, 0);"
+      }
+    },
+    {
+      "name": "revue 1 : mt passé comme valeur",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar m = mt;"
+      }
+    },
+    {
+      "name": "revue 1 : ?.( appel optionnel",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar f = dot.querySelector;\nf?.(\".x\");"
+      }
+    },
+    {
+      "name": "revue 1 : compteur remis à zéro dans la boucle",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i < 10; i++) { i = 0; }"
+      }
+    },
+    {
+      "name": "revue 1 : compteur décrémenté dans la boucle",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i < 10; i++) { i--; }"
+      }
+    },
+    {
+      "name": "revue 1 : for i < N avec i-- (sans fin)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i < 10; i--) { mt.to(dot, { x: i, duration: 0.1 }, i); }"
+      }
+    },
+    {
+      "name": "revue 1 : for i >= -5 avec i++ (sans fin)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i >= -5; i++) { mt.to(dot, { x: i, duration: 0.1 }, 0); }"
+      }
+    },
+    {
+      "name": "revue 1 : for sans accolades",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i < 3; i++) mt.to(dot, { x: i, duration: 0.1 }, i);"
+      }
+    },
+    {
+      "name": "revue 1 : push dans le tableau parcouru (i < a.length)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = [1];\nfor (let i = 0; i < a.length; i++) { a.push(i); }"
+      }
+    },
+    {
+      "name": "revue 1 : push dans le tableau parcouru (for of)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = [1];\nfor (const x of a) { a.push(x); }"
+      }
+    },
+    {
+      "name": "revue 1 : quatre boucles imbriquées",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let a = 0; a < 999; a++) { for (let b = 0; b < 999; b++) { for (let c = 0; c < 999; c++) { for (let d = 0; d < 999; d++) { Math.sqrt(d); } } } }"
+      }
+    },
+    {
+      "name": "revue 1 : 999 × 999 tweens",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nfor (let i = 0; i < 999; i++) { for (let j = 0; j < 999; j++) { mt.to(root, { x: j, duration: 0.01 }, i); } }"
+      }
+    },
+    {
+      "name": "revue 1 : <!-- dans le js (commentaire pour Chrome)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = 1; <!-- a = 2;"
+      }
+    },
+    {
+      "name": "revue 1 : --> en début de ligne",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = 1;\n--> a = 2;"
+      }
+    },
+    {
+      "name": "revue 1 : JSON.stringify(gsap)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar s = JSON.stringify(gsap);"
+      }
+    },
+    {
+      "name": "revue 1 : \"ab\".padStart(1e9)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar s = \"ab\";\nvar t = s.padStart(1e9);"
+      }
+    },
+    {
+      "name": "revue 1 : String(\"x\").repeat(9e8)",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nvar a = String(\"x\").repeat(9e8);"
+      }
+    },
+    {
+      "name": "revue 1 : attachShadow",
+      "part": "js",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\nroot.attachShadow({ mode: \"open\" });"
+      }
+    },
+    {
+      "name": "revue 1 : entité &lt; dans un texte",
+      "part": "html",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div><b class=\"t\">&lt;</b>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n"
+      }
+    },
+    {
+      "name": "revue 1 : entité &#60; dans un texte",
+      "part": "html",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div><b class=\"t\">&#60;</b>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n"
+      }
+    },
+    {
+      "name": "revue 1 : entité &#x3c; dans un texte",
+      "part": "html",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div><b class=\"t\">&#x3c;</b>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n"
+      }
+    },
+    {
+      "name": "revue 1 : entité &lt sans point-virgule",
+      "part": "html",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div><b class=\"t\">&lt b</b>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n"
+      }
+    },
+    {
+      "name": "revue 1 : !important sur la place du cadre",
+      "part": "css",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": "left:0!important;top:0!important;width:1080px!important;height:1920px!important;.dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n"
+      }
+    },
+    {
+      "name": "revue 1 : !important sur l'opacité et la visibilité",
+      "part": "css",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": "opacity:1 !important;visibility:visible!important;.dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n"
+      }
+    },
+    {
+      "name": "revue 1 : !important dans une règle imbriquée",
+      "part": "css",
+      "review": 1,
+      "moment": {
+        "id": "evil",
+        "html": "<div class=\"dot\"></div>",
+        "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}.dot{transform:none!important}",
+        "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\n"
+      }
+    }
+  ],
+  "accepted": [
+    {
+      "id": "barres",
+      "brief": "Des barres montent et la plus haute pointe vers le chiffre : la courbe parle d'elle-même.",
+      "zone": "full",
+      "html": "<svg class=\"chart\" viewBox=\"0 0 900 1020\" aria-hidden=\"true\"><line class=\"base\" x1=\"60\" y1=\"930\" x2=\"840\" y2=\"930\" stroke=\"currentColor\" stroke-width=\"4\"/><g class=\"bars\"><rect class=\"b b0\" x=\"90\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b1\" x=\"240\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b2\" x=\"390\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b3\" x=\"540\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b4\" x=\"690\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/></g><path class=\"ptr\" d=\"M710 210 C 710 120, 640 60, 520 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\"/><circle class=\"pin\" cx=\"710\" cy=\"210\" r=\"18\" fill=\"currentColor\"/></svg>",
+      "css": ".chart{display:block;width:900px;height:1020px}.base{color:var(--sub);opacity:.4}.b{color:var(--sub);opacity:.55}.b4{color:var(--accent);opacity:1}.ptr,.pin{color:var(--accent)}",
+      "js": "const bars = gsap.utils.toArray(\".b\");\nconst h = [190, 280, 360, 470, 710];\nconst ptr = root.querySelector(\".ptr\");\nconst pin = root.querySelector(\".pin\");\ngsap.set(ptr, { drawSVG: \"0%\" });\ngsap.set(pin, { scale: 0, transformOrigin: \"50% 50%\" });\nfor (let i = 0; i < bars.length; i++) {\n  mt.fromTo(bars[i], { attr: { y: 920, height: 0 } }, { attr: { y: 920 - h[i], height: h[i] }, duration: 1.1, ease: \"expo.out\", immediateRender: false }, 0.25 + i * 0.11);\n}\nconst a = anchors[beats[0].id].title;\nconst lift = Math.min(40, Math.max(0, -a.y - a.h));\nmt.to(pin, { scale: 1, duration: 0.5, ease: \"back.out(2)\" }, 1.05);\nmt.to(ptr, { drawSVG: \"100%\", y: -lift, duration: 0.9, ease: \"expo.inOut\" }, 1.15);\nmt.to(bars, { y: -8, duration: Math.max(0.6, D - 2.2), ease: \"sine.inOut\", stagger: 0.08 }, 1.9);"
+    },
+    {
+      "id": "couvertures",
+      "brief": "Trois publications tombent du ciel et se rangent en éventail : la régularité se voit.",
+      "zone": "above",
+      "html": "<div class=\"deck\"><svg class=\"card c1\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg><svg class=\"card c2\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg><svg class=\"card c3\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg></div>",
+      "css": ".deck{position:absolute;inset:0}.card{position:absolute;width:260px;height:340px;top:150px;color:var(--ink)}.c1{left:130px}.c2{left:320px;color:var(--accent)}.c3{left:510px}.pic{opacity:.16}.line{opacity:.55}.short{opacity:.35}",
+      "js": "const cards = gsap.utils.toArray(\".card\");\nconst outlines = gsap.utils.toArray(\".frame\");\ngsap.set(cards, { y: -460, rotation: -10, opacity: 0, transformOrigin: \"50% 100%\" });\ngsap.set(outlines, { drawSVG: \"0%\" });\nfor (let i = 0; i < cards.length; i++) {\n  mt.to(cards[i], { y: 0, rotation: (i - 1) * 7, opacity: 1, duration: 0.95, ease: \"expo.out\" }, 0.15 + i * 0.13);\n  mt.to(outlines[i], { drawSVG: \"100%\", duration: 0.9, ease: \"power2.inOut\" }, 0.35 + i * 0.13);\n}\nmt.to(cards, { y: -14, duration: Math.max(0.8, D - 1.7), ease: \"sine.inOut\", stagger: 0.12 }, 1.4);"
+    },
+    {
+      "id": "halo",
+      "brief": "Un grand anneau d'accent glisse derrière chaque idée et relie les quatre temps forts.",
+      "zone": "behind",
+      "html": "<div class=\"ring\"></div><div class=\"core\"></div>",
+      "css": ".ring{position:absolute;left:0;width:520px;height:520px;border-radius:50%;border:3px solid var(--accent)}.core{position:absolute;left:0;width:180px;height:180px;border-radius:50%;background:rgba(var(--accent-rgb),.35)}",
+      "js": "const ring = root.querySelector(\".ring\");\nconst core = root.querySelector(\".core\");\ngsap.set([ring, core], { xPercent: -50, yPercent: -50, scale: 0.5, opacity: 0 });\nfor (let i = 0; i < beats.length; i++) {\n  const a = anchors[beats[i].id].title;\n  const x = a.x + a.w * 0.62;\n  const y = a.y + a.h * 0.5;\n  const at = Math.max(0, beats[i].t - 0.15);\n  if (i === 0) mt.set([ring, core], { x: x, y: y }, 0);\n  mt.to(ring, { x: x, y: y, scale: 1 - (i % 2) * 0.18, opacity: 1, duration: 1.2, ease: \"expo.inOut\" }, at);\n  mt.to(core, { x: x, y: y, scale: 1, opacity: 1, duration: 1.4, ease: \"expo.inOut\" }, at + 0.06);\n}\nmt.to(ring, { rotation: 40, duration: D, ease: \"none\" }, 0);"
+    },
+    {
+      "id": "jauge",
+      "brief": "Une jauge se remplit et son aiguille se redresse : l'engagement remonte.",
+      "zone": "below",
+      "html": "<svg class=\"g\" viewBox=\"0 0 900 540\" aria-hidden=\"true\"><path class=\"track\" d=\"M170 450 A280 280 0 0 1 730 450\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"30\" stroke-linecap=\"round\"/><path class=\"level\" d=\"M170 450 A280 280 0 0 1 730 450\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"30\" stroke-linecap=\"round\"/><path class=\"needle\" d=\"M430 450 L470 450 L470 450 L430 450 Z\" fill=\"currentColor\"/><path class=\"shape\" d=\"M450 210 L478 450 L450 470 L422 450 Z\" fill=\"none\"/><circle class=\"hub\" cx=\"450\" cy=\"450\" r=\"26\" fill=\"currentColor\"/></svg>",
+      "css": ".g{display:block;width:900px;height:540px}.track{color:var(--sub);opacity:.25}.level{color:var(--accent)}.needle,.hub{color:var(--ink)}",
+      "js": "const level = root.querySelector(\".level\");\nconst needle = root.querySelector(\".needle\");\nconst shape = root.querySelector(\".shape\");\nconst hub = root.querySelector(\".hub\");\ngsap.set(level, { drawSVG: \"0% 0%\" });\ngsap.set(hub, { scale: 0, transformOrigin: \"50% 50%\" });\nmt.to(hub, { scale: 1, duration: 0.5, ease: \"back.out(2)\" }, 0.2);\nmt.to(needle, { morphSVG: shape, duration: 0.9, ease: \"expo.inOut\" }, 0.35);\nmt.fromTo(needle, { rotation: -84, svgOrigin: \"450 450\" }, { rotation: 48, duration: 1.6, ease: \"expo.out\", immediateRender: false }, 0.45);\nmt.to(level, { drawSVG: \"0% 76%\", duration: 1.6, ease: \"expo.out\" }, 0.45);\nmt.to(needle, { rotation: 41, duration: Math.max(0.6, D - 2.4), ease: \"sine.inOut\" }, 2.1);"
+    }
+  ]
+}

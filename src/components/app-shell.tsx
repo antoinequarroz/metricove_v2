@@ -1,7 +1,7 @@
 "use client";
 
 import { postMediaIds } from "@/lib/formats";
-import { CalendarDays, Clapperboard, Users, BarChart3, Settings, Search, Plus } from "lucide-react";
+import { CalendarDays, Clapperboard, Users, BarChart3, Settings, Search, Plus, Compass } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -20,6 +20,7 @@ import { ProjectMark, ProjectSwitcher } from "./projects";
 const NAV: { href: string; label: string; Icon: typeof Settings; soon?: boolean; countKey?: "videos" }[] = [
   { href: "/calendar", label: "Calendrier", Icon: CalendarDays },
   { href: "/videos", label: "Médias", Icon: Clapperboard, countKey: "videos" },
+  { href: "/strategy", label: "Stratégie", Icon: Compass },
   { href: "/accounts", label: "Comptes", Icon: Users },
   { href: "/stats", label: "Statistiques", Icon: BarChart3 },
   { href: "/settings", label: "Réglages", Icon: Settings },

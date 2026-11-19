@@ -1,0 +1,179 @@
+{
+ "_doc": [
+  "Fixture d'évasion (revue 2) : `sandbox: false`, la façade des moments face au vrai GSAP.",
+  "cible : une règle CSS passée comme cible de mt.to — seule une cible de son cadre (élément, liste, sélecteur ou objet de nombres) est permise ; retiré (« cible de tween invalide »).",
+  "cle : mt.to(\".b\", { toggleAttribute: … }) — une clé hors de la liste fermée (GSAP appellerait la méthode de l'élément) ; retiré.",
+  "charge : 4000 tweens avec stagger sur 200 éléments (800 000 tweens d'élément, plus d'une seconde par image) — la façade compte les cibles et lance une RangeError dès 6000 ; retiré tout de suite, sans délai dépassé."
+ ],
+ "sandbox": false,
+ "plan": {
+  "scenes": [],
+  "look": {
+   "theme": "night",
+   "accent": "#ff5a1f",
+   "font": "grotesque",
+   "fields": [],
+   "grid": false,
+   "pill": false,
+   "align": "left",
+   "valign": "middle",
+   "grain": true,
+   "numbers": true,
+   "handle": "@metricove",
+   "logo": ""
+  },
+  "logo": false,
+  "music": true,
+  "volume": 0.7,
+  "track": "",
+  "texts": [],
+  "pace": "normal",
+  "duration": 20,
+  "video": {
+   "engine": 1,
+   "request": "Idée : 3 erreurs qui font décrocher sur un reel Instagram, finir par Abonne-toi",
+   "source": "idea",
+   "title": "3 erreurs qui font zapper un reel",
+   "shape": "orb",
+   "beats": [
+    {
+     "id": "accroche",
+     "title": "Accroche",
+     "text": "Ils zappent en 3 secondes",
+     "emphasis": "3 secondes",
+     "layout": "hero",
+     "bridge": "rise",
+     "actor": "highlight",
+     "camera": "push",
+     "seconds": 2.4,
+     "start": 0,
+     "end": 2.4
+    },
+    {
+     "id": "erreurs",
+     "title": "3 erreurs",
+     "text": "3 erreurs qui font fuir",
+     "count": true,
+     "layout": "number",
+     "bridge": "morph",
+     "actor": "dot",
+     "camera": "drift",
+     "seconds": 3.2,
+     "start": 2.4,
+     "end": 5.6
+    },
+    {
+     "id": "intro",
+     "title": "Erreur 1",
+     "text": "Erreur 1 : te présenter d’abord",
+     "emphasis": "te présenter",
+     "layout": "hero",
+     "bridge": "rise",
+     "actor": "underline",
+     "camera": "drift",
+     "seconds": 2.8,
+     "start": 5.6,
+     "end": 8.4
+    },
+    {
+     "id": "son",
+     "title": "Erreur 2",
+     "text": "Erreur 2 : tout miser sur le son",
+     "sub": "Écris l’essentiel à l’écran.",
+     "emphasis": "le son",
+     "layout": "stack",
+     "bridge": "morph",
+     "actor": "rest",
+     "camera": "still",
+     "seconds": 4.2,
+     "start": 8.4,
+     "end": 12.6
+    },
+    {
+     "id": "plan",
+     "title": "Erreur 3",
+     "text": "Erreur 3 : un plan figé",
+     "sub": "Relance l’œil toutes les 2 secondes.",
+     "emphasis": "plan figé",
+     "layout": "stack",
+     "bridge": "cut",
+     "actor": "bar",
+     "camera": "drift",
+     "seconds": 4.2,
+     "start": 12.6,
+     "end": 16.8
+    },
+    {
+     "id": "abonne",
+     "title": "Abonne-toi",
+     "text": "Zéro erreur dans ton prochain reel",
+     "sub": "Abonne-toi",
+     "emphasis": "prochain reel",
+     "layout": "cta",
+     "bridge": "rise",
+     "actor": "underline",
+     "camera": "push",
+     "seconds": 3.2,
+     "start": 16.8,
+     "end": 20
+    }
+   ],
+   "moments": [
+    {
+     "id": "cible",
+     "brief": "Une barre discrète",
+     "from": "accroche",
+     "to": "accroche",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"b\"></div>",
+      "css": ".b{width:40px;height:40px;background:var(--accent)}",
+      "js": "var r = root.ownerDocument.styleSheets[0].cssRules[0];\nmt.to(r, { opacity: 0, duration: 1 });\nmt.to(\".b\", { x: 10, duration: 1 });"
+     }
+    },
+    {
+     "id": "cle",
+     "brief": "Une barre discrète",
+     "from": "intro",
+     "to": "intro",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"b\"></div>",
+      "css": ".b{width:40px;height:40px;background:var(--accent)}",
+      "js": "mt.to(\".b\", { toggleAttribute: \"hidden\", duration: 1 });\nmt.to(\".b\", { x: 10, duration: 1 });"
+     }
+    },
+    {
+     "id": "charge",
+     "brief": "Une barre discrète",
+     "from": "plan",
+     "to": "plan",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"g\"><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i><i class=\"p\"></i></div>",
+      "css": ".g{display:flex;flex-wrap:wrap;width:900px}.p{display:block;width:20px;height:20px;background:var(--accent)}",
+      "js": "var els = root.querySelectorAll(\".p\");\nfor (let i = 0; i < 999; i++) {\n  for (let j = 0; j < 4; j++) { mt.to(els, { x: i % 50, duration: 0.5, stagger: 0.0001 }, j * 0.1); }\n}"
+     }
+    }
+   ],
+   "caption": "3 erreurs qui font zapper ton reel dès les premières secondes.\n\n1. Te présenter avant la promesse\n2. Tout miser sur le son\n3. Garder un plan figé\n\nTu en fais combien ? Abonne-toi pour la suite.\n\n#reels #instagram #createurdecontenu",
+   "seed": 542867949,
+   "tools": {
+    "worker": "0.14.0",
+    "hyperframes": "0.8.137"
+   }
+  }
+ },
+ "expect": {
+  "dropped": [
+   "cible",
+   "cle",
+   "charge"
+  ],
+  "why": {
+   "cible": "cible de tween invalide",
+   "cle": "toggleAttribute",
+   "charge": "trop d'animations"
+  }
+ }
+}

@@ -1,4 +1,5 @@
 import type { Look } from "./profiles";
+import type { BrandRequest, PlanRequest } from "./strategy";
 /** Shared types for AI video editing. The contract is in docs/MONTAGE.md. */
 
 export type MontageFormat = "9:16" | "4:5" | "1:1" | "16:9";
@@ -185,6 +186,8 @@ export type ReelPlan = {
   direction?: string;
   /** Length of the rendered video, in seconds. */
   duration?: number;
+  /** Continuous video reel (worker 0.15.0). With it, `scenes` is [] and `pace` is the rhythm of the whole video. */
+  video?: ReelVideo;
 };
 
 export const REEL_PACE = { calm: 1.25, normal: 1, fast: 0.8 } as const;
@@ -204,6 +207,184 @@ export function reelTimeline(plan: ReelPlan, rendered = false) {
   });
 }
 
+/* ---------- Continuous video reel (worker 0.15.0, docs/MONTAGE.md « Reel vidéo continu ») ---------- */
+
+/** Oldest Mac program that makes video reels: a video job carries it as `minWorker`, and only such a Mac can claim it. */
+export const VIDEO_WORKER = "0.15.0";
+/** Version of the Mac's stage engine (ReelVideo.engine). A plan made by a newer engine is refused, never guessed. */
+export const VIDEO_ENGINE = 1;
+// The lists stay one per line: worker/montage/test/reel-vocab.test.mjs reads them with a regex and compares them to lib/reel/vocab.mjs.
+export const REEL_LAYOUTS = ["hero", "stack", "number", "list", "cta"] as const;
+export const REEL_BRIDGES = ["rise", "morph", "carry", "zoom", "cut"] as const;
+export const REEL_ACTORS = ["rest", "dot", "underline", "highlight", "bar", "hidden"] as const;
+export const REEL_CAMERAS = ["drift", "push", "still"] as const;
+export const REEL_ZONES = ["above", "below", "behind", "full"] as const;
+export const REEL_SHAPES = ["orb", "line", "none"] as const;
+export const REEL_SOURCES = ["idea", "script", "post"] as const;
+export const REEL_TARGETS = [15, 30, 45, 60] as const;
+/** request: characters (minRequest to ask); beats: written by Claude; keep: beats left after cuts; seconds: one beat; total: the video; last: floor of the last beat. */
+export const REEL_VIDEO = { request: 4000, minRequest: 10, beats: [3, 12], keep: 2, moments: 3, seconds: [1.5, 10], total: [15, 60], last: 2.5 } as const;
+/** Reading time multiplier of each rhythm (minimum length of a beat). */
+export const READ_PACE = { calm: 1.15, normal: 1, fast: 0.88 } as const;
+/** Longest texts and code of a video plan (characters). The server cuts texts and refuses code beyond them; the Mac checks again. `code`: all moments together. */
+export const VIDEO_LIMITS = {
+  title: 80,
+  caption: 2200,
+  tools: 40,
+  beat: { title: 40, text: 110, sub: 160, items: 4, item: 40, emphasis: 60 },
+  moment: { brief: 200, html: 12000, css: 8000, js: 12000 },
+  code: 60000,
+} as const;
+/** Characters a layout holds at its starting size (`item`: each item of a list). Beyond, the engine shrinks the text down to a floor. */
+export const VIDEO_BUDGETS = {
+  hero: { text: 60 },
+  stack: { text: 90, sub: 160 },
+  number: { text: 40, sub: 120 },
+  list: { text: 50, item: 40 },
+  cta: { text: 50, sub: 60 },
+} as const satisfies Record<ReelLayout, { text: number; sub?: number; item?: number }>;
+export const VIDEO_BEAT_ID = /^[a-z][a-z0-9-]{0,23}$/;
+export const VIDEO_MOMENT_ID = /^[a-z][a-z0-9]{0,11}$/;
+
+export type ReelLayout = (typeof REEL_LAYOUTS)[number];
+export type ReelBridge = (typeof REEL_BRIDGES)[number];
+export type ReelActor = (typeof REEL_ACTORS)[number];
+export type ReelCamera = (typeof REEL_CAMERAS)[number];
+export type ReelZone = (typeof REEL_ZONES)[number];
+export type ReelShape = (typeof REEL_SHAPES)[number];
+export type ReelSource = (typeof REEL_SOURCES)[number];
+
+/** A marker of a continuous reel: one idea of the video. `start`/`end` are video seconds written by the Mac. */
+export type ReelBeat = {
+  /** VIDEO_BEAT_ID, stable across versions. */
+  id: string;
+  /** Marker name, ≤ 40. */
+  title: string;
+  /** ≤ 110. */
+  text: string;
+  /** ≤ 160 (layout "cta": the text of the pill). */
+  sub?: string;
+  /** Layout "list": 2–4 items of ≤ 40. */
+  items?: string[];
+  /** ≤ 60, words copied from `text`. */
+  emphasis?: string;
+  /** Layout "number": the number counts up. */
+  count?: boolean;
+  layout: ReelLayout;
+  /** How it is born from the previous beat (ignored on the first one). */
+  bridge: ReelBridge;
+  actor: ReelActor;
+  camera: ReelCamera;
+  /** Wanted length, 1.5–10 s. Read it through reelBeatSeconds. */
+  seconds: number;
+  /** Set by hand: the length is kept exactly (no reading floor, no scaling). */
+  fixed?: boolean;
+  /** Removed by hand, kept in the plan. */
+  cut?: boolean;
+  /** Reserved for METRI-18 (narration), never asked in v1. */
+  say?: string;
+  start?: number;
+  end?: number;
+};
+/** Bespoke HyperFrames visual written by Claude over 1–3 consecutive beats (any number for zone "behind"). */
+export type ReelMoment = {
+  /** VIDEO_MOMENT_ID. */
+  id: string;
+  /** ≤ 200, shown on the page. */
+  brief: string;
+  /** Beat ids. */
+  from: string;
+  to: string;
+  zone: ReelZone;
+  /** Server and Mac only. */
+  code?: ReelCode;
+  /** Page side: the code exists on the server (false: removed by hand). */
+  custom?: boolean;
+};
+export type ReelVideo = {
+  engine: 1;
+  /** ≤ 4000. */
+  request: string;
+  source: ReelSource;
+  /** 15 | 30 | 45 | 60; left out = Auto. */
+  target?: number;
+  /** ≤ 1000. */
+  direction?: string;
+  /** ≤ 80. */
+  title: string;
+  shape: ReelShape;
+  /** 3–12 written, ≥ 2 kept. */
+  beats: ReelBeat[];
+  /** ≤ 3. */
+  moments: ReelMoment[];
+  /** ≤ 2200, the post description written with the video. */
+  caption?: string;
+  /** uint32: the engine's randomness (halo paths…), fixed once the video exists. */
+  seed: number;
+  tools?: { worker?: string; hyperframes?: string };
+  // Reserved, not read in v1:
+  /** METRI-18. */
+  captions?: { on: boolean; look?: "karaoke" | "pop" | "simple" };
+  /** METRI-18. */
+  voiceOver?: { provider: "elevenlabs"; voiceId: string };
+  /** METRI-27/28. */
+  motionStyle?: string;
+};
+
+const frames30 = (s: number) => Math.round(s * 30) / 30;
+/** Words that take reading time: pieces between spaces (non-breaking ones too) that hold a letter or a digit. */
+const readWords = (s?: string) => (s ?? "").split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+
+/** Minimum reading time of a beat, before the 1.5–10 s bounds. Same formula as the Mac (worker/montage/lib/reel/score.mjs). */
+export function reelReadSeconds(b: Pick<ReelBeat, "text" | "sub" | "items" | "count">, pace: ReelPlan["pace"] = "normal") {
+  const items = b.items ?? [];
+  const words = readWords(b.text) + readWords(b.sub) + items.reduce((n, x) => n + readWords(x), 0);
+  return (0.9 + 0.28 * words + (b.count ? 0.6 : 0) + 0.3 * items.length) * (READ_PACE[pace] ?? 1);
+}
+
+/**
+ * Seconds a beat lasts in the video. Same formula as the Mac (worker/montage/lib/reel/score.mjs): `seconds` (kept
+ * exactly when `fixed`, else at least the reading time), bounded to 1.5–10 s, at least 2.5 s for the last kept beat,
+ * rounded to a frame (1/30 s).
+ */
+export function reelBeatSeconds(b: ReelBeat, last: boolean, pace: ReelPlan["pace"] = "normal"): number {
+  const want = Number.isFinite(b.seconds) ? b.seconds : 0;
+  const [lo, hi] = REEL_VIDEO.seconds;
+  let s = Math.min(hi, Math.max(lo, b.fixed ? want : Math.max(want, reelReadSeconds(b, pace))));
+  if (last) s = Math.max(s, REEL_VIDEO.last);
+  return frames30(s);
+}
+
+/** Instant a beat is settled (its text is in place): the storyboard tile and the cover are taken there. */
+export const reelSettle = (p: { start: number; end: number }) => p.start + Math.min(1.2, 0.6 * (p.end - p.start));
+
+/**
+ * The beats that play, with their place on the timeline: same shape as reelTimeline(), so ReelTimeline shows them
+ * unchanged (scene.title = marker name, scene.body = text, custom "art" when a moment covers the beat).
+ * `rendered`: the times the Mac wrote (the video as it is), when every kept beat has them; otherwise laid end to end.
+ */
+export function videoTimeline(plan: ReelPlan, rendered = false): { scene: ReelScene; index: number; start: number; end: number }[] {
+  const video = plan.video;
+  if (!video) return [];
+  const kept = video.beats.filter((b) => !b.cut);
+  const covered = new Set<string>();
+  for (const m of video.moments ?? []) {
+    if (!(m.custom ?? !!m.code)) continue;
+    const a = video.beats.findIndex((b) => b.id === m.from);
+    const z = video.beats.findIndex((b) => b.id === m.to);
+    if (a >= 0 && z >= a) for (const b of video.beats.slice(a, z + 1)) covered.add(b.id);
+  }
+  const asRendered = rendered && kept.every((b) => Number.isFinite(b.start) && Number.isFinite(b.end) && (b.end as number) > (b.start as number));
+  let t = 0;
+  return kept.map((b, index) => {
+    const start = asRendered ? (b.start as number) : t;
+    const end = asRendered ? (b.end as number) : frames30(t + reelBeatSeconds(b, index === kept.length - 1, plan.pace));
+    t = end;
+    const scene: ReelScene = { id: b.id, title: b.title, body: b.text, seconds: b.seconds, ...(covered.has(b.id) ? { custom: "art" as const } : {}), ...(asRendered ? { dur: end - start } : {}) };
+    return { scene, index, start, end };
+  });
+}
+
 export type MontageVersion = {
   n: number;
   edl: Edl;
@@ -217,7 +398,7 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan";
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -263,11 +444,56 @@ export type MotionRequest = {
   /** Speed of the whole reel; left out, Claude chooses when there is a direction, else normal. */
   pace?: "calm" | "normal" | "fast";
   project?: string;
+  /** "video": a continuous video written by Claude from `request` (worker 0.15.0, `scenes` is []). Left out = "scenes" (legacy). */
+  mode?: "scenes" | "video";
+  /** Video only: what Antoine asks (REEL_VIDEO.minRequest to REEL_VIDEO.request characters). */
+  request?: string;
+  /** Video only: an idea (Claude writes the texts), a script (kept word for word, cut into beats) or a published post. */
+  source?: ReelSource;
+  /** Video only: wanted length (REEL_TARGETS); left out = Auto. */
+  seconds?: number;
+  /** Video only: a file of the Mac's music folder; left out, the Mac picks. */
+  track?: string;
 };
+
+/** Phases of a video job, in order. "review" is left out of `phases` when Claude does not need to look at the frames. */
+export type JobPhase = "write" | "check" | "review" | "render" | "finish" | "upload";
+export const JOB_PHASES: JobPhase[] = ["write", "check", "review", "render", "finish", "upload"];
+/** The live state of a claimed job. Times are server times (ISO); queue() and release() clear it. */
+export type JobRun = {
+  /** Set by claimJob (any worker), so the elapsed time is always known. */
+  startedAt: string;
+  /** Version of the worker that took it. */
+  by?: string;
+  /** Last PATCH from the worker. */
+  beatAt: string;
+  phase?: JobPhase;
+  /** Planned phases (edit: check, render, finish, upload). */
+  phases?: JobPhase[];
+  /** When the current phase began. */
+  phaseAt?: string;
+  /** When the Mac expects to finish. */
+  etaAt?: string;
+  /** Rendered frames [i, n]. */
+  frames?: [number, number];
+  /** Known after the write phase. */
+  beats?: { id: string; title: string; start: number; end: number }[];
+  /** Storyboard sprite (one tile per beat), read with GET /api/montage/jobs/:id/board?v=<v>. */
+  board?: { v: number; n: number; frames: { id: string; t: number }[] };
+  /** Actual seconds of the finished phases. */
+  done?: { phase: JobPhase; s: number }[];
+};
+/** What the Mac learned about its own speed (sent with each claim): ms per rendered frame, seconds Claude takes to write a video. */
+export type WorkerSpeed = { frameMs?: number; writeS?: number };
+/**
+ * Storyboard sprite of a video job (POST /api/montage/jobs/:id/board): a JPEG data URL of at most `chars` characters
+ * (`bytes` once decoded), one `tile` (w × h px) per beat side by side, `frames` tiles at most.
+ */
+export const VIDEO_BOARD = { chars: 800_000, bytes: 600 * 1024, frames: 12, tile: [180, 320] } as const;
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -281,6 +507,10 @@ export type MontageJob = {
   /** kind "post": a whole post written by Claude from an idea (slide texts and the description). */
   post?: PostRequest;
   motion?: MotionRequest;
+  /** kind "brand": a strategy or a charte that Claude reads for a project (worker 0.14.0). */
+  brand?: BrandRequest;
+  /** kind "plan": posts Claude proposes for a period from the strategy (worker 0.14.0). */
+  plan?: PlanRequest;
   /** What the Mac has to say about the finished video (a reel that fell back to the standard animations). */
   notes?: string;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
@@ -295,7 +525,7 @@ export type MontageJob = {
   /** Face-cam edit: B-roll asked to Claude for one passage (timeline seconds) of the last version (action "broll", worker 0.13.0). */
   brollAsk?: { range: [number, number]; note?: string };
   /** Voice of the project (style profile): Claude writes with it. Copied when the job was made; refreshed for edits and covers when the Mac takes the job. */
-  voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[] };
+  voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[]; strategy?: string };
   /** Colors and font of the project (style profile) for the video overlays: added when the Mac takes the job. */
   theme?: { accent: string; ink: string; dark?: string; text?: string; font?: string; googleFont?: string; fontStretch?: string };
   /** Subtitle style of the project, copied when the job was made. */
@@ -305,7 +535,17 @@ export type MontageJob = {
   mediaId?: string;
   createdAt: string;
   updatedAt: string;
+  /** Oldest worker that may claim the job (VIDEO_WORKER for video jobs); left out = any worker. */
+  minWorker?: string;
+  /** Video: the next "motion" action writes a new video from the request instead of retouching a version. */
+  regen?: boolean;
+  run?: JobRun;
+  /** GET responses only, never stored: jobs with an action created before this one. */
+  ahead?: number;
 };
+
+/** A continuous video reel (new request or versions with a video plan), as opposed to a reel made of scenes. */
+export const isVideoJob = (j: MontageJob) => j.kind === "motion" && (j.motion?.mode === "video" || j.versions.some((v) => !!v.reel?.video));
 
 export const FORMATS: { value: MontageFormat; label: string; hint: string }[] = [
   { value: "9:16", label: "9:16", hint: "Reel, TikTok, Short" },

@@ -9,7 +9,7 @@ import { isImageFile, MEDIA_ACCEPT, VIDEO_FILE } from "@/lib/image";
 import { useStore } from "@/lib/store";
 import type { Media } from "@/lib/types";
 import { cn, duration, fmt } from "@/lib/utils";
-import { VideoTabs } from "./montage/parts";
+import { MediaHeader } from "./montage/parts";
 import { Button, MediaThumb, SourceTag } from "./ui";
 
 type Filter = "all" | "new" | "used";
@@ -55,13 +55,7 @@ export function VideosPage() {
 
   return (
     <>
-      <header className="flex flex-wrap items-end gap-4 border-b border-line px-6 py-5 max-md:px-4">
-        <div>
-          <h1 className="font-display text-[30px] leading-none">Médias</h1>
-          <p className="mt-1.5 text-[13px] text-ink-3">Bibliothèque</p>
-        </div>
-        <VideoTabs />
-        <div className="ml-auto flex items-center gap-2">
+      <MediaHeader>
           <input
             ref={input}
             type="file"
@@ -96,8 +90,7 @@ export function VideosPage() {
               { value: "used", label: "Programmés" },
             ]}
           />
-        </div>
-      </header>
+      </MediaHeader>
 
       <div
         className={cn("scroll-thin relative flex-1 overflow-y-auto px-6 py-5 transition-colors duration-150 max-md:px-4", dragging && "bg-accent-soft")}
