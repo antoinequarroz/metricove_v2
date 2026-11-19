@@ -91,6 +91,28 @@ export type MontageMark = {
   image?: string;
 };
 
+/**
+ * A review note kept on the server (face-cam review screen): a moment of a version, a few words, a drawing, maybe the
+ * element of the picture it is about. `open` until Antoine marks it resolved; `sentIn` = the version asked with it.
+ */
+export type ReviewNote = {
+  id: string;
+  version: number;
+  t: number;
+  text: string;
+  /** The frame with the drawing is stored as a file: GET /api/montage/jobs/:id/notes/:note/image. */
+  image?: boolean;
+  /** An element picked with « Inspecter » (centre in 0..1 of the picture). */
+  target?: { kind: NoteTargetKind; label: string; x: number; y: number };
+  status: "open" | "resolved";
+  sentIn?: number;
+  createdAt: number;
+};
+export type NoteTargetKind = "caption" | "text" | "stage" | "title" | "broll" | "face" | "end";
+export const MAX_REVIEW_NOTES = 80;
+/** Notes sent to Claude with one request (the drawings go with them). */
+export const MAX_SENT_NOTES = 8;
+
 export type EdlSegment = {
   id: string;
   rush: string;

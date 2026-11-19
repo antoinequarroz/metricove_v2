@@ -4,7 +4,7 @@ import path from "node:path";
 import { BUILTIN_SFX, DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_SFX, MAX_STAGES, STAGE_ANIMS, STAGE_KINDS, type Sfx, type Stage, JOB_PHASES, MAX_TEXTS, MUSIC_FADE, REEL_ACTORS, REEL_BRIDGES, REEL_CAMERAS, REEL_LAYOUTS, REEL_SHAPES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, REEL_ZONES, VIDEO_BEAT_ID, VIDEO_BOARD, VIDEO_ENGINE, VIDEO_LIMITS, VIDEO_MOMENT_ID, VIDEO_WORKER, isVideoJob, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type JobPhase, type JobRun, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelBeat, type ReelCode, type ReelFx, type ReelMoment, type ReelPlan, type ReelScene, type ReelVideo, type Rush, type WorkerSpeed } from "@/lib/montage";
 import { atLeast } from "@/lib/worker-version";
 import type { Look } from "@/lib/profiles";
-import { DATA_DIR, db } from "./db";
+import { DATA_DIR, db, setSetting } from "./db";
 import { removeSources } from "./sources";
 
 /* ---------- Tables ---------- */
@@ -274,6 +274,7 @@ export function deleteJob(id: string) {
   const job = getJob(id);
   if (job?.brand && job.projectId) removeSources(job.projectId, job.brand.files.map((f) => f.id));
   init().prepare("delete from montage_jobs where id = ?").run(id);
+  setSetting(`review:${id}`, undefined);
   fs.rmSync(path.join(DATA_DIR, "montage", path.basename(id)), { recursive: true, force: true });
 }
 

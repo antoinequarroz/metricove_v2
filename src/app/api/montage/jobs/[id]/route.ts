@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { isVideoJob, MAX_ASSET_COUNT, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
+import { isVideoJob, MAX_ASSET_COUNT, MAX_SENT_NOTES, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
 import { findAsset } from "@/server/library";
+import { markSent, notesAsMarks } from "@/server/review-notes";
 import { ingestVideo } from "@/server/media";
 import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, reportRun, restoreReel, saveJob, staleWrite, touchJob, touchWorker, workerStatus } from "@/server/montage";
 import fs from "node:fs";
@@ -21,6 +22,8 @@ type Body = {
   // From the page
   revise?: string;
   marks?: unknown;
+  /** Face-cam edit: ids of the review notes sent with the request (kept on the server, see review-notes.ts). */
+  notes?: unknown;
   edl?: unknown;
   /** Face-cam edit: Claude proposes B-roll for this passage only, { range: [from, to], note? } (sent with the edl on screen). */
   brollAsk?: { range?: unknown; note?: unknown };
@@ -125,7 +128,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   if (typeof b.revise === "string") {
     if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });
-    const marks = cleanMarks(b.marks);
+    const noteIds = Array.isArray(b.notes) ? (b.notes as unknown[]).filter((x): x is string => typeof x === "string").slice(0, MAX_SENT_NOTES) : [];
+    const marks = job.kind === "montage" && noteIds.length ? notesAsMarks(job.id, noteIds) : cleanMarks(b.marks);
     if (typeof marks === "string") return NextResponse.json({ error: marks }, { status: 400 });
     job.feedback = b.revise.trim().slice(0, 2000) || undefined;
     job.marks = marks.length ? marks : undefined;
@@ -141,8 +145,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
       return NextResponse.json({ job: pageJob(queue(job, "motion")) });
     }
     // A note left empty is not a request: Claude would start again from nothing.
-    if (job.versions.length && !job.feedback && !job.marks && typeof b.revise === "string" && Array.isArray(b.marks) && b.marks.length) return NextResponse.json({ error: "Écris ta demande ou une note" }, { status: 400 });
-    return NextResponse.json({ job: queue(job, "propose") });
+    if (job.versions.length && !job.feedback && !job.marks && typeof b.revise === "string" && ((Array.isArray(b.marks) && b.marks.length) || noteIds.length)) return NextResponse.json({ error: "Écris ta demande ou une note" }, { status: 400 });
+    const queued = queue(job, "propose");
+    // The notes sent stay open: they say which version they were sent for, Antoine marks them resolved when it is right.
+    if (job.marks?.length && noteIds.length) markSent(job.id, job.marks.map((m) => m.id), (job.versions.at(-1)?.n ?? 0) + 1);
+    return NextResponse.json({ job: queued });
   }
   if (b.brollAsk !== undefined) {
     if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });

@@ -637,3 +637,17 @@ Claude (proposition de montage) reçoit les illustrations et bruitages de `job.a
 et pose 2 à 4 temps forts pour 45 s (jamais sur l'accroche, ni sur un B-roll, ni deux fois la même mise en page de suite)
 et 2 à 5 bruitages. Rendu : cartes dans la surcouche HyperFrames (sous les sous-titres), visage recadré ou en pastille
 par FFmpeg, bruitages mélangés sous la voix. Un Mac plus ancien ignore ces champs.
+
+## Écran de relecture du face cam : retours, transcription, inspecter (METRI-36)
+
+- **Retours** gardés sur le serveur (réglage `review:<job>`, dessins dans `DATA_DIR/montage/<job>/notes/`) :
+  `GET|POST /api/montage/jobs/:id/notes` `{ version, t, text?, image? (data URL), target? { kind, label, x, y } }`,
+  `PATCH|DELETE /api/montage/jobs/:id/notes/:note` `{ text?, status: "open" | "resolved", t? }`,
+  `GET …/notes/:note/image`. Supprimés avec le montage.
+- « Envoyer les retours à Claude » : `PATCH /api/montage/jobs/:id { revise, notes: [ids] }` (8 au plus). Le serveur en
+  fait les `job.marks` habituels (dessin en data URL, élément visé écrit au début du texte) : aucun changement côté Mac.
+  Les retours envoyés gardent `sentIn` = la version demandée et restent ouverts jusqu'à « résolu ».
+- Raccourcis : C (ou M) = un retour à la tête de lecture, V = inspecter (cliquer un élément de l'image : sous-titre,
+  texte, carte d'un temps fort, accroche, B-roll, visage) pour voir sa place, le commenter ou le modifier.
+- Transcription : clic sur un mot = aller à ce moment, Maj + clic = choisir des mots (couper, remettre, commenter),
+  double-clic = corriger le mot.
