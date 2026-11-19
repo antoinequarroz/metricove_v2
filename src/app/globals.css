@@ -138,6 +138,13 @@ body::before {
   scrollbar-color: var(--line-strong) transparent;
 }
 
+/* Behind an illustration with a transparent background. */
+.checker {
+  background-color: var(--surface-2);
+  background-image: conic-gradient(var(--line) 25%, transparent 0 50%, var(--line) 0 75%, transparent 0);
+  background-size: 16px 16px;
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }

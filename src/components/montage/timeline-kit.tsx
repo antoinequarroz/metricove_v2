@@ -233,6 +233,8 @@ export type TimelineKeys = {
   onSplit?: () => void;
   /** Puts a note at the playhead. */
   onMark?: () => void;
+  /** Turns « Inspecter » on or off (V): pick an element of the picture. */
+  onInspect?: () => void;
   onDelete?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
@@ -245,7 +247,8 @@ export const SHORTCUTS: [string, string][] = [
   ["← →", "une image en arrière ou en avant (avec Maj : une seconde)"],
   ["J · K · L", "reculer de 2 s · pause · lire (L encore : plus vite)"],
   ["S", "couper à la tête de lecture"],
-  ["M", "poser un repère avec une note pour Claude"],
+  ["M · C", "poser un retour pour Claude à la tête de lecture"],
+  ["V", "inspecter : viser un élément de l'image (face cam)"],
   ["Suppr", "retirer l'élément choisi"],
   ["⌘Z · ⇧⌘Z", "annuler · rétablir"],
   ["+ · − · 0", "zoomer · dézoomer · tout voir"],
@@ -290,7 +293,8 @@ export function useTimelineKeys(keys: TimelineKeys) {
         return;
       }
       if (key === "s" && k.onSplit) return void (done(), k.onSplit());
-      if (key === "m" && k.onMark) return void (done(), k.onMark());
+      if ((key === "m" || key === "c") && k.onMark) return void (done(), k.onMark());
+      if (key === "v" && k.onInspect) return void (done(), k.onInspect());
       if (key === "+" || key === "=") return void (done(), k.onZoom?.(1));
       if (key === "-") return void (done(), k.onZoom?.(-1));
       // On a French keyboard the 0 key gives « à » without Shift.

@@ -44,7 +44,7 @@ Next.js 15.5.28 est corrigé par `patches/next@15.5.28.patch` (`patchedDependenc
 ```ts
 type Job = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan" | "asset";
   title: string;
   projectId?: string;
   status: "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
@@ -606,3 +606,80 @@ pour les posts, descriptions et textes de prompteur, et pour l'écriture des ree
 Le serveur y joint la stratégie, les comptes du projet et les posts déjà prévus autour de la période (`plan.taken`).
 Le Mac répond `PATCH { status: "done", plan: { items: [{ date, time, format, pillar, idea, why, caption, networks }], notes } }`.
 La page met chaque proposition en brouillon au calendrier, l'ouvre dans le Studio (`?idee=…`) ou la garde dans les idées du projet.
+
+## Styles, bibliothèques et `kind: "asset"` (worker 0.16.0)
+
+- Un projet a un style par défaut (`profile:<projet>`) et d'autres (`profile:<projet>:<style>`, liste `styles:<projet>`).
+  Une tâche peut porter `styleId` : la voix, le thème et le logo envoyés au Mac viennent de ce style. Les **notes** du
+  style (une règle par ligne) sont ajoutées à la fin de `voice.tone`.
+- Bibliothèques (`/api/library`) : illustrations (PNG, JPEG, WebP, SVG) et bruitages (MP3, WAV, OGG, M4A), chacun
+  rangé dans des styles `"<projet>:<style>"`. À la réclamation, une tâche montage, couverture ou reel reçoit
+  `job.assets = { illustrations: [{ id, name, tags, url, type }], sfx: [...] }` : ceux de son style, sinon ceux sans style.
+- `POST /api/montage/jobs` `{ kind: "asset", assetKind: "illustration" | "sfx", prompt, count: 1..4, projectId?, styleId? }`
+  → `job.asset = { kind, prompt, count, styles, palette?, style? }`, `minWorker` 0.16.0. Le Mac envoie chaque fichier
+  à `POST /api/library?kind=…&name=…&tags=…&styles=…&source=claude` (corps = le fichier), puis
+  `PATCH { status: "done", asset: { result: [ids] } }`.
+
+## Mise en scène des temps forts (worker 0.17.0)
+
+L'EDL d'un face cam peut porter, en secondes de la timeline de l'éditeur :
+
+- `stages: [{ at, dur, kind: "split" | "card" | "pip", title, body?, illustration?, anim?: "rise" | "slide" | "pop" | "wipe" }]`
+  (12 au plus). `split` : carte en haut (à gauche en 16:9), visage recadré dans l'autre moitié, sous-titres sur la
+  jointure. `card` : carte plein écran, la voix continue. `pip` : carte plein écran, visage dans une pastille ronde.
+  `illustration` = id d'une illustration de la bibliothèque. Sans `anim`, le Mac en prend une différente de la carte
+  d'avant. Deux temps forts qui se chevauchent : le Mac garde le premier.
+- `sfx: [{ at, sound, name, volume? }]` (20 au plus) : `sound` = id d'un bruitage de la bibliothèque, ou
+  `builtin:whoosh|swoosh|pop|click|ding|impact|riser|thud` (fait par le Mac avec FFmpeg). Volume 0,05 à 1,5 (0,6 par défaut).
+- `stageAuto: false` : Claude ne propose ni temps forts ni bruitages à la prochaine version.
+
+Claude (proposition de montage) reçoit les illustrations et bruitages de `job.assets` par leur nom et leurs mots clés,
+et pose 2 à 4 temps forts pour 45 s (jamais sur l'accroche, ni sur un B-roll, ni deux fois la même mise en page de suite)
+et 2 à 5 bruitages. Rendu : cartes dans la surcouche HyperFrames (sous les sous-titres), visage recadré ou en pastille
+par FFmpeg, bruitages mélangés sous la voix. Un Mac plus ancien ignore ces champs.
+
+## Écran de relecture du face cam : retours, transcription, inspecter (METRI-36)
+
+- **Retours** gardés sur le serveur (réglage `review:<job>`, dessins dans `DATA_DIR/montage/<job>/notes/`) :
+  `GET|POST /api/montage/jobs/:id/notes` `{ version, t, text?, image? (data URL), target? { kind, label, x, y } }`,
+  `PATCH|DELETE /api/montage/jobs/:id/notes/:note` `{ text?, status: "open" | "resolved", t? }`,
+  `GET …/notes/:note/image`. Supprimés avec le montage.
+- « Envoyer les retours à Claude » : `PATCH /api/montage/jobs/:id { revise, notes: [ids] }` (8 au plus). Le serveur en
+  fait les `job.marks` habituels (dessin en data URL, élément visé écrit au début du texte) : aucun changement côté Mac.
+  Les retours envoyés gardent `sentIn` = la version demandée et restent ouverts jusqu'à « résolu ».
+- Raccourcis : C (ou M) = un retour à la tête de lecture, V = inspecter (cliquer un élément de l'image : sous-titre,
+  texte, carte d'un temps fort, accroche, B-roll, visage) pour voir sa place, le commenter ou le modifier.
+- Transcription : clic sur un mot = aller à ce moment, Maj + clic = choisir des mots (couper, remettre, commenter),
+  double-clic = corriger le mot.
+
+## Règles tirées des retours et « Copier un créateur » (`kind: "style"`, worker 0.18.0, METRI-37)
+
+Une tâche `kind: "style"` (action `style`, `minWorker` 0.18.0) porte `job.styleTask` :
+
+- **`mode: "rules"`** — sous les retours de l'écran de relecture, « Proposer des règles ». Le serveur met dans
+  `styleTask.notes` les retours **résolus** du montage `from` (« [élément visé] texte », 30 au plus) et dans `current` les
+  notes actuelles du style. Le Mac (`lib/style.mjs`, `writeRules`) demande à Claude 1 à 6 règles générales, et renvoie
+  `PATCH {status: "done", style: {rules}}` ; le serveur les garde dans `styleTask.result.rules`. Antoine coche celles à
+  garder : l'interface les ajoute aux notes du style (`PUT /api/profiles/:id?style=…`), sans doublon, puis retire la tâche.
+- **`mode: "copy"`** — Ressources → Styles → « Copier un créateur ». `refs` : jusqu'à 3 liens `https://` (lus par yt-dlp
+  sur le Mac) ou vidéos de la bibliothèque (`mediaId`, téléchargées par `/api/media/:id/file`). Pour chaque reel le Mac
+  mesure la durée, les coupes (`select=gt(scene,0.18)`, une au plus toutes les 0,25 s), le volume et la présence d'un fond
+  sonore continu (`volumedetect` + `silencedetect`), le débit de parole (whisper) et fait 2 planches de 6 images ; Claude
+  lit les planches et écrit 8 à 14 notes, un résumé et la couleur d'accent. Un reel illisible n'arrête pas la tâche (il
+  est cité dans le résumé) ; aucun reel lisible = échec. À la fin le serveur crée un nouveau style du projet (copié du
+  style choisi pour les couleurs et le ton) avec ces notes et cet accent : `styleTask.result.styleId`.
+
+Réglages du Mac (`config.json`) : `ytDlp` (chemin de yt-dlp, `brew install yt-dlp`) et `ytDlpCookies` (navigateur dont
+yt-dlp prend les cookies, par ex. `"chrome"` : Instagram demande souvent d'être connecté).
+
+### Look vidéo d'un style (`look.video`, worker 0.19.0)
+
+Un style peut porter un **look vidéo** : police Google Fonts (n'importe quelle famille), graisse, capitales, couleur du
+texte, contour, fond derrière la ligne ou le mot dit, ombre, type d'accroche (bandeau, gros texte, cadre blanc), place,
+apparition et taille des sous-titres, couleur des mots mis en avant et fond des cartes. Il se règle dans Ressources →
+Styles (« Look des vidéos », avec un aperçu) et « Copier un créateur » le remplit d'après les images du reel.
+- Au claim, `themeOf` ajoute `font`/`googleFont`, `text`, `dark` et `theme.design` ; le Mac (hf.mjs, stage.mjs) dessine
+  sous-titres, accroche, carton de fin et cartes avec. Une graisse que Google n'a pas : la famille seule est prise.
+- À la création d'un montage, `captionsOf` met la place, l'apparition, la taille et la couleur du style dans `job.style`.
+- La copie garde 6 images clés des reels comme images d'inspiration du style ; un montage les reçoit (`voice.images`)
+  et Claude les lit avant de proposer la mise en scène.

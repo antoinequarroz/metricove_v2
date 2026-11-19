@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Crop, Megaphone, Music, MonitorSmartphone } from "lucide-react";
+import { Clapperboard, Crop, LayoutPanelTop, Megaphone, Music, MonitorSmartphone } from "lucide-react";
 import { DEFAULT_AUDIO, FORMATS, type AudioSettings, type Edl } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Row, Section, Segmented, Switch } from "./controls";
@@ -97,6 +97,16 @@ export function SettingsPanel({ edl, onChange, tracks }: { edl: Edl; onChange: (
         <p className="py-2 text-[11.5px] text-ink-3">
           {edl.broll?.length ? `${edl.broll.length} plan${edl.broll.length > 1 ? "s" : ""} dans la timeline.` : "Aucun plan pour l'instant."} Ajoute, déplace ou change un plan
           dans la piste B-roll de la timeline.
+        </p>
+      </Section>
+
+      <Section title="Mise en scène" icon={<LayoutPanelTop className="size-3.5 text-accent" />}>
+        <Row label="Temps forts et bruitages automatiques" hint="Claude change la mise en page sur les idées clés, avec les illustrations et bruitages du style">
+          <Switch on={edl.stageAuto ?? true} onChange={(stageAuto) => set({ stageAuto })} label="Mise en scène automatique" />
+        </Row>
+        <p className="py-2 text-[11.5px] text-ink-3">
+          {edl.stages?.length ? `${edl.stages.length} temps fort${edl.stages.length > 1 ? "s" : ""}` : "Aucun temps fort"}
+          {edl.sfx?.length ? ` et ${edl.sfx.length} bruitage${edl.sfx.length > 1 ? "s" : ""}` : ""} dans la timeline. Ce réglage compte pour la prochaine proposition de Claude.
         </p>
       </Section>
 

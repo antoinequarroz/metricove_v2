@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Laptop, Loader2, MessageSquareText, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
+import { ArrowLeft, CalendarPlus, Check, Columns2, Crosshair, Laptop, Loader2, PenLine, Play, RotateCcw, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { edlDuration, isVideoJob, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { edlDuration, isVideoJob, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageVersion, type Rush } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
@@ -17,6 +17,10 @@ import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
+import { TranscriptPanel } from "./transcript-panel";
+import { InspectOverlay } from "./inspect-overlay";
+import { StyleRules } from "./style-rules";
+import { notesAsMarks, ReviewNotesPanel, useReviewNotes, type NoteDraft } from "./review-notes";
 import { montageApi, useMontage } from "./use-montage";
 import { VideoReview } from "./video-review";
 
@@ -115,7 +119,6 @@ function Review({
   const [draft, setDraft] = useState<Edl | undefined>(version?.edl);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState("");
   const player = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
   // Claude's notes and the request for another version have their own tab, first during the review (as on the reel's screen).
@@ -126,7 +129,11 @@ function Review({
   const setSelection = (s: Selection) => (setSelectionRaw(s), s && setTextSelRaw(null));
   const setTextSel = (id: string | null) => (setTextSelRaw(id), id && (setSelectionRaw(null), setTab("texts")));
   const [drawing, setDrawing] = useState(false);
-  const [marks, setMarks] = useState<MontageMark[]>([]);
+  /** « Inspecter » (V): the elements of the picture are boxes to click. */
+  const [inspecting, setInspecting] = useState(false);
+  const notes = useReviewNotes(job.id);
+  /** The note just added (its field takes the focus). */
+  const [newNote, setNewNote] = useState<string | null>(null);
   const openComposer = useStore((s) => s.openComposer);
   const working = job.action !== null;
 
@@ -193,6 +200,12 @@ function Review({
     } else if (selection.kind === "zoom") {
       if (!next.zooms?.[selection.i]) return;
       next.zooms.splice(selection.i, 1);
+    } else if (selection.kind === "stage") {
+      if (!next.stages?.[selection.i]) return;
+      next.stages.splice(selection.i, 1);
+    } else if (selection.kind === "sfx") {
+      if (!next.sfx?.[selection.i]) return;
+      next.sfx.splice(selection.i, 1);
     } else {
       if (!next.broll?.[selection.i]) return;
       next.broll.splice(selection.i, 1);
@@ -231,13 +244,11 @@ function Review({
     setDirty(false);
     history.reset();
   };
-  /** Notes that say something: one left empty is not sent. */
-  const filled = marks.filter((m) => m.text.trim() || m.image);
-  const revise = async () => {
-    if (await call({ revise: feedback, marks: filled }, filled.length ? `Demande et ${filled.length} note${filled.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude")) {
-      setFeedback("");
-      setMarks([]);
-    }
+  /** A new version that handles the open review notes (and a few more words). */
+  const revise = async (ids: string[], extra: string) => {
+    const ok = await call({ revise: extra, notes: ids }, ids.length ? `${ids.length} retour${ids.length > 1 ? "s" : ""} envoyé${ids.length > 1 ? "s" : ""} à Claude` : "Demande envoyée à Claude");
+    if (ok) void notes.reload();
+    return ok;
   };
   const saveStyle = async (style: CaptionStyle) => {
     if (!job.projectId) return;
@@ -256,15 +267,21 @@ function Review({
     if (!player.current) return;
     player.current.currentTime = t;
   };
-  const sentMarks = (job.marks ?? []).filter((m) => m.version === version?.n);
   const canDraw = job.status === "review" && !!version?.preview && compareWith === null;
   /** Puts a note at the playhead (M): a place in the video and a few words for Claude, without drawing. */
-  const addNote = () => {
+  const addNote = async (more: Partial<NoteDraft> = {}) => {
     if (!version || !canDraw) return;
-    if (marks.length >= 8) return void toast.message("8 notes au plus par demande");
     player.current?.pause();
-    setMarks((x) => [...x, { id: crypto.randomUUID(), version: version.n, t: Math.round((player.current?.currentTime ?? time) * 100) / 100, text: "" }]);
     setTab("claude");
+    const n = await notes.add({ version: version.n, t: Math.round((player.current?.currentTime ?? time) * 100) / 100, ...more });
+    if (n) setNewNote(n.id);
+  };
+  /** A note of another version: that version comes on screen, then the video goes to the moment. */
+  const seekNote = (n: number, t: number) => {
+    if (n !== version?.n && job.versions.some((v) => v.n === n)) {
+      pick(n);
+      setTimeout(() => seek(t), 400);
+    } else seek(t);
   };
   useTimelineKeys({
     enabled: !!draft && compareWith === null && !(drawing && canDraw) && !composerOpen,
@@ -273,7 +290,8 @@ function Review({
     total: draft ? edlDuration(draft) : 0,
     onSeek: seek,
     onSplit: splitHere,
-    onMark: addNote,
+    onMark: () => void addNote(),
+    onInspect: canDraw ? () => (player.current?.pause(), setInspecting((x) => !x)) : undefined,
     onDelete: curText ? () => (setTexts(texts.filter((t) => t.id !== curText.id)), setTextSelRaw(null)) : selection && selection.kind !== "title" && selection.kind !== "cap" && selection.kind !== "brange" ? removeSelection : undefined,
     onUndo: history.undo,
     onRedo: history.redo,
@@ -481,6 +499,15 @@ function Review({
                   <PenLine className="size-3.5" /> Dessiner une note
                 </button>
               )}
+              {canDraw && draft && (
+                <button
+                  onClick={() => (player.current?.pause(), setInspecting((x) => !x))}
+                  className={cn("press inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", inspecting ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
+                  title="Clique un élément de l'image (sous-titre, texte, carte…) pour voir sa place, le commenter ou le modifier (touche V)"
+                >
+                  <Crosshair className="size-3.5" /> Inspecter
+                </button>
+              )}
               <div className="ml-auto flex items-center gap-2 empty:hidden">
                 {job.versions.length > 1 && (
                   <button
@@ -519,9 +546,29 @@ function Review({
               {compareWith !== null ? (
                 <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
               ) : (
-                <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => (setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m])), setTab("claude"))} onClose={() => setDrawing(false)}>
+                <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => void notes.add({ version: m.version, t: m.t, text: m.text, image: m.image }).then(() => setTab("claude"))} onClose={() => setDrawing(false)}>
                   <div className="relative" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
                     <Preview job={job} v={version} ref={player} onTime={setTime} />
+                    {inspecting && canDraw && draft && !drawing && (
+                      <InspectOverlay
+                        edl={draft}
+                        time={time}
+                        style={job.style}
+                        onClose={() => setInspecting(false)}
+                        onComment={(el) => {
+                          setInspecting(false);
+                          void addNote({ target: { kind: el.kind, label: el.label, x: el.x + el.w / 2, y: el.y + el.h / 2 } });
+                        }}
+                        onEdit={(el) => {
+                          setInspecting(false);
+                          if (el.ref?.text) setTextSel(el.ref.text);
+                          else if (el.ref?.stage !== undefined) setSelection({ kind: "stage", i: el.ref.stage });
+                          else if (el.ref?.broll !== undefined) setSelection({ kind: "broll", i: el.ref.broll });
+                          else if (el.kind === "title") setSelection({ kind: "title" });
+                          else setTab(el.kind === "caption" ? "captions" : "settings");
+                        }}
+                      />
+                    )}
                     {curText && draft && tab === "texts" && !drawing && (
                       <TextGhost text={curText} aspect={(([w, h]) => w / h)(draft.format.split(":").map(Number))} onMove={(x, y, key) => setTexts(texts.map((t) => (t.id === curText.id ? { ...t, x, y } : t)), key)} />
                     )}
@@ -542,7 +589,7 @@ function Review({
                       value={view}
                       onChange={setTab}
                       options={[
-                        ...(hasClaude ? [{ value: "claude" as const, label: shortTabs ? "Claude" : job.status === "review" ? "Demander à Claude" : "Notes de Claude" }] : []),
+                        ...(hasClaude ? [{ value: "claude" as const, label: job.status === "review" ? "Retours" : shortTabs ? "Claude" : "Notes de Claude" }] : []),
                         { value: "captions", label: "Sous-titres" },
                         { value: "text", label: "Transcription" },
                         { value: "texts", label: "Textes" },
@@ -572,112 +619,24 @@ function Review({
                       </div>
                     )}
                     {view === "claude" && job.status === "review" && (
-                      <div className="rounded-xl border border-line bg-surface p-3">
-                        <label htmlFor="feedback" className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium">
-                          <MessageSquareText className="size-3.5 text-accent" /> Demander une autre version à Claude
-                        </label>
-                        {marks.length > 0 && (
-                          <ul className="mb-2 flex flex-col gap-1.5">
-                            {marks.map((m) => (
-                              <li key={m.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/60 p-1.5 text-[12.5px]">
-                                {m.image ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={m.image} alt="" className="h-12 w-auto shrink-0 rounded-md" />
-                                ) : (
-                                  <span className="grid h-12 w-8 shrink-0 place-items-center rounded-md bg-ink/5 text-ink-3">
-                                    <PenLine className="size-3.5" />
-                                  </span>
-                                )}
-                                <button onClick={() => seek(m.t)} className="tabular shrink-0 font-mono text-[11px] text-ink-3 hover:text-accent">
-                                  {fmtSec(m.t)}
-                                </button>
-                                <input
-                                  value={m.text}
-                                  onChange={(e) => setMarks((x) => x.map((y) => (y.id === m.id ? { ...y, text: e.target.value } : y)))}
-                                  autoFocus={!m.text && !m.image}
-                                  maxLength={1000}
-                                  placeholder={m.image ? "Dessin sans texte" : "Ta note à cet endroit"}
-                                  aria-label={`Note à ${fmtSec(m.t)}`}
-                                  className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-line-strong focus:border-accent/60 focus:bg-surface"
-                                />
-                                <button onClick={() => setMarks((x) => x.filter((y) => y.id !== m.id))} aria-label="Retirer la note" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink">
-                                  <X className="size-3.5" />
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        <textarea
-                          id="feedback"
-                          value={feedback}
-                          onChange={(e) => setFeedback(e.target.value)}
-                          rows={2}
-                          placeholder={marks.length ? "Un mot de plus pour Claude (facultatif)" : "Par ex. « plus court, garde la prise 2 », ou dessine une note sur la vidéo"}
-                          className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60"
-                        />
-                        <div className="mt-2 flex justify-end">
-                          <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !filled.length)}>
-                            <Wand2 className="size-3.5" /> Nouvelle version
-                          </Button>
-                        </div>
-                      </div>
+                      <ReviewNotesPanel
+                        jobId={job.id}
+                        api={notes}
+                        version={version.n}
+                        canSend={!working}
+                        busy={busy}
+                        focus={newNote}
+                        onSeek={seekNote}
+                        onAdd={canDraw ? () => void addNote() : undefined}
+                        onSend={revise}
+                      />
                     )}
+                    {view === "claude" && job.status === "review" && <StyleRules job={job} notes={notes.notes} />}
 
                     {view === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
                     {view === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}
                     {view === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
-                    {view === "text" && (
-                      <>
-                        <p className="text-[12px] text-ink-3">Clique sur l&apos;œil pour couper ou remettre un passage. Clique sur un mot pour corriger le sous-titre : son timing ne bouge pas.</p>
-                        <ol className="flex flex-col gap-1.5">
-                          {draft.segments.map((s, i) => {
-                            const placed = segs.find((x) => x.id === s.id);
-                            return (
-                              <li key={s.id} className={cn("group flex gap-3 rounded-xl border px-3 py-2.5 transition-colors duration-150", s.kept ? "border-line bg-surface" : "border-dashed border-line bg-transparent")}>
-                                <button
-                                  onClick={() => edit((e) => ((e.segments[i].kept = !e.segments[i].kept), e))}
-                                  aria-label={s.kept ? "Couper ce passage" : "Remettre ce passage"}
-                                  title={s.kept ? "Couper ce passage" : "Remettre ce passage"}
-                                  className={cn("press mt-0.5 grid size-7 shrink-0 place-items-center rounded-md", s.kept ? "text-ink-2 hover:bg-surface-2" : "text-ink-3 hover:bg-surface-2")}
-                                >
-                                  {s.kept ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-                                </button>
-                                <div className="min-w-0 flex-1">
-                                  <div className="mb-0.5 flex items-center gap-2 text-[11px] text-ink-3">
-                                    {placed ? (
-                                      <button onClick={() => seek(placed.start)} className="tabular font-mono hover:text-accent">
-                                        {fmtSec(placed.start)}
-                                      </button>
-                                    ) : (
-                                      <span className="rounded bg-ink/5 px-1.5 py-px font-medium">Coupé{s.reason ? ` · ${s.reason}` : ""}</span>
-                                    )}
-                                    <span className="tabular font-mono">{((s.out - s.in) / (s.speed ?? 1)).toFixed(1)} s</span>
-                                  </div>
-                                  <p className={cn("text-[13.5px] leading-relaxed", !s.kept && "text-ink-3 line-through decoration-ink-3/60")}>
-                                    {s.words?.length
-                                      ? s.words.map((w, wi) => (
-                                          <Word
-                                            key={wi}
-                                            value={w.w}
-                                            disabled={!s.kept}
-                                            onChange={(t) =>
-                                              edit((e) => {
-                                                e.segments[i].words![wi].w = t;
-                                                e.segments[i].text = e.segments[i].words!.map((x) => x.w).join(" ");
-                                                return e;
-                                              })
-                                            }
-                                          />
-                                        ))
-                                      : s.text}
-                                  </p>
-                                </div>
-                              </li>
-                            );
-                          })}
-                        </ol>
-                      </>
-                    )}
+                    {view === "text" && <TranscriptPanel edl={draft} time={time} onSeek={seek} edit={edit} onComment={canDraw ? (t, words) => void addNote({ t, text: `« ${words} » : ` }) : undefined} />}
                   </div>
                 </div>
               </div>
@@ -694,7 +653,7 @@ function Review({
                   onChange={setEdl}
                   time={time}
                   onSeek={seek}
-                  marks={[...sentMarks, ...marks.filter((m) => m.version === version.n)]}
+                  marks={notesAsMarks(notes.notes, version.n)}
                   rushes={rushes}
                   selection={selection}
                   onSelect={setSelection}
@@ -708,7 +667,7 @@ function Review({
                   undo={history}
                   zoomRef={zoomRef}
                   onRemove={removeSelection}
-                  onMark={canDraw ? addNote : undefined}
+                  onMark={canDraw ? () => void addNote() : undefined}
                   onBrollAsk={working ? undefined : askBroll}
                 />
               </div>
@@ -814,37 +773,3 @@ export function Compare({ job, before, after, onBefore }: { job: MontageJob; bef
   );
 }
 
-function Word({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(value);
-  useEffect(() => setText(value), [value]);
-  if (editing)
-    return (
-      <input
-        autoFocus
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => {
-          setEditing(false);
-          if (text.trim() && text !== value) onChange(text.trim());
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          if (e.key === "Escape") {
-            setText(value);
-            setEditing(false);
-          }
-        }}
-        aria-label="Corriger le mot"
-        className="mx-0.5 rounded border border-accent bg-accent-soft px-1 text-[13.5px] outline-none"
-        style={{ width: `${Math.max(3, text.length + 1)}ch` }}
-      />
-    );
-  return (
-    <>
-      <button disabled={disabled} onClick={() => setEditing(true)} className="rounded px-px enabled:hover:bg-accent-soft enabled:hover:text-ink">
-        {value}
-      </button>{" "}
-    </>
-  );
-}

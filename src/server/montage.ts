@@ -1,10 +1,10 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, JOB_PHASES, MAX_TEXTS, MUSIC_FADE, REEL_ACTORS, REEL_BRIDGES, REEL_CAMERAS, REEL_LAYOUTS, REEL_SHAPES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, REEL_ZONES, VIDEO_BEAT_ID, VIDEO_BOARD, VIDEO_ENGINE, VIDEO_LIMITS, VIDEO_MOMENT_ID, VIDEO_WORKER, isVideoJob, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type JobPhase, type JobRun, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelBeat, type ReelCode, type ReelFx, type ReelMoment, type ReelPlan, type ReelScene, type ReelVideo, type Rush, type WorkerSpeed } from "@/lib/montage";
+import { BUILTIN_SFX, DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_SFX, MAX_STAGES, STAGE_ANIMS, STAGE_KINDS, type Sfx, type Stage, JOB_PHASES, MAX_TEXTS, MUSIC_FADE, REEL_ACTORS, REEL_BRIDGES, REEL_CAMERAS, REEL_LAYOUTS, REEL_SHAPES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, REEL_ZONES, VIDEO_BEAT_ID, VIDEO_BOARD, VIDEO_ENGINE, VIDEO_LIMITS, VIDEO_MOMENT_ID, VIDEO_WORKER, isVideoJob, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type JobPhase, type JobRun, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelBeat, type ReelCode, type ReelFx, type ReelMoment, type ReelPlan, type ReelScene, type ReelVideo, type Rush, type WorkerSpeed } from "@/lib/montage";
 import { atLeast } from "@/lib/worker-version";
 import type { Look } from "@/lib/profiles";
-import { DATA_DIR, db } from "./db";
+import { DATA_DIR, db, setSetting } from "./db";
 import { removeSources } from "./sources";
 
 /* ---------- Tables ---------- */
@@ -274,6 +274,7 @@ export function deleteJob(id: string) {
   const job = getJob(id);
   if (job?.brand && job.projectId) removeSources(job.projectId, job.brand.files.map((f) => f.id));
   init().prepare("delete from montage_jobs where id = ?").run(id);
+  setSetting(`review:${id}`, undefined);
   fs.rmSync(path.join(DATA_DIR, "montage", path.basename(id)), { recursive: true, force: true });
 }
 
@@ -645,12 +646,50 @@ export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
     audio: e.audio === undefined ? undefined : cleanAudio(e.audio),
     broll: Array.isArray(e.broll) ? cleanBroll(e.broll) : undefined,
     brollAuto: e.brollAuto === undefined ? undefined : e.brollAuto === true,
+    ...(Array.isArray(e.stages) && e.stages.length ? { stages: cleanStages(e.stages) } : {}),
+    ...(Array.isArray(e.sfx) && e.sfx.length ? { sfx: cleanSfx(e.sfx) } : {}),
+    ...(e.stageAuto === false ? { stageAuto: false } : {}),
     ...(Array.isArray(e.texts) && e.texts.length ? { texts: cleanTexts(e.texts) } : {}),
     exports: Array.isArray(e.exports) ? [...new Set((e.exports as unknown[]).filter((f): f is MontageFormat => FORMATS.includes(f as string)))].filter((f) => f !== format) : undefined,
   };
 }
 
 const FORMATS = ["9:16", "4:5", "1:1", "16:9"];
+
+/** Key moments: at most 12, bounded (two at the same time: the Mac keeps the first). */
+export function cleanStages(raw: unknown[]): Stage[] {
+  const out: Stage[] = [];
+  for (const x of (raw as Record<string, unknown>[]).slice(0, MAX_STAGES * 2)) {
+    const at = num(x?.at), dur = num(x?.dur);
+    const title = str(x?.title, 80)?.trim();
+    const kind = STAGE_KINDS.find((k) => k === x?.kind);
+    if (at === undefined || dur === undefined || !title || !kind) continue;
+    const s: Stage = { at: Math.round(Math.max(0, at) * 100) / 100, dur: Math.round(Math.min(15, Math.max(0.8, dur)) * 100) / 100, kind, title };
+    const body = str(x.body, 140)?.trim();
+    if (body) s.body = body;
+    const ill = str(x.illustration, 60);
+    if (ill && /^[\w-]+$/.test(ill)) s.illustration = ill;
+    const anim = STAGE_ANIMS.find((a) => a === x.anim);
+    if (anim) s.anim = anim;
+    out.push(s);
+    if (out.length >= MAX_STAGES) break;
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+/** Sound effects: a library id or a sound the Mac makes (`builtin:whoosh`). */
+export function cleanSfx(raw: unknown[]): Sfx[] {
+  const out: Sfx[] = [];
+  for (const x of (raw as Record<string, unknown>[]).slice(0, MAX_SFX * 2)) {
+    const at = num(x?.at);
+    const sound = str(x?.sound, 60);
+    if (at === undefined || !sound || !(/^[\w-]+$/.test(sound) || BUILTIN_SFX.some((b) => sound === `builtin:${b}`))) continue;
+    const v = num(x.volume);
+    out.push({ at: Math.round(Math.max(0, at) * 100) / 100, sound, name: str(x.name, 80)?.trim() || sound.replace(/^builtin:/, ""), ...(v !== undefined ? { volume: Math.round(Math.min(1.5, Math.max(0.05, v)) * 100) / 100 } : {}) });
+    if (out.length >= MAX_SFX) break;
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
 
 export function cleanBroll(raw: unknown[]): Broll[] {
   const out: Broll[] = [];

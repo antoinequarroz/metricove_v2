@@ -12,6 +12,7 @@ import { renderPlan, toOutput, outputWords, audioOf, captionsOf } from "./edl.mj
 import { buildAudio } from "./audio.mjs";
 import { brollFile, hasAudio } from "./broll.mjs";
 import { cleanTexts } from "./texts.mjs";
+import { faceLayers, stageFiles, sfxFile, animsFor, STAGE_KINDS } from "./stage.mjs";
 
 // Encodeur vidéo : celui du Mac. MONTAGE_ENCODER=libx264 pour essayer le rendu sur une autre machine.
 const ENCODER = process.env.MONTAGE_ENCODER || "h264_videotoolbox";
@@ -179,7 +180,17 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
       notes.push(`Le rush « ${rushPaths[r].split("/").pop()} » n'a d'image que jusqu'à ${vd.toFixed(1)} s (son jusqu'à ${d.toFixed(1)} s) : image figée après.`);
     }
   }
-  const needFaces = (edl.crop || "face") === "face" || (captions.on !== false && captions.position === "auto");
+  // Temps forts mis en scène et bruitages (temps de la timeline de l'éditeur → temps rendu).
+  const lastSpoken = plan[plan.length - 1].start + plan[plan.length - 1].dur;
+  const rawStages = (edl.stages || []).filter((s) => STAGE_KINDS.includes(s.kind) && String(s.title || "").trim() && s.at < lastSpoken - 0.3).sort((a, b) => a.at - b.at);
+  const anims = animsFor(rawStages);
+  let stages = [];
+  for (const [i, s] of rawStages.entries()) {
+    const a = toOutput(plan, s.at), b = Math.min(speechEnd, toOutput(plan, s.at + s.dur));
+    if (b - a < 0.8 || stages.some((o) => a < o.b && o.a < b)) continue;
+    stages.push({ a, b, kind: s.kind, title: String(s.title).trim().slice(0, 80), body: String(s.body || "").trim().slice(0, 140) || undefined, illustration: s.illustration, anim: anims[i] });
+  }
+  const needFaces = (edl.crop || "face") === "face" || (captions.on !== false && captions.position === "auto") || stages.some((s) => s.kind !== "card");
   const faces = needFaces ? await detectFaces(plan, rushPaths, dir) : {};
   const centers = {};
   if ((edl.crop || "face") === "face") {
@@ -222,8 +233,16 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   // Textes libres : posés en secondes de la timeline de l'éditeur, comme l'accroche et les zooms.
   const texts = cleanTexts(edl.texts).filter((t) => t.start < plan[plan.length - 1].start + plan[plan.length - 1].dur - 0.2)
     .map((t) => ({ ...t, start: toOutput(plan, t.start), end: Math.max(toOutput(plan, t.start) + 0.3, toOutput(plan, t.end)) }));
-  if (showWords || edl.title?.text || endSec || texts.length) {
-    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces, texts });
+  // Visage de chaque temps fort : celui de la phrase où il commence.
+  for (const s of stages) {
+    const seg = plan.find((p) => s.a < p.oStart + p.oDur) || plan[plan.length - 1];
+    const fc = capFaces[seg.i];
+    s.face = fc ? { cx: fc.cx, cy: (fc.y0 + fc.y1) / 2 } : { cx: 0.5, cy: 0.4 };
+  }
+  if (stages.length) onStep("Mise en scène des temps forts…", 0.6);
+  if (stages.length) stages = await stageFiles(cfg, stages, join(ensureDir(join(dir, "hf")), "assets"));
+  if (showWords || edl.title?.text || endSec || texts.length || stages.length) {
+    const html = overlayPage({ W, H, fps: FPS, dur: total, speechEnd, words, title: edl.title && { ...edl.title, until: titleUntil }, endCard: edl.endCard, theme, format: edl.format, captions, faces: capFaces, texts, stages });
     overlay = await renderOverlay(cfg, ensureDir(join(dir, "hf")), html, join(dir, "overlay.mov"), { fps: FPS, theme });
   }
 
@@ -249,17 +268,41 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   const inputs = ["-i", base, "-i", sound, ...(overlay ? ["-i", overlay] : [])];
   const br = await brollLayers(cfg, edl, plan, capFaces, W, H, overlay ? 3 : 2);
   inputs.push(...br.inputs);
-  const chain = [`[0:v]${zoom}setsar=1,format=yuv420p[s0]`, ...br.filters];
-  let cur = "s0";
-  br.overlays.forEach((o, i) => {
-    chain.push(`[${cur}][${o.L}]overlay=${o.x}:${o.y}:format=auto:eof_action=pass:enable='between(t,${o.a.toFixed(3)},${o.b.toFixed(3)})'[s${i + 1}]`);
-    cur = `s${i + 1}`;
+  // Visage recadré (écran coupé) ou en pastille pendant les temps forts : des copies de l'image montée.
+  const faced = stages.map((s, i) => (s.kind === "card" ? null : `fc${i}`));
+  const copies = faced.filter(Boolean);
+  const fl = faceLayers(stages, W, H, faced);
+  const chain = [`[0:v]${zoom}setsar=1,format=yuv420p${copies.length ? `,split=${copies.length + 1}[s0]${copies.map((c) => `[${c}]`).join("")}` : "[s0]"}`, ...fl.filters, ...br.filters];
+  let cur = "s0", n = 0;
+  // Le B-roll passe par-dessus le visage recadré ; les cartes (surcouche) par-dessus, sous-titres compris.
+  // Pastille du visage (pip) : par-dessus la carte plein écran, donc après la surcouche.
+  const lay = (list) => list.forEach((o) => {
+    chain.push(`[${cur}][${o.L}]overlay=${o.x}:${o.y}:format=auto:eof_action=pass:enable='between(t,${o.a.toFixed(3)},${o.b.toFixed(3)})'[s${++n}]`);
+    cur = `s${n}`;
   });
-  chain.push(overlay ? `[${cur}][2:v]overlay=0:0:format=auto,format=yuv420p[v]` : `[${cur}]format=yuv420p[v]`);
-  // Son des plans de B-roll gardé : mélangé sous la voix (et la musique), sans changer leur niveau.
-  if (br.audio.length) chain.push(`[1:a]aresample=48000,aformat=channel_layouts=stereo[vx];[vx]${br.audio.map((x) => `[${x}]`).join("")}amix=inputs=${br.audio.length + 1}:normalize=0:duration=first,alimiter=limit=0.95:level=0[a]`);
+  lay([...fl.overlays.filter((o) => !o.pip), ...br.overlays]);
+  if (overlay) { chain.push(`[${cur}][2:v]overlay=0:0:format=auto[s${++n}]`); cur = `s${n}`; }
+  lay(fl.overlays.filter((o) => o.pip));
+  chain.push(`[${cur}]format=yuv420p[v]`);
+  // Bruitages : chacun à son temps, sous la voix.
+  const sfxAudio = [];
+  let k0 = (overlay ? 3 : 2) + br.inputs.length / 8;
+  for (const x of [...(edl.sfx || [])].sort((a, b) => a.at - b.at).slice(0, 20)) {
+    if (!(x.at < lastSpoken + endSec)) continue;
+    const file = await sfxFile(cfg, x.sound, join(dir, "sfx"));
+    if (!file) { notes.push(`Bruitage « ${x.name || x.sound} » introuvable : ignoré.`); continue; }
+    const at = x.at >= lastSpoken ? speechEnd + (x.at - lastSpoken) : toOutput(plan, x.at);
+    const ms = Math.max(0, Math.round(at * 1000)), vol = Math.min(1.5, Math.max(0.05, Number(x.volume) || 0.6));
+    inputs.push("-i", file);
+    const A = `sx${sfxAudio.length}`;
+    chain.push(`[${k0++}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${vol.toFixed(2)},adelay=${ms}|${ms}[${A}]`);
+    sfxAudio.push(A);
+  }
+  // Son des plans de B-roll gardé et bruitages : mélangés sous la voix (et la musique), sans changer leur niveau.
+  const mixed = [...br.audio, ...sfxAudio];
+  if (mixed.length) chain.push(`[1:a]aresample=48000,aformat=channel_layouts=stereo[vx];[vx]${mixed.map((x) => `[${x}]`).join("")}amix=inputs=${mixed.length + 1}:normalize=0:duration=first,alimiter=limit=0.95:level=0[a]`);
   const fc = chain.join(";");
-  await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", br.audio.length ? "[a]" : "1:a",
+  await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc, "-map", "[v]", "-map", mixed.length ? "[a]" : "1:a",
     "-c:v", ENCODER, "-b:v", vbit, "-c:a", "aac", "-b:a", final ? "192k" : "128k", "-ar", "48000", "-shortest", "-movflags", "+faststart", out]);
   const cover = join(dir, final ? "couverture.jpg" : "apercu.jpg");
   await run("ffmpeg", ["-v", "error", "-y", "-ss", String(Math.min(titleUntil * 0.6, total / 2)), "-i", out, "-frames:v", "1", "-q:v", "3", cover]).catch(() => {});
@@ -268,6 +311,7 @@ export async function renderEdl(cfg, { edl, rushPaths, theme, quality, dir, styl
   for (const f of readdirSync(dir)) if (/^part\d+\.mov$|^base\.mov$|^overlay\.mov$|^parts\.txt$|\.wav$/.test(f)) rmSync(join(dir, f), { force: true });
   rmSync(join(dir, "hf"), { recursive: true, force: true });
   rmSync(join(dir, "df"), { recursive: true, force: true });
+  rmSync(join(dir, "sfx"), { recursive: true, force: true });
   for (const n of notes) log("note :", n);
   return { video: out, cover, srt: join(dir, "sous-titres.srt"), duration: total, notes };
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { listMedia, listProjects } from "@/server/db";
 import { isVideoJob } from "@/lib/montage";
 import { claimJob, cleanSpeed, listRushes, saveMacBroll, workerSeen, type MacBroll } from "@/server/montage";
+import { assetsFor } from "@/server/library";
 import { profileOf, themeOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
@@ -37,13 +38,17 @@ export async function POST(req: Request) {
   const styled = claimed.kind === "montage" || claimed.kind === "cover";
   // A video reel is written by Claude in the project's voice: tone, skill, model posts and inspiration images.
   const video = isVideoJob(claimed);
-  const voice = styled || video ? voiceOf(claimed.projectId) : undefined;
-  const theme = styled ? themeOf(claimed.projectId) : undefined;
+  // The style the job was made with (the default one when it was removed since).
+  const voice = styled || video ? voiceOf(claimed.projectId, claimed.styleId) : undefined;
+  const theme = styled ? themeOf(claimed.projectId, claimed.styleId) : undefined;
   // An animated reel shows the logo of its project: kept out of the stored job, added here.
   const owner = claimed.kind === "motion" && claimed.motion?.logo !== false && claimed.projectId ? listProjects().find((p) => p.id === claimed.projectId) : undefined;
-  const logo = owner ? profileOf(owner).look.logo : undefined;
+  const logo = owner ? profileOf(owner, claimed.styleId).look.logo : undefined;
   if (claimed.motion && logo) claimed.motion = { ...claimed.motion, look: { ...claimed.motion.look, logo } };
-  const job = { ...claimed, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}) };
+  // The illustrations and sound effects of the job's style (worker 0.16.0 uses them; older ones ignore them).
+  const assets = (styled || claimed.kind === "motion") && claimed.projectId ? assetsFor(claimed.projectId, claimed.styleId) : undefined;
+  // A montage also gets the inspiration images of its style (worker 0.19.0 shows them to Claude; older ones ignore them).
+  const job = { ...claimed, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill, ...(claimed.kind === "montage" && voice.images ? { images: voice.images } : {}) } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

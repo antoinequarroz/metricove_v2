@@ -91,6 +91,13 @@ export class Api {
   final(id, upload, title, notes) { return this.req("POST", `/api/montage/jobs/${id}/final`, { json: { upload, title, ...(notes ? { notes } : {}) } }); }
   /** Vidéo de plus dans la bibliothèque (formats en plus du rendu final). Renvoie { media }. */
   addMedia(upload, title) { return this.req("POST", "/api/media", { json: { upload, title } }); }
+  /** Un fichier de plus dans la bibliothèque Illustrations ou Bruitages (worker 0.16.0). Renvoie { item }. */
+  addAsset(kind, bytes, { name, tags = [], styles = [], type = "application/octet-stream" } = {}) {
+    const q = new URLSearchParams({ kind, name: String(name || "").slice(0, 80), source: "claude" });
+    if (tags.length) q.set("tags", tags.join(","));
+    if (styles.length) q.set("styles", styles.join(","));
+    return this.req("POST", `/api/library?${q}`, { body: bytes, headers: { "Content-Type": type } });
+  }
   scan(rushes) { return this.req("POST", "/api/montage/rushes/scan", { json: { rushes } }); }
   freeRush(id) { return this.req("DELETE", `/api/montage/rushes/${id}/file`); }
 

@@ -36,6 +36,25 @@ const PROPOSAL_SCHEMA = {
         },
       },
     },
+    stages: {
+      type: "array", description: "Temps forts mis en scène : la mise en page change le temps d'une idée.",
+      items: {
+        type: "object", required: ["id", "word", "kind", "title"],
+        properties: {
+          id: { type: "string" }, word: { type: "integer", description: "indice du mot où le temps fort commence" },
+          dur: { type: "number", description: "2 à 5 s" },
+          kind: { type: "string", enum: ["split", "card", "pip"] },
+          title: { type: "string", description: "2 à 6 mots, repris de ce qui est dit" },
+          body: { type: "string", description: "facultatif : 4 à 12 mots" },
+          illustration: { type: "string", description: "nom exact d'une illustration de la liste, sinon vide" },
+          anim: { type: "string", enum: ["rise", "slide", "pop", "wipe"] },
+        },
+      },
+    },
+    sfx: {
+      type: "array", description: "Bruitages posés sur un mot.",
+      items: { type: "object", required: ["id", "word", "name"], properties: { id: { type: "string" }, word: { type: "integer" }, name: { type: "string", description: "nom exact d'un bruitage de la liste" } } },
+    },
     notes: { type: "string", description: "2-4 phrases en français pour Antoine : ce qui a été gardé, coupé, et pourquoi." },
   },
 };
@@ -62,7 +81,7 @@ const fmtTime = (s) => s.toFixed(1);
  * `marks` : notes dessinées [{ file, t, version, text, phrase?, said? }] (images à lire avec l'outil Read).
  * `tracks` : fichiers du dossier musique quand Claude doit en choisir un.
  */
-export async function proposeEdit(cfg, { job, cands, previous, marks = [], captions, tracks = [], broll = null, cwd }) {
+export async function proposeEdit(cfg, { job, cands, previous, marks = [], captions, tracks = [], broll = null, stage = null, inspiration = [], cwd }) {
   const b = job.brief || {};
   const lines = cands.map((c) => `${c.id} | rush ${c.rushName} | ${fmtTime(c.in)}–${fmtTime(c.out)} s | ${c.words.map((w, i) => `${i}:${w.w}`).join(" ")}`).join("\n");
   const prev = previous
@@ -74,6 +93,23 @@ ${marks.map((m, i) => `${i + 1}. À ${fmtTime(m.t)} s de la version ${m.version}
     : "";
   const brollTxt = broll
     ? `\nB-ROLL : place 2 à 5 plans d'illustration sur des noms ou idées concrètes (id de la phrase + indice du mot où il commence, dur 1,5 à 3 s, query en français). mode full par défaut ; pip quand le visage ou l'émotion d'Antoine compte à ce moment. Jamais sur l'accroche d'ouverture ni sur deux phrases de suite.\n${broll.length ? `Plans d'Antoine (à préférer s'ils collent, mets le nom exact dans file) : ${broll.join(", ")}` : "Antoine n'a pas de plans à lui : laisse file vide, ils seront cherchés sur Pexels."}\n`
+    : "";
+  // Mise en scène : les illustrations et bruitages du style du projet (job.assets), sinon les sons faits par le Mac.
+  const tagged = (list) => list.map((x) => `${x.name}${x.tags?.length ? ` (${x.tags.join(", ")})` : ""}`).join(" · ");
+  const stageTxt = stage
+    ? `\nMISE EN SCÈNE (pour que la vidéo ne ressemble pas à toutes les autres) :
+- Temps forts (stages) : environ un toutes les 10 à 15 s (2 à 4 pour 45 s), sur une idée clé, un chiffre, une liste, une comparaison, une promesse. id de la phrase + indice du mot où il commence, dur 2 à 5 s (jamais plus loin que la fin de la phrase suivante).
+- kind : split = écran coupé en deux (carte en haut, visage en bas), pour expliquer en gardant le visage ; card = carte plein écran, pour un chiffre ou une phrase choc ; pip = carte plein écran avec le visage dans une pastille, pour une liste ou un exemple. Jamais deux fois le même kind de suite.
+- title : 2 à 6 mots qui résument ce qui est dit à ce moment (chiffre, mot clé) ; body facultatif. N'invente aucun fait.
+- anim : rise, slide, pop ou wipe, jamais deux fois la même de suite.
+- Jamais sur la phrase d'accroche (la première gardée), ni sur un plan de B-roll, ni dans les 2 dernières secondes.
+${stage.illustrations.length ? `- Illustrations disponibles (illustration = nom exact, ou vide si aucune ne colle) : ${tagged(stage.illustrations)}\n` : "- Pas d'illustration disponible : laisse illustration vide.\n"}- Bruitages (sfx) : 2 à 5 au total, à l'entrée d'un temps fort (whoosh, swoosh) ou sur un mot fort (pop, ding, impact), jamais deux à moins de 2 s. Noms possibles : ${stage.sfx.length ? tagged(stage.sfx) : stage.builtin.join(", ")}.
+`
+    : "";
+  // Le look du style (police, sous-titres, accroche) est dessiné par le Mac ; Claude en reprend la mise en scène.
+  const looks = inspiration.length
+    ? `\nIMAGES D'INSPIRATION DU STYLE (lis-les toutes avec l'outil Read avant de répondre) : ${inspiration.join(", ")}
+Ce sont des images du créateur ou des visuels qu'Antoine veut retrouver. La police, les couleurs et le dessin des sous-titres sont déjà réglés ; à toi d'en reprendre la mise en scène : quand et comment le créateur passe en carte, en écran coupé ou en pastille, la longueur et le ton de ses titres à l'écran, la fréquence des B-roll, des zooms et des emojis. La vidéo doit ressembler à ces images, pas à un montage standard.\n`
     : "";
   const music = tracks.length ? `\nMUSIQUE : choisis le morceau qui colle au ton (champ music) parmi : ${tracks.join(", ")}\n` : "";
   // Le profil du projet (ton écrit par Antoine, skills du Mac) : il guide ce que Claude écrit et choisit, pas ce qui a été dit.
@@ -88,7 +124,7 @@ BRIEF
 - Accroche souhaitée : ${b.hook || "à proposer"}
 - Appel à l'action : ${b.cta || "à proposer si pertinent"}
 - Consignes : ${b.instructions || "—"}
-${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}${brollTxt}${project}
+${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}${brollTxt}${stageTxt}${looks}${project}
 PHRASES DISPONIBLES (id | rush | temps | mots numérotés) :
 ${lines}
 

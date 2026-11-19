@@ -91,6 +91,28 @@ export type MontageMark = {
   image?: string;
 };
 
+/**
+ * A review note kept on the server (face-cam review screen): a moment of a version, a few words, a drawing, maybe the
+ * element of the picture it is about. `open` until Antoine marks it resolved; `sentIn` = the version asked with it.
+ */
+export type ReviewNote = {
+  id: string;
+  version: number;
+  t: number;
+  text: string;
+  /** The frame with the drawing is stored as a file: GET /api/montage/jobs/:id/notes/:note/image. */
+  image?: boolean;
+  /** An element picked with « Inspecter » (centre in 0..1 of the picture). */
+  target?: { kind: NoteTargetKind; label: string; x: number; y: number };
+  status: "open" | "resolved";
+  sentIn?: number;
+  createdAt: number;
+};
+export type NoteTargetKind = "caption" | "text" | "stage" | "title" | "broll" | "face" | "end";
+export const MAX_REVIEW_NOTES = 80;
+/** Notes sent to Claude with one request (the drawings go with them). */
+export const MAX_SENT_NOTES = 8;
+
 export type EdlSegment = {
   id: string;
   rush: string;
@@ -126,7 +148,33 @@ export type Edl = {
   texts?: FreeText[];
   /** Claude adds B-roll where it helps (your shots first, then Pexels). */
   brollAuto?: boolean;
+  /** Key moments where the layout changes (seconds of the editor timeline). Worker 0.17.0. */
+  stages?: Stage[];
+  /** Sound effects (seconds of the editor timeline). Worker 0.17.0. */
+  sfx?: Sfx[];
+  /** Claude stages key moments and adds sound effects (default on). */
+  stageAuto?: boolean;
 };
+
+/**
+ * A key moment staged differently: `split` = a card on one half, the face cropped on the other; `card` = a full-screen
+ * card while the voice goes on; `pip` = a full-screen card with the face in a round badge.
+ */
+export type StageKind = "split" | "card" | "pip";
+export const STAGE_KINDS: StageKind[] = ["split", "card", "pip"];
+export const STAGE_LABEL: Record<StageKind, string> = { split: "Écran coupé", card: "Carte plein écran", pip: "Carte + pastille" };
+export type StageAnim = "rise" | "slide" | "pop" | "wipe";
+export const STAGE_ANIMS: StageAnim[] = ["rise", "slide", "pop", "wipe"];
+export const ANIM_LABEL: Record<StageAnim, string> = { rise: "Monte", slide: "Glisse", pop: "Surgit", wipe: "Rideau" };
+/** `illustration`: id of a library illustration. `anim` absent: the Mac picks one that differs from the previous card. */
+export type Stage = { at: number; dur: number; kind: StageKind; title: string; body?: string; illustration?: string; anim?: StageAnim };
+/** `sound`: id of a library sound effect, or `builtin:<name>` (made by the Mac with FFmpeg). */
+export type Sfx = { at: number; sound: string; name: string; volume?: number };
+export const BUILTIN_SFX = ["whoosh", "swoosh", "pop", "click", "ding", "impact", "riser", "thud"];
+export const MAX_STAGES = 12;
+export const MAX_SFX = 20;
+/** The Mac version that renders key moments and sound effects. */
+export const STAGE_WORKER = "0.17.0";
 
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };
 /** A text put on the video by hand: when, where (centre of the text, 0 to 1 of the picture), how big. */
@@ -398,7 +446,61 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan" | "asset" | "style";
+
+/** Oldest Mac program that makes illustrations and sound effects (kind "asset"). */
+export const ASSET_WORKER = "0.16.0";
+export const MAX_ASSET_PROMPT = 600;
+export const MAX_ASSET_COUNT = 4;
+
+/** Oldest Mac program that writes style rules and copies a creator's style (kind "style"). */
+export const STYLE_WORKER = "0.19.0";
+export const MAX_STYLE_REFS = 3;
+export const MAX_RULES = 6;
+
+/**
+ * kind "style". `rules`: Claude turns the review notes Antoine resolved into rules for the notes of the style
+ * (he picks which to add). `copy`: the Mac fetches up to 3 reels (links read with yt-dlp, or videos of the Médias
+ * library), measures them (shots, sound, words per minute, frames) and Claude writes a new style from them.
+ */
+export type StyleTask = {
+  mode: "rules" | "copy";
+  /** The style the rules are for, or that the copy starts from. */
+  styleId: string;
+  /** rules: the montage the notes come from, and the notes (text, element, version). */
+  from?: string;
+  notes?: string[];
+  /** The notes the style already has (rules already there are not proposed again). */
+  current?: string;
+  /** copy: the name of the new style, the reels. */
+  name?: string;
+  refs?: { url?: string; mediaId?: string; title?: string }[];
+  result?: {
+    rules?: string[];
+    /** copy: the style made, what Claude saw, its notes. */
+    styleId?: string;
+    summary?: string;
+    notes?: string;
+    accent?: string;
+    /** copy: the Google font Claude matched to the creator's subtitles. */
+    font?: string;
+  };
+};
+
+/** What Claude is asked to make for a library, and what it made. */
+export type AssetRequest = {
+  kind: "illustration" | "sfx";
+  /** What Antoine wants, e.g. "un robot tech", "un whoosh court". */
+  prompt: string;
+  count: number;
+  /** Styles the new items go to ("<projectId>:<styleId>"). */
+  styles: string[];
+  /** The colors of the style (illustrations are drawn with them) and its name. */
+  palette?: string[];
+  style?: string;
+  /** Ids of the library items made. */
+  result?: string[];
+};
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -493,7 +595,7 @@ export const VIDEO_BOARD = { chars: 800_000, bytes: 600 * 1024, frames: 12, tile
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan" | "asset" | "style";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -511,6 +613,10 @@ export type MontageJob = {
   brand?: BrandRequest;
   /** kind "plan": posts Claude proposes for a period from the strategy (worker 0.14.0). */
   plan?: PlanRequest;
+  /** kind "asset": illustrations or sound effects Claude makes for the libraries (worker 0.16.0). */
+  asset?: AssetRequest;
+  /** kind "style": rules for a style drawn from resolved review notes, or a style copied from a creator's reels (worker 0.18.0). */
+  styleTask?: StyleTask;
   /** What the Mac has to say about the finished video (a reel that fell back to the standard animations). */
   notes?: string;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
@@ -524,6 +630,8 @@ export type MontageJob = {
   base?: number;
   /** Face-cam edit: B-roll asked to Claude for one passage (timeline seconds) of the last version (action "broll", worker 0.13.0). */
   brollAsk?: { range: [number, number]; note?: string };
+  /** One of the project's other styles the job is made with (left out: the default style). */
+  styleId?: string;
   /** Voice of the project (style profile): Claude writes with it. Copied when the job was made; refreshed for edits and covers when the Mac takes the job. */
   voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[]; strategy?: string };
   /** Colors and font of the project (style profile) for the video overlays: added when the Mac takes the job. */

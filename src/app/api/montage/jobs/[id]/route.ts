@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { isVideoJob, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
+import { isVideoJob, MAX_ASSET_COUNT, MAX_RULES, MAX_SENT_NOTES, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
+import { findAsset } from "@/server/library";
+import { listProjects } from "@/server/db";
+import { addRefImage, createStyle, saveProfile } from "@/server/profiles";
+import { cleanVideoLook, MAX_REF_IMAGES } from "@/lib/profiles";
+import { markSent, notesAsMarks } from "@/server/review-notes";
 import { ingestVideo } from "@/server/media";
 import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, reportRun, restoreReel, saveJob, staleWrite, touchJob, touchWorker, workerStatus } from "@/server/montage";
 import fs from "node:fs";
@@ -20,6 +25,8 @@ type Body = {
   // From the page
   revise?: string;
   marks?: unknown;
+  /** Face-cam edit: ids of the review notes sent with the request (kept on the server, see review-notes.ts). */
+  notes?: unknown;
   edl?: unknown;
   /** Face-cam edit: Claude proposes B-roll for this passage only, { range: [from, to], note? } (sent with the edl on screen). */
   brollAsk?: { range?: unknown; note?: unknown };
@@ -58,6 +65,9 @@ type Body = {
   post?: { caption?: unknown; slides?: unknown };
   brand?: unknown;
   plan?: unknown;
+  asset?: { result?: unknown };
+  /** kind "style": { rules } or, for a copy, { summary, notes, accent? }. */
+  style?: { rules?: unknown; summary?: unknown; notes?: unknown; accent?: unknown; video?: unknown; frames?: unknown };
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -123,7 +133,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
   if (typeof b.revise === "string") {
     if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });
-    const marks = cleanMarks(b.marks);
+    const noteIds = Array.isArray(b.notes) ? (b.notes as unknown[]).filter((x): x is string => typeof x === "string").slice(0, MAX_SENT_NOTES) : [];
+    const marks = job.kind === "montage" && noteIds.length ? notesAsMarks(job.id, noteIds) : cleanMarks(b.marks);
     if (typeof marks === "string") return NextResponse.json({ error: marks }, { status: 400 });
     job.feedback = b.revise.trim().slice(0, 2000) || undefined;
     job.marks = marks.length ? marks : undefined;
@@ -139,8 +150,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
       return NextResponse.json({ job: pageJob(queue(job, "motion")) });
     }
     // A note left empty is not a request: Claude would start again from nothing.
-    if (job.versions.length && !job.feedback && !job.marks && typeof b.revise === "string" && Array.isArray(b.marks) && b.marks.length) return NextResponse.json({ error: "Écris ta demande ou une note" }, { status: 400 });
-    return NextResponse.json({ job: queue(job, "propose") });
+    if (job.versions.length && !job.feedback && !job.marks && typeof b.revise === "string" && ((Array.isArray(b.marks) && b.marks.length) || noteIds.length)) return NextResponse.json({ error: "Écris ta demande ou une note" }, { status: 400 });
+    const queued = queue(job, "propose");
+    // The notes sent stay open: they say which version they were sent for, Antoine marks them resolved when it is right.
+    if (job.marks?.length && noteIds.length) markSent(job.id, job.marks.map((m) => m.id), (job.versions.at(-1)?.n ?? 0) + 1);
+    return NextResponse.json({ job: queued });
   }
   if (b.brollAsk !== undefined) {
     if (busy) return NextResponse.json({ error: "Le Mac travaille déjà sur ce montage" }, { status: 409 });
@@ -240,6 +254,43 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const result = job.brand.mode === "charte" ? cleanCharteResult(b.brand) : cleanStrategyResult(b.brand);
     if (typeof result === "string") return NextResponse.json({ error: result }, { status: 400 });
     job.brand.result = result;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
+  }
+  if (b.status === "done" && job.kind === "asset" && job.asset) {
+    // The files were sent to /api/library just before; only the ids of items that exist are kept.
+    const ids = (Array.isArray(b.asset?.result) ? b.asset.result : []).filter((id): id is string => typeof id === "string" && !!findAsset(id)).slice(0, MAX_ASSET_COUNT * 2);
+    if (!ids.length) return NextResponse.json({ error: "Rien n'a été ajouté à la bibliothèque" }, { status: 400 });
+    job.asset.result = ids;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
+  }
+  if (b.status === "done" && job.kind === "style" && job.styleTask) {
+    const t = job.styleTask;
+    const line = (x: unknown, n: number) => (typeof x === "string" ? x.replace(/\s+/g, " ").replace(/^[-•*]\s*/, "").trim().slice(0, n) : "");
+    if (t.mode === "rules") {
+      const rules = [...new Set((Array.isArray(b.style?.rules) ? b.style.rules : []).map((x) => line(x, 240)).filter(Boolean))].slice(0, MAX_RULES);
+      if (!rules.length) return NextResponse.json({ error: "Aucune règle proposée" }, { status: 400 });
+      t.result = { rules };
+      return NextResponse.json({ job: pageJob(release(job, "done")) });
+    }
+    // A copy: the new style is made now, from the style it starts from, with Claude's notes (and accent color).
+    const project = listProjects().find((p) => p.id === job.projectId);
+    if (!project) return NextResponse.json({ error: "Projet introuvable" }, { status: 400 });
+    const notes = typeof b.style?.notes === "string" ? b.style.notes.replace(/\r\n?/g, "\n").trim().slice(0, 4000) : "";
+    if (!notes) return NextResponse.json({ error: "Claude n'a pas écrit de notes" }, { status: 400 });
+    const made = createStyle(project, t.name || "Style copié", t.styleId);
+    if (typeof made === "string") return NextResponse.json({ error: made }, { status: 400 });
+    const accent = typeof b.style?.accent === "string" && /^#[0-9a-f]{6}$/i.test(b.style.accent) ? b.style.accent.toLowerCase() : undefined;
+    // The creator's look on video (font, case, outline, box, hook, subtitles), as Claude read it on the frames.
+    const video = cleanVideoLook(b.style?.video);
+    const look = { ...made.look, ...(accent ? { accent } : {}), ...(video ? { video } : {}) };
+    const saved = saveProfile(project, { notes, look }, made.id);
+    if (typeof saved === "string") saveProfile(project, { notes }, made.id);
+    // Frames of the reels become the inspiration images of the style: Claude looks at them when it edits.
+    for (const [i, raw] of (Array.isArray(b.style?.frames) ? (b.style.frames as unknown[]) : []).slice(0, MAX_REF_IMAGES).entries()) {
+      if (typeof raw !== "string" || raw.length > 2_000_000) continue;
+      addRefImage(project, Buffer.from(raw, "base64"), `Image clé ${i + 1}`, made.id);
+    }
+    t.result = { styleId: made.id, notes, summary: line(b.style?.summary, 1200) || undefined, ...(accent ? { accent } : {}), ...(video?.font ? { font: video.font } : {}) };
     return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "plan" && job.plan) {

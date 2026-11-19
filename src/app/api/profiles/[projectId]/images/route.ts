@@ -12,8 +12,8 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!project) return NextResponse.json({ error: "Projet introuvable" }, { status: 404 });
   if (Number(req.headers.get("content-length") ?? 0) > MAX_REF_IMAGE_BYTES) return NextResponse.json({ error: "Image trop lourde" }, { status: 413 });
   const bytes = Buffer.from(await req.arrayBuffer());
-  const name = new URL(req.url).searchParams.get("name") ?? "";
-  const profile = addRefImage(project, bytes, name);
+  const q = new URL(req.url).searchParams;
+  const profile = addRefImage(project, bytes, q.get("name") ?? "", q.get("style") ?? undefined);
   if (typeof profile === "string") return NextResponse.json({ error: profile }, { status: 400 });
   return NextResponse.json({ profile }, { status: 201 });
 }
