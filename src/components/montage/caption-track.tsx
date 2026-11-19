@@ -88,7 +88,7 @@ export function CaptionBlocks({
               }}
               onDoubleClick={() => setEditing(id)}
               title={`${text} · double-clic pour corriger`}
-              className={cn("absolute top-1.5 bottom-1.5 overflow-hidden rounded-md border text-[11px]", on ? "z-10 border-accent bg-accent-soft" : "border-line-strong bg-surface-2 hover:border-accent/50")}
+              className={cn("absolute top-1 bottom-1 overflow-hidden rounded-md border text-[11px]", on ? "z-10 border-accent bg-accent-soft" : "border-line-strong bg-surface-2 hover:border-accent/50")}
               style={{ left: b.start * pps, width: Math.max(6, (b.end - b.start) * pps - 1) }}
             >
               {editing === id ? (
@@ -111,7 +111,7 @@ export function CaptionBlocks({
                   className="h-full w-full bg-surface px-1.5 text-[11.5px] outline-none"
                 />
               ) : (
-                <span className="pointer-events-none block truncate px-1.5 leading-8">{text}</span>
+                <span className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 truncate px-1.5 leading-[14px]">{text}</span>
               )}
             </div>
             {next && next.seg === b.seg && next.start - b.end < 0.6 && Math.min(b.end - b.start, next.end - next.start) * pps >= 10 && (
@@ -148,7 +148,8 @@ export function CaptionInspector({ edl, style, pick, onPick, onChange }: { edl: 
   return (
     <>
       <span className="tabular font-mono text-ink-3">{fmtSec(b.start)}</span>
-      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5">
+      {/* The words keep a real width: what follows them goes to the next line instead of squeezing them to one word per line. */}
+      <span className="flex min-w-[min(100%,14rem)] flex-1 flex-wrap items-center gap-0.5">
         {words.map((x) => (
           <button
             key={x.i}
@@ -161,6 +162,10 @@ export function CaptionInspector({ edl, style, pick, onPick, onChange }: { edl: 
           </button>
         ))}
       </span>
+      {/* What changes the block comes first, beside its words; the tools of the chosen word follow. */}
+      <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && onChange(mergeBlocks(edl, b, next, style))} title="Réunir ce sous-titre et le suivant">
+        <Merge className="size-3.5" /> Fusionner avec le suivant
+      </Button>
       {word ? (
         <>
           <Button size="sm" variant={word.w.hl ? "primary" : "secondary"} onClick={() => editWord((w) => (w.hl = !w.hl || undefined))}>
@@ -177,12 +182,13 @@ export function CaptionInspector({ edl, style, pick, onPick, onChange }: { edl: 
             <Scissors className="size-3.5" /> Couper ici
           </Button>
         </>
-      ) : (
-        <span className="text-ink-3">Double-clic sur le bloc pour corriger le texte. Clique sur un mot pour le mettre en couleur ou lui ajouter un emoji.</span>
+      ) : null}
+      {/* The hint has its own line under the words and the button. */}
+      {!word && (
+        <span className="basis-full text-pretty text-ink-3" title="Double-clic sur le bloc pour corriger le texte. Clique sur un mot pour le mettre en couleur ou lui ajouter un emoji.">
+          Double-clic sur le bloc pour corriger le texte, clic sur un mot pour la couleur ou un emoji.
+        </span>
       )}
-      <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && onChange(mergeBlocks(edl, b, next, style))} title="Réunir ce sous-titre et le suivant">
-        <Merge className="size-3.5" /> Fusionner avec le suivant
-      </Button>
     </>
   );
 }

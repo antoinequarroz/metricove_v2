@@ -198,21 +198,22 @@ export function ReelTimeline({
 
   return (
     <div className={cn("shrink-0 border-t border-line bg-surface/60 px-6 pt-2 pb-3 max-md:px-4", hidden && "hidden")}>
-      <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3">
+      {/* On a phone the tools wrap: playback and edits on a first line, the hint and the zoom on a second one. */}
+      <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3 max-md:flex-wrap">
         <button onClick={onToggle} disabled={stale && !playing} aria-label={playing ? "Pause" : "Lire"} title="Lire ou mettre en pause (Espace)" className={cn(tool, "text-ink")}>
           {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
         </button>
         <span className="tabular mx-1 shrink-0 font-mono text-ink">
           {time >= 0 ? fmtT(time) : "–"} / {fmtT(total)}
         </span>
-        <span className="min-w-0 flex-1 truncate">
+        <span className="min-w-0 flex-1 truncate max-md:order-1 max-md:basis-48">
           {stale
             ? "Durées estimées de tes modifications. La vidéo sera refaite avec « Voir l'aperçu »."
             : sel
               ? `Passage choisi : ${fmtT(sel[0])} – ${fmtT(sel[1])}`
               : "Règle : se placer. Piste Vidéo : faire glisser pour choisir un passage. Scènes : glisser pour déplacer, tirer le bord pour la durée."}
         </span>
-        <button onClick={undo.undo} disabled={!undo.canUndo} aria-label="Annuler" title="Annuler (⌘Z)" className={tool}>
+        <button onClick={undo.undo} disabled={!undo.canUndo} aria-label="Annuler" title="Annuler (⌘Z)" className={cn(tool, "max-md:ml-auto")}>
           <Undo2 className="size-3.5" />
         </button>
         <button onClick={undo.redo} disabled={!undo.canRedo} aria-label="Rétablir" title="Rétablir (⇧⌘Z)" className={tool}>
@@ -232,17 +233,17 @@ export function ReelTimeline({
         <button onClick={onMark} disabled={!onMark || stale} title="Poser un repère avec une note pour Claude, à la tête de lecture (M)" className={cn(tool, "gap-1.5 px-2 font-medium")}>
           <MapPin className="size-3.5" /> <span className="max-xl:hidden">Repère</span>
         </button>
-        <span className="mx-0.5 h-4 w-px bg-line-strong" />
-        <button onClick={() => setZoom((z) => z / 1.5)} disabled={fitted} aria-label="Dézoomer la timeline" title="Dézoomer (−)" className={tool}>
+        <span className="mx-0.5 h-4 w-px bg-line-strong max-md:hidden" />
+        <button onClick={() => setZoom((z) => z / 1.5)} disabled={fitted} aria-label="Dézoomer la timeline" title="Dézoomer (−)" className={cn(tool, "max-md:order-2")}>
           <Minus className="size-3.5" />
         </button>
-        <button onClick={() => setZoom((z) => z * 1.5)} aria-label="Zoomer la timeline" title="Zoomer (+, ou ⌘ + molette)" className={tool}>
+        <button onClick={() => setZoom((z) => z * 1.5)} aria-label="Zoomer la timeline" title="Zoomer (+, ou ⌘ + molette)" className={cn(tool, "max-md:order-2")}>
           <Plus className="size-3.5" />
         </button>
-        <button onClick={() => setZoom(1)} disabled={fitted} aria-label="Voir toute la vidéo" title="Voir toute la vidéo (0)" className={tool}>
+        <button onClick={() => setZoom(1)} disabled={fitted} aria-label="Voir toute la vidéo" title="Voir toute la vidéo (0)" className={cn(tool, "max-md:order-2")}>
           <Maximize2 className="size-3.5" />
         </button>
-        <div className="relative">
+        <div className="relative max-md:order-2">
           <button onClick={() => setHelp((h) => !h)} aria-expanded={help} aria-label="Raccourcis clavier" title="Raccourcis clavier" className={cn(tool, help && "border-accent bg-accent-soft")}>
             <Keyboard className="size-3.5" />
           </button>

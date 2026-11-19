@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowLeft, Image as ImageIcon, ArrowUp, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, Music, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { reelTimeline, type FreeText, type MontageJob, type MontageMark, type ReelPlan, type ReelScene } from "@/lib/montage";
 import { useStore } from "@/lib/store";
@@ -33,6 +33,25 @@ const fmtT = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStar
 const sameScenes = (a: ReelPlan, b: ReelPlan) => JSON.stringify([a.scenes, a.music, a.volume, a.pace, a.track ?? "", a.cue ?? {}, a.texts ?? []]) === JSON.stringify([b.scenes, b.music, b.volume, b.pace, b.track ?? "", b.cue ?? {}, b.texts ?? []]);
 
 type Tab = "claude" | "scenes" | "texts" | "sound";
+
+/** A computer screen (Tailwind lg and up): the editing screen fits the window there instead of scrolling. */
+const WIDE = "(min-width: 1024px)";
+const useWide = () =>
+  useSyncExternalStore(
+    (changed) => {
+      const q = window.matchMedia(WIDE);
+      q.addEventListener("change", changed);
+      return () => q.removeEventListener("change", changed);
+    },
+    () => window.matchMedia(WIDE).matches,
+    () => true,
+  );
+/** On a computer the tools beside the video keep at least this width (their tabs on one line) and stop at 52rem: on a wider screen the video and the tools stay together in the middle. */
+const TOOLS_MIN = 400;
+const TOOLS_MAX = 832;
+/** While drawing, the drawing tools take the place of the tools: between these widths. */
+const CARD_MIN = 320;
+const CARD_MAX = 544;
 
 /** The editing screen of an animated reel: the video, its timeline, drawings, requests to Claude on a passage, edits by hand, versions. */
 export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: WorkerStatus; refresh: () => Promise<void> }) {
@@ -105,18 +124,6 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   useEffect(() => {
     if (job.error && job.feedback && job.status === "review") setFeedback((f) => f || job.feedback || "");
   }, [job.error]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The video takes the height left between the header and the timeline, whatever banners are on show.
-  const stage = useRef<HTMLDivElement>(null);
-  const [room, setRoom] = useState(0);
-  useEffect(() => {
-    const el = stage.current;
-    if (!el) return;
-    const measure = () => setRoom(el.clientHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
   // The Mac wrote the lengths on screen into the version on show: take them, unless edits are waiting.
   useEffect(() => {
     // The list is read again every few seconds: the same plan again must not empty the steps to undo.
@@ -274,6 +281,51 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   const canAsk = job.status === "review" && !!version?.preview && !dirty && !working;
   const canDraw = canAsk && compareWith === null;
   const keptCount = draft ? draft.scenes.filter((s) => !s.cut).length : 0;
+  const editing = job.status !== "done" && !!version && !!draft;
+  const comparing = compareWith !== null;
+  const sketching = drawing && canDraw && !comparing;
+  const wide = useWide();
+
+  // On a computer the screen fits the window: the video takes the height left between the header and the timeline.
+  // What sits under it (the buttons of the comparison) is measured, since it wraps on a narrow video.
+  const stage = useRef<HTMLDivElement>(null);
+  const column = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState({ room: 0, width: 0, extra: -1 });
+  useLayoutEffect(() => {
+    const el = stage.current;
+    const col = column.current;
+    if (!el || !col) return;
+    const measure = () => {
+      const content = col.firstElementChild as HTMLElement | null;
+      const media = col.querySelector<HTMLElement>('[style*="aspect-ratio"]');
+      const extra = content && media ? Math.max(0, content.offsetHeight - media.offsetHeight) : -1;
+      setFit((f) => (f.room === el.clientHeight && f.width === el.clientWidth && f.extra === extra ? f : { room: el.clientHeight, width: el.clientWidth, extra }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (col.firstElementChild) ro.observe(col.firstElementChild);
+    return () => ro.disconnect();
+  }, [editing, comparing, sketching]);
+  /** The width the video's column and the tools share: the stage less its side padding and the gap between them. */
+  const inner = fit.width - 48 - 16;
+  // While drawing on a computer, the drawing tools sit beside the video in the place of the tools, and the timeline is put away: the video takes the whole height.
+  const videoHeight = fit.room - 24 - (sketching && wide ? 0 : fit.extra >= 0 ? fit.extra : comparing ? 72 : sketching ? 194 : 0);
+  const widest = Math.max(120, inner - (sketching ? CARD_MIN : TOOLS_MIN));
+  // Two videos side by side in the comparison, 8 px apart; one 9:16 video otherwise.
+  const videoWidth = Math.round(Math.min(widest, comparing ? Math.max(300, (videoHeight * 9) / 8 + 8) : Math.max(120, (videoHeight * 9) / 16)));
+  // The drawing tools take the place of the tools, beside the video.
+  const cardWidth = Math.max(CARD_MIN, Math.min(CARD_MAX, inner - videoWidth));
+  /** The tab bar of the tools gets a surface once the panel scrolls under it (in the tools on a computer, in the page on a phone). */
+  const bar = useRef<HTMLDivElement>(null);
+  const [stuck, setStuck] = useState(false);
+  const scrolled = (e: React.UIEvent<HTMLElement>) => {
+    const box = e.target;
+    const b = bar.current;
+    if (!b || !(box instanceof HTMLElement) || !box.contains(b)) return;
+    const now = box.scrollTop > 0 && b.getBoundingClientRect().top <= box.getBoundingClientRect().top + 1;
+    setStuck((s) => (s === now ? s : now));
+  };
   /** Ends the scene under the playhead at the playhead (S). */
   const trimHere = () => {
     if (dirty || !current) return;
@@ -314,6 +366,91 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
   const sentMarks = (job.marks ?? []).filter((m) => m.version === version?.n);
   const allMarks = [...sentMarks, ...marks.filter((m) => m.version === version?.n)];
 
+  /** Status, warnings and errors of the reel. */
+  const banners = (
+    <>
+      {(job.status === "queued" || working) && (
+        <div className="rounded-xl border border-line bg-surface px-4 py-2.5">
+          <div className="mb-1.5 flex items-center gap-2 text-[13px]">
+            <Loader2 className="size-4 animate-spin text-accent" />
+            <span className="font-medium">{job.status === "queued" ? "En attente du Mac" : (job.step ?? "Le Mac travaille…")}</span>
+            {job.progress !== undefined && <span className="tabular ml-auto font-mono text-[12px] text-ink-3">{Math.round(job.progress * 100)}%</span>}
+          </div>
+          <Progress value={job.progress} />
+          {job.status === "queued" && versions.some((v) => v.preview) && (
+            <button onClick={() => call({ withdraw: true }, "Demande annulée")} disabled={busy} className="press mt-1.5 text-[12px] text-ink-3 underline-offset-2 hover:text-ink hover:underline disabled:opacity-40">
+              Annuler cette demande
+            </button>
+          )}
+        </div>
+      )}
+      {job.status === "queued" && !worker.online && <WorkerBanner worker={worker} />}
+      {old && job.status !== "done" && (
+        <p className="rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">{"Le programme de ton Mac est trop ancien pour cet écran de montage (version 0.9.0) : mets-le à jour avant de demander une retouche."}</p>
+      )}
+      {job.status === "failed" && (
+        <div className="flex items-center gap-3 rounded-xl border border-danger/40 bg-danger/8 px-4 py-2.5 text-[13px]">
+          <span className="flex-1">
+            <span className="font-medium text-danger">{version ? "La retouche a échoué." : "Le reel n'a pas pu être généré."}</span> {job.error}
+          </span>
+          {!version && (
+            <Button size="sm" onClick={() => call({ revise: "" }, "Nouvel essai demandé")} disabled={busy}>
+              <RotateCcw className="size-3.5" /> Réessayer
+            </Button>
+          )}
+        </div>
+      )}
+      {job.status === "review" && job.error && !working && (
+        <p className="rounded-xl border border-danger/40 bg-danger/8 px-4 py-2.5 text-[13px]">
+          <span className="font-medium text-danger">La dernière demande a échoué.</span> {job.error} {"Le reel n'a pas changé : tu peux reformuler ta demande ou valider cette version."}
+        </p>
+      )}
+      {job.status === "done" && (
+        <div className="flex items-center gap-3 rounded-xl border border-ok/40 bg-ok/8 px-4 py-2.5 text-[13px]">
+          <Check className="size-4 text-ok" />
+          <span className="flex-1">Le reel est dans ta bibliothèque. Programme-le sur tes comptes quand tu veux.</span>
+          <Link href="/videos" className="font-medium text-accent">
+            Voir la bibliothèque
+          </Link>
+        </div>
+      )}
+    </>
+  );
+
+  /** The versions, the comparison and the cover: above the video on a phone, at the top of the tools on a computer (the video then starts right under the header). */
+  const versionRow = version ? (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {versions.map((v) => (
+        <VersionChip key={v.n} v={v} on={v.n === version.n} onClick={() => pick(v.n)} />
+      ))}
+      {versions.length > 1 && (
+        <button
+          onClick={() => setCompareWith(compareWith === null ? (versions.find((v) => v.n !== version.n && v.preview)?.n ?? null) : null)}
+          className={cn("press ml-2 inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", compareWith !== null ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
+        >
+          <Columns2 className="size-3.5" /> Avant / après
+        </button>
+      )}
+      {canDraw && (
+        <button onClick={takeCover} title="Prend l'image affichée comme couverture du reel (envoyée à la validation)" className="press ml-auto inline-flex h-7 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2.5 text-[12px] font-medium">
+          <ImageIcon className="size-3.5" /> Couverture : cette image
+        </button>
+      )}
+      {cover && cover.version === version.n && (
+        <span className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-accent bg-accent-soft pr-1 pl-0.5 text-[12px] font-medium">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={cover.url} alt="" className="h-6 w-auto rounded-md" />
+          <button onClick={() => seek(cover.t)} className="tabular font-mono hover:text-accent" title="Aller à cette image">
+            {fmtSec(cover.t)}
+          </button>
+          <button onClick={() => (URL.revokeObjectURL(cover.url), setCover(null))} aria-label="Retirer la couverture" className="press grid size-5 place-items-center rounded-md text-ink-3 hover:text-ink">
+            <X className="size-3" />
+          </button>
+        </span>
+      )}
+    </div>
+  ) : null;
+
   return (
     <>
       <header className="flex flex-wrap items-center gap-3 border-b border-line px-6 pt-4 pb-3 max-md:px-4">
@@ -341,59 +478,14 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col max-lg:overflow-y-auto">
-        <div className="flex flex-col gap-2 px-6 pt-3 empty:hidden max-md:px-4">
-          {(job.status === "queued" || working) && (
-            <div className="rounded-xl border border-line bg-surface px-4 py-2.5">
-              <div className="mb-1.5 flex items-center gap-2 text-[13px]">
-                <Loader2 className="size-4 animate-spin text-accent" />
-                <span className="font-medium">{job.status === "queued" ? "En attente du Mac" : (job.step ?? "Le Mac travaille…")}</span>
-                {job.progress !== undefined && <span className="tabular ml-auto font-mono text-[12px] text-ink-3">{Math.round(job.progress * 100)}%</span>}
-              </div>
-              <Progress value={job.progress} />
-              {job.status === "queued" && versions.some((v) => v.preview) && (
-                <button onClick={() => call({ withdraw: true }, "Demande annulée")} disabled={busy} className="press mt-1.5 text-[12px] text-ink-3 underline-offset-2 hover:text-ink hover:underline disabled:opacity-40">
-                  Annuler cette demande
-                </button>
-              )}
-            </div>
-          )}
-          {job.status === "queued" && !worker.online && <WorkerBanner worker={worker} />}
-          {old && job.status !== "done" && (
-            <p className="rounded-xl border border-line bg-surface p-3 text-[12.5px] text-warn">{"Le programme de ton Mac est trop ancien pour cet écran de montage (version 0.9.0) : mets-le à jour avant de demander une retouche."}</p>
-          )}
-          {job.status === "failed" && (
-            <div className="flex items-center gap-3 rounded-xl border border-danger/40 bg-danger/8 px-4 py-2.5 text-[13px]">
-              <span className="flex-1">
-                <span className="font-medium text-danger">{version ? "La retouche a échoué." : "Le reel n'a pas pu être généré."}</span> {job.error}
-              </span>
-              {!version && (
-                <Button size="sm" onClick={() => call({ revise: "" }, "Nouvel essai demandé")} disabled={busy}>
-                  <RotateCcw className="size-3.5" /> Réessayer
-                </Button>
-              )}
-            </div>
-          )}
-          {job.status === "review" && job.error && !working && (
-            <p className="rounded-xl border border-danger/40 bg-danger/8 px-4 py-2.5 text-[13px]">
-              <span className="font-medium text-danger">La dernière demande a échoué.</span> {job.error} {"Le reel n'a pas changé : tu peux reformuler ta demande ou valider cette version."}
-            </p>
-          )}
-          {job.status === "done" && (
-            <div className="flex items-center gap-3 rounded-xl border border-ok/40 bg-ok/8 px-4 py-2.5 text-[13px]">
-              <Check className="size-4 text-ok" />
-              <span className="flex-1">Le reel est dans ta bibliothèque. Programme-le sur tes comptes quand tu veux.</span>
-              <Link href="/videos" className="font-medium text-accent">
-                Voir la bibliothèque
-              </Link>
-            </div>
-          )}
-        </div>
+      <div onScrollCapture={scrolled} className="flex min-h-0 flex-1 flex-col max-lg:overflow-y-auto">
+        {/* On a computer the banners go above the tools, beside the video: they never push the video or the timeline out of the window. */}
+        {!(wide && editing) && <div className="flex flex-col gap-2 px-6 pt-3 empty:hidden max-md:px-4">{banners}</div>}
 
         {job.status === "done" ? (
           <div className="flex min-h-0 flex-1 items-start justify-center px-6 py-4 max-md:px-4">
             {final?.url ? (
-              <video src={final.url} controls playsInline preload="metadata" className="max-h-full rounded-2xl border border-line bg-black shadow-card lg:max-h-[calc(100dvh-220px)]" style={{ aspectRatio: "9 / 16" }} />
+              <video src={final.url} controls playsInline preload="metadata" className="max-h-full rounded-2xl border border-line bg-black shadow-card" style={{ aspectRatio: "9 / 16" }} />
             ) : (
               <p className="text-[13px] text-ink-3">La vidéo validée est dans ta bibliothèque.</p>
             )}
@@ -405,43 +497,26 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-1.5 px-6 pt-3 max-md:px-4">
-              {versions.map((v) => (
-                <VersionChip key={v.n} v={v} on={v.n === version.n} onClick={() => pick(v.n)} />
-              ))}
-              {versions.length > 1 && (
-                <button
-                  onClick={() => setCompareWith(compareWith === null ? (versions.find((v) => v.n !== version.n && v.preview)?.n ?? null) : null)}
-                  className={cn("press ml-2 inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", compareWith !== null ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
-                >
-                  <Columns2 className="size-3.5" /> Avant / après
-                </button>
-              )}
-              {canDraw && (
-                <button onClick={takeCover} title="Prend l'image affichée comme couverture du reel (envoyée à la validation)" className="press ml-auto inline-flex h-7 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2.5 text-[12px] font-medium">
-                  <ImageIcon className="size-3.5" /> Couverture : cette image
-                </button>
-              )}
-              {cover && cover.version === version.n && (
-                <span className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-accent bg-accent-soft pr-1 pl-0.5 text-[12px] font-medium">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={cover.url} alt="" className="h-6 w-auto rounded-md" />
-                  <button onClick={() => seek(cover.t)} className="tabular font-mono hover:text-accent" title="Aller à cette image">
-                    {fmtSec(cover.t)}
-                  </button>
-                  <button onClick={() => (URL.revokeObjectURL(cover.url), setCover(null))} aria-label="Retirer la couverture" className="press grid size-5 place-items-center rounded-md text-ink-3 hover:text-ink">
-                    <X className="size-3" />
-                  </button>
-                </span>
-              )}
-            </div>
-            <div ref={stage} className="grid min-h-0 flex-1 gap-4 px-6 py-3 max-md:px-4 lg:grid-cols-[auto_minmax(0,1fr)]">
-              {/* ---------- Video: as tall as the window allows, never under the timeline ---------- */}
-              <div className="flex min-h-0 flex-col gap-2 lg:w-[var(--w)]" style={{ "--w": `${Math.round(compareWith !== null ? Math.max(300, ((room - 24 - 44) * 9) / 8) : Math.max(150, ((room - 24 - (drawing && canDraw ? 186 : 0)) * 9) / 16))}px` } as React.CSSProperties}>
-                {compareWith !== null ? (
+            {!wide && <div className="px-6 pt-3 max-md:px-4">{versionRow}</div>}
+            <div
+              ref={stage}
+              className="grid min-h-0 flex-1 gap-4 px-6 py-3 max-lg:flex-none max-md:px-4 lg:grid-cols-[var(--w)_minmax(0,var(--tools))] lg:justify-center"
+              style={{ "--w": `${videoWidth}px`, "--tools": `${TOOLS_MAX}px`, "--card": `${cardWidth}px` } as React.CSSProperties}
+            >
+              {/* ---------- Video: as tall as the window allows, never under the timeline (on a phone, as tall as the screen at most) ---------- */}
+              <div
+                ref={column}
+                className={cn(
+                  "flex min-h-0 flex-col gap-2 max-lg:mx-auto max-lg:w-full lg:relative lg:w-[var(--w)]",
+                  !comparing && "max-lg:max-w-[max(240px,calc((100dvh-250px)*9/16))]",
+                  // While drawing, the drawing tools (the second block of the annotator) take the place of the tools, beside the video.
+                  sketching && "lg:[&>div>div:nth-child(2)]:absolute lg:[&>div>div:nth-child(2)]:top-0 lg:[&>div>div:nth-child(2)]:left-[calc(100%+1rem)] lg:[&>div>div:nth-child(2)]:z-30 lg:[&>div>div:nth-child(2)]:w-[var(--card)]",
+                )}
+              >
+                {comparing ? (
                   <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
                 ) : (
-                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => (setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m])), setTab("claude"))} onClose={() => setDrawing(false)}>
+                  <Annotator video={player} active={sketching} version={version.n} onAdd={(m) => (setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m])), setTab("claude"))} onClose={() => setDrawing(false)}>
                     <div className="relative" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
                       <Preview job={job} v={version} ref={player} onTime={setTime} />
                       {curText && tab === "texts" && !drawing && <TextGhost text={curText} accent={draft.look.accent} onMove={(x, y, key) => setTexts(texts.map((t) => (t.id === curText.id ? { ...t, x, y } : t)), key)} />}
@@ -450,20 +525,25 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
                 )}
               </div>
 
-              {/* ---------- Tools ---------- */}
-              <div className="scroll-thin flex min-h-0 min-w-0 flex-col gap-3 lg:overflow-y-auto lg:pr-1">
-                <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 rounded-xl px-1 py-1 backdrop-blur-md">
-                  <Segmented
-                    label="Outil"
-                    value={tab}
-                    onChange={setTab}
-                    options={[
-                      { value: "claude", label: "Demander à Claude" },
-                      { value: "scenes", label: "Scènes" },
-                      { value: "texts", label: "Textes" },
-                      { value: "sound", label: "Musique et rythme" },
-                    ]}
-                  />
+              {/* ---------- Tools: only they scroll on a computer ---------- */}
+              <div className={cn("scroll-thin flex min-h-0 min-w-0 flex-col gap-3 lg:overflow-y-auto lg:pr-1", sketching && "lg:invisible")}>
+                {wide && <div className="flex flex-col gap-2 empty:hidden">{banners}</div>}
+                {wide && versionRow}
+                <div ref={bar} className={cn("sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 rounded-xl px-1 py-1 transition-[background-color,box-shadow] duration-150", stuck && "rounded-none bg-surface/95 shadow-[0_1px_0_var(--line)] backdrop-blur-md")}>
+                  {/* The tabs never wrap their labels: on a narrow phone they scroll sideways. */}
+                  <div className="scroll-thin max-w-full overflow-x-auto whitespace-nowrap max-sm:[&_[role=radio]]:px-1.5">
+                    <Segmented
+                      label="Outil"
+                      value={tab}
+                      onChange={setTab}
+                      options={[
+                        { value: "claude", label: "Demander à Claude" },
+                        { value: "scenes", label: "Scènes" },
+                        { value: "texts", label: "Textes" },
+                        { value: "sound", label: "Musique et rythme" },
+                      ]}
+                    />
+                  </div>
                   {dirty && (
                     <div className="ml-auto flex gap-2">
                       <Button size="sm" variant="ghost" onClick={() => follow(version.reel)}>
@@ -680,7 +760,7 @@ export function ReelReview({ job, worker, refresh }: { job: MontageJob; worker: 
             {/* ---------- Timeline ---------- */}
             {/* Drawing happens on one frame, and its tools take the room of the timeline on a small screen: it stays in place, out of sight. */}
             <ReelTimeline
-              hidden={drawing && canDraw && compareWith === null}
+              hidden={sketching}
               src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
               placed={placed}
               total={total}
