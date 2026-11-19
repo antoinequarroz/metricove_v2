@@ -16,9 +16,9 @@ export async function GET(_req: Request, { params }: Ctx) {
   });
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
   const { projectId, imageId } = await params;
   const project = listProjects().find((p) => p.id === projectId);
   if (!project) return NextResponse.json({ error: "Projet introuvable" }, { status: 404 });
-  return NextResponse.json({ profile: removeRefImage(project, imageId) });
+  return NextResponse.json({ profile: removeRefImage(project, imageId, new URL(req.url).searchParams.get("style") ?? undefined) });
 }

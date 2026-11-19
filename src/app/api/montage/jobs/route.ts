@@ -5,11 +5,18 @@ import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
 import { getRushRow, getStyle, listJobs, pageJob, saveJob, withAhead } from "@/server/montage";
 import { cleanLook, starterProfile } from "@/lib/profiles";
-import { profileOf, voiceOf } from "@/server/profiles";
+import { profileOf, styleIdOf, voiceOf } from "@/server/profiles";
+import { DEFAULT_STYLE } from "@/lib/profiles";
 import { MAX_FOCUS, MAX_PLAN_ITEMS, MAX_SOURCE_TEXT, MAX_SOURCES, PLAN_DAYS, PLAN_FORMATS, type PlanFormat, type SourceFile } from "@/lib/strategy";
 import { sourceFile } from "@/server/sources";
 
 export const dynamic = "force-dynamic";
+
+/** The style of the project the job is made with: kept on the job only when it is not the default one. */
+const styleOf = (projectId: string | undefined, raw: unknown) => {
+  const id = projectId ? styleIdOf(projectId, raw) : DEFAULT_STYLE;
+  return id === DEFAULT_STYLE ? undefined : id;
+};
 
 /** The jobs as the page sees them (scripts use it too): no code from Claude, a link in place of each drawing. */
 export function GET() {
@@ -24,6 +31,8 @@ type Body = {
   kind?: MontageJob["kind"];
   title?: string;
   projectId?: string;
+  /** One of the project's other styles; left out = its default style. */
+  styleId?: unknown;
   brief?: Partial<MontageJob["brief"]>;
   rushIds?: string[];
   script?: string;
@@ -82,13 +91,15 @@ export async function POST(req: Request) {
   const clip = (s: unknown, n: number) => (typeof s === "string" && s.trim() ? s.trim().slice(0, n) : undefined);
   const now = new Date().toISOString();
   const projectId = listProjects().some((p) => p.id === b.projectId) ? b.projectId : undefined;
+  const styleId = styleOf(projectId, b.styleId);
   const job: MontageJob = {
     id: crypto.randomUUID(),
     kind,
     title: clip(b.title, 120) ?? (kind === "script" ? "Texte de prompteur" : "Nouveau montage"),
     projectId,
+    ...(styleId ? { styleId } : {}),
     style: projectId && kind === "montage" ? getStyle(projectId) : undefined,
-    voice: kind === "script" ? voiceOf(projectId) : undefined,
+    voice: kind === "script" ? voiceOf(projectId, styleId) : undefined,
     status: "queued",
     action: kind === "script" ? "script" : "propose",
     brief: {
@@ -120,7 +131,8 @@ function captionJob(b: Body) {
     kind: "caption",
     title: media ? `Description : ${media.title}`.slice(0, 120) : "Description de post",
     projectId: project?.id,
-    voice: voiceOf(project?.id),
+    ...((id) => (id ? { styleId: id } : {}))(styleOf(project?.id, b.styleId)),
+    voice: voiceOf(project?.id, styleOf(project?.id, b.styleId)),
     status: "queued",
     action: "caption",
     brief: { format: media?.aspect ?? "9:16" },
@@ -188,7 +200,8 @@ function postJob(b: Body) {
     kind: "post",
     title: `Post : ${idea}`.slice(0, 120),
     projectId: project?.id,
-    voice: voiceOf(project?.id),
+    ...((id) => (id ? { styleId: id } : {}))(styleOf(project?.id, b.styleId)),
+    voice: voiceOf(project?.id, styleOf(project?.id, b.styleId)),
     status: "queued",
     action: "post",
     brief: { format: "4:5" },
@@ -213,7 +226,7 @@ function motionJob(b: Body) {
   if (!scenes.length) return NextResponse.json({ error: "Écris au moins une scène" }, { status: 400 });
   const project = listProjects().find((p) => p.id === b.projectId);
   // The look the page shows, checked; what it does not say comes from the project's profile.
-  const base = project ? profileOf(project).look : starterProfile("antoine").look;
+  const base = project ? profileOf(project, styleOf(project.id, b.styleId)).look : starterProfile("antoine").look;
   const look = cleanLook(b.look, base);
   if (typeof look === "string") return NextResponse.json({ error: look }, { status: 400 });
   // The logo stays out of the job (the list of jobs is read every few seconds): the Mac gets it when it takes the job.
@@ -227,6 +240,7 @@ function motionJob(b: Body) {
     kind: "motion",
     title: `Reel animé : ${scenes[0].title || scenes[0].body}`.replace(/\s+/g, " ").slice(0, 120),
     projectId: project?.id,
+    ...((id) => (id ? { styleId: id } : {}))(styleOf(project?.id, b.styleId)),
     status: "queued",
     action: "motion",
     brief: { format: "9:16" },
@@ -255,7 +269,7 @@ function videoJob(b: Body) {
   // Only compared with the names of the Mac's music folder, never joined to a path.
   const track = typeof b.track === "string" ? b.track.trim().slice(0, 200) : "";
   const project = listProjects().find((p) => p.id === b.projectId);
-  const base = project ? profileOf(project).look : starterProfile("antoine").look;
+  const base = project ? profileOf(project, styleOf(project.id, b.styleId)).look : starterProfile("antoine").look;
   const look = cleanLook(b.look, base);
   if (typeof look === "string") return NextResponse.json({ error: look }, { status: 400 });
   // The logo stays out of the job (the list of jobs is read every few seconds): the Mac gets it when it takes the job.
@@ -269,6 +283,7 @@ function videoJob(b: Body) {
     // Runs of breaking spaces only: the non-breaking ones of French typography (« ? », « 3 h ») stay, as in line().
     title: `Reel animé : ${first.replace(/[^\S   ]+/g, " ").trim().slice(0, 60)}`,
     projectId: project?.id,
+    ...((id) => (id ? { styleId: id } : {}))(styleOf(project?.id, b.styleId)),
     status: "queued",
     action: "motion",
     brief: { format: "9:16", ...(seconds ? { seconds } : {}) },

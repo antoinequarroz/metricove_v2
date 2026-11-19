@@ -1,5 +1,6 @@
 // Style profile of a project: the look of its visuals and the voice Claude writes in.
-// One profile per project, so every carousel, photo post and text of the project comes out the same.
+// A project has a default style and may have others (a podcast, clips…): every carousel, photo post, text
+// and video made with one style comes out the same.
 // No "use client" here: the server validates profiles with the same lists.
 
 export type LookTheme = "paper" | "night" | "accent" | "gradient" | "custom";
@@ -33,6 +34,12 @@ export type Look = {
 export type PresetId = "antoine" | "livrematch" | "carnadzons";
 
 export type StyleProfile = {
+  /** "default" for the project's main style, else the id of another style of the project. */
+  id: string;
+  /** Name shown on the style's card, e.g. "Podcast". */
+  name: string;
+  /** Rules learned along the way, one per line: Claude follows them for everything made with this style. */
+  notes: string;
   /** The starter style this profile comes from. */
   preset: PresetId;
   look: Look;
@@ -60,6 +67,20 @@ export type ProfileRefs = {
   /** Inspiration images (screenshots of carousels, visuals): Claude looks at them on the Mac. Files live on the server. */
   images: { id: string; name: string }[];
 };
+
+/** Id of the main style of every project (kept where the single profile always lived). */
+export const DEFAULT_STYLE = "default";
+/** Styles a project may have, the default one included. */
+export const MAX_STYLES = 12;
+export const MAX_STYLE_NAME = 40;
+export const MAX_NOTES = 4000;
+export const STYLE_ID = /^[a-z0-9]{6,16}$/;
+/** The rules of a style, one per non-empty line (a leading "-" or "•" is dropped). */
+export const noteLines = (notes: string) =>
+  notes
+    .split("\n")
+    .map((l) => l.replace(/^\s*[-•*]\s*/, "").trim())
+    .filter(Boolean);
 
 export const emptyRefs = (): ProfileRefs => ({ examples: [], ideas: [], images: [] });
 export const MAX_EXAMPLES = 8;
@@ -163,7 +184,7 @@ export function presetFor(projectName: string): PresetId {
 
 export const starterProfile = (preset: PresetId, handle = ""): StyleProfile => {
   const p = presetOf(preset);
-  return { preset: p.id, look: { ...p.look, handle }, tone: p.tone, skill: "", strategy: "", refs: emptyRefs(), saved: false };
+  return { id: DEFAULT_STYLE, name: "Principal", notes: "", preset: p.id, look: { ...p.look, handle }, tone: p.tone, skill: "", strategy: "", refs: emptyRefs(), saved: false };
 };
 
 const LOOK_KEYS = ["theme", "accent", "font", "grid", "pill", "align", "valign", "grain", "numbers", "handle", "logo"] as const;

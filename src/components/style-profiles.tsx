@@ -1,73 +1,52 @@
 "use client";
 
-import { Check, ChevronDown, Compass, ImagePlus, Lightbulb, Loader2, Palette, Plus, Save, Sparkles, X } from "lucide-react";
+import { Check, Compass, ImagePlus, Lightbulb, Loader2, Palette, Plus, Save, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { type Look, MAX_EXAMPLE, MAX_EXAMPLES, MAX_IDEA, MAX_IDEAS, MAX_REF_IMAGES, MAX_SKILL, MAX_TONE, PRESETS, presetOf, sameLook, sameTexts, type StyleProfile } from "@/lib/profiles";
+import { type Look, MAX_EXAMPLE, MAX_EXAMPLES, MAX_IDEA, MAX_IDEAS, MAX_NOTES, MAX_REF_IMAGES, MAX_SKILL, MAX_STYLE_NAME, MAX_TONE, noteLines, PRESETS, presetOf, sameLook, sameTexts, type StyleProfile } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
 import type { Project } from "@/lib/types";
 import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
-import { appFonts, type Deck, type Fonts, loadFonts, newSlide } from "@/lib/visuals";
+import { type Deck, type Fonts, newSlide } from "@/lib/visuals";
 import { Field, inputClass, LookControls, SlideCanvas } from "./montage/look-parts";
 import { CHARTE_ACCEPT, type CharteResult } from "@/lib/strategy";
 import { JobProgress, OldWorkerNote, SourcePicker, startReading, useProjectJob, workerTooOld } from "./brand-reading";
 import { Button } from "./ui";
 
-/** The style profile of each project: the look of its visuals and the voice Claude writes in. */
+/** Réglages → Styles: the styles now have their own page, with several styles per project. */
 export function StyleProfiles() {
   const projects = useStore((s) => s.projects);
-  const loaded = useStore((s) => s.loaded);
-  const hooks = useProfiles();
-  const { profiles, error, reload } = hooks;
-  const [fonts, setFonts] = useState<Fonts | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
-
-  useEffect(() => {
-    const f = appFonts();
-    loadFonts(f).then(() => setFonts(f));
-  }, []);
-  // A project made in another page since the profiles were read.
-  const missing = projects.some((p) => profiles && !profiles[p.id]);
-  useEffect(() => {
-    if (missing) reload();
-  }, [missing, reload]);
-
-  if (error && !profiles)
-    return (
-      <div className="flex items-center gap-3 px-4 py-3 text-[13px]">
-        <span className="size-2 shrink-0 rounded-full bg-warn" />
-        <p className="min-w-0 flex-1">Profils illisibles : {error}</p>
-        <Button size="sm" onClick={reload}>
-          Réessayer
-        </Button>
-      </div>
-    );
-  if (!loaded || !profiles) return <p className="px-4 py-3 text-[13px] text-ink-3">Lecture des profils…</p>;
-  if (!projects.length) return <p className="px-4 py-3 text-[13px] text-ink-3">Crée d&apos;abord un projet (menu des projets, en haut à gauche) : chaque projet a son profil de style.</p>;
-
+  const { styles } = useProfiles();
+  const count = styles ? Object.values(styles).reduce((n, l) => n + l.length, 0) : undefined;
   return (
-    <>
-      {projects.map((project, i) => {
-        const profile = profiles[project.id];
-        if (!profile) return null;
-        return (
-          <div key={project.id} className={cn(i && "border-t border-line")}>
-            <ProfileCard project={project} profile={profile} fonts={fonts} open={open === project.id} onToggle={() => setOpen((o) => (o === project.id ? null : project.id))} hooks={hooks} />
-          </div>
-        );
-      })}
-    </>
+    <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <Palette className="size-4 shrink-0 text-accent" />
+      <p className="min-w-0 flex-1 text-[13px] text-ink-2">
+        {count === undefined ? "Lecture des styles…" : `${count} style${count > 1 ? "s" : ""} pour ${projects.length} projet${projects.length > 1 ? "s" : ""}.`} Chaque projet a un style par défaut et peut en avoir d&apos;autres (podcast, clips…), avec leurs notes, illustrations et bruitages.
+      </p>
+      <Link href="/videos/ressources" className="press inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium hover:bg-ink/[0.03]">
+        Ouvrir les styles
+      </Link>
+    </div>
   );
 }
 
 type Texts = { id: string; text: string }[];
-type Draft = { preset: StyleProfile["preset"]; look: Look; tone: string; skill: string; examples: Texts; ideas: Texts };
-const draftOf = (p: StyleProfile): Draft => ({ preset: p.preset, look: p.look, tone: p.tone, skill: p.skill, examples: p.refs.examples, ideas: p.refs.ideas });
-const edited = (d: Draft, p: StyleProfile) => !sameLook(d.look, p.look) || d.tone.trim() !== p.tone.trim() || d.skill.trim() !== p.skill || !sameTexts(d.examples, p.refs.examples) || !sameTexts(d.ideas, p.refs.ideas);
+type Draft = { name: string; notes: string; preset: StyleProfile["preset"]; look: Look; tone: string; skill: string; examples: Texts; ideas: Texts };
+const draftOf = (p: StyleProfile): Draft => ({ name: p.name, notes: p.notes, preset: p.preset, look: p.look, tone: p.tone, skill: p.skill, examples: p.refs.examples, ideas: p.refs.ideas });
+const edited = (d: Draft, p: StyleProfile) =>
+  d.name.trim() !== p.name ||
+  d.notes.trim() !== p.notes.trim() ||
+  !sameLook(d.look, p.look) ||
+  d.tone.trim() !== p.tone.trim() ||
+  d.skill.trim() !== p.skill ||
+  !sameTexts(d.examples, p.refs.examples) ||
+  !sameTexts(d.ideas, p.refs.ideas);
 
-function ProfileCard({ project, profile, fonts, open, onToggle, hooks }: { project: Project; profile: StyleProfile; fonts: Fonts | null; open: boolean; onToggle: () => void; hooks: ReturnType<typeof useProfiles> }) {
+/** Everything a style holds, to change it: name, notes, look, tone, skill, references. */
+export function StyleEditor({ project, profile, fonts, hooks, actions }: { project: Project; profile: StyleProfile; fonts: Fonts | null; hooks: ReturnType<typeof useProfiles>; actions?: React.ReactNode }) {
   const { save } = hooks;
   const accounts = useStore((s) => s.accounts);
   const [draft, setDraft] = useState<Draft>(() => draftOf(profile));
@@ -94,9 +73,13 @@ function ProfileCard({ project, profile, fonts, open, onToggle, hooks }: { proje
     if (busy) return;
     setBusy(true);
     try {
-      const saved = await save(project.id, { preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "" }, tone: draft.tone, skill: draft.skill, refs: { examples: draft.examples, ideas: draft.ideas } });
+      const saved = await save(
+        project.id,
+        { name: draft.name, notes: draft.notes, preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "" }, tone: draft.tone, skill: draft.skill, refs: { examples: draft.examples, ideas: draft.ideas } },
+        profile.id,
+      );
       setDraft(draftOf(saved));
-      toast.success(`Style de ${project.name} enregistré`, { description: "Les prochains visuels et textes du projet le suivent." });
+      toast.success(`Style « ${saved.name} » enregistré`, { description: "Les prochains visuels, textes et vidéos faits avec ce style le suivent." });
     } catch (e) {
       toast.error("Style non enregistré", { description: (e as Error).message });
     } finally {
@@ -108,30 +91,32 @@ function ProfileCard({ project, profile, fonts, open, onToggle, hooks }: { proje
     setDraft((d) => ({ ...d, preset: p.id, look: { ...p.look, handle: d.look.handle, logo: d.look.logo }, tone: p.tone }));
   };
 
+  const rules = noteLines(draft.notes).length;
   return (
     <>
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none hover:bg-ink/[0.03] focus-visible:bg-ink/[0.04]">
-        <span className="w-11 shrink-0 overflow-hidden rounded-md shadow-[0_0_0_1px_var(--line-strong)]">
-          <SlideCanvas deck={deck} index={0} fonts={fonts} small />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-medium">{project.name}</span>
-          <span className="block truncate text-[12px] text-ink-3">
-            {profile.saved ? "Style personnalisé" : `Style de départ ${presetOf(profile.preset).label}`}
-            {profile.skill ? " · skill relié" : ""}
-            {profile.strategy.trim() ? " · stratégie" : ""}
-            {dirty ? " · modifications non enregistrées" : ""}
-          </span>
-        </span>
-        <ChevronDown className={cn("size-4 shrink-0 text-ink-3 transition-transform duration-200", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className="grid gap-5 border-t border-line px-4 py-4 sm:grid-cols-[200px_minmax(0,1fr)]">
+        <div className="grid gap-5 px-4 py-4 sm:grid-cols-[200px_minmax(0,1fr)] 2xl:grid-cols-[240px_minmax(0,960px)]">
           <div className="max-sm:mx-auto max-sm:w-48">
-            <SlideCanvas deck={deck} index={0} fonts={fonts} className="rounded-lg shadow-[0_12px_32px_-14px_rgba(0,0,0,0.4)]" />
-            <p className="mt-2 text-center text-[11.5px] text-ink-3">Aperçu d&apos;un visuel</p>
+            <div className="sm:sticky sm:top-0">
+              <SlideCanvas deck={deck} index={0} fonts={fonts} className="rounded-lg shadow-[0_12px_32px_-14px_rgba(0,0,0,0.4)]" />
+              <p className="mt-2 text-center text-[11.5px] text-ink-3">Aperçu d&apos;un visuel{dirty ? " · non enregistré" : ""}</p>
+            </div>
           </div>
           <div className="flex min-w-0 flex-col gap-3">
+            <Field label="Nom du style">
+              <input aria-label="Nom du style" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} maxLength={MAX_STYLE_NAME} placeholder="Par ex. Podcast, Clips, Explications" className={cn(inputClass, "h-9")} />
+            </Field>
+            <Field label={`Notes du style (${rules} règle${rules > 1 ? "s" : ""})`}>
+              <textarea
+                aria-label="Notes du style"
+                value={draft.notes}
+                onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
+                rows={5}
+                maxLength={MAX_NOTES}
+                placeholder={"Une règle par ligne, par ex. :\n- Sous-titres jamais sur la bouche\n- 2 ou 3 bruitages au plus par vidéo\n- Jamais deux fois la même mise en page d'affilée"}
+                className={cn(inputClass, "resize-y py-2 font-mono text-[12.5px] leading-snug")}
+              />
+              <span className="text-[11.5px] text-ink-3">Ce que tu as appris en relisant tes vidéos. Claude suit ces règles pour tout ce qui est fait avec ce style : textes, montages, reels.</span>
+            </Field>
             <CharteImport project={project} draft={draft} setDraft={setDraft} fonts={fonts} />
             <LookControls look={draft.look} onChange={(p) => setDraft((d) => ({ ...d, look: { ...d.look, ...p } }))} suggestedHandle={suggestedHandle} />
             <Field label="Ton de Claude (descriptions, posts, textes de prompteur)">
@@ -172,14 +157,14 @@ function ProfileCard({ project, profile, fonts, open, onToggle, hooks }: { proje
               <Button size="sm" className="h-9" onClick={useStarter}>
                 Appliquer
               </Button>
-              <Button variant="primary" className="ml-auto" onClick={submit} disabled={busy || (!dirty && profile.saved)}>
+              {actions}
+              <Button variant="primary" className="ml-auto" onClick={submit} disabled={busy || !draft.name.trim() || (!dirty && profile.saved)}>
                 <Save className="size-4" />
                 Enregistrer
               </Button>
             </div>
           </div>
         </div>
-      )}
     </>
   );
 }
@@ -224,7 +209,7 @@ function References({ project, profile, draft, setDraft, hooks }: { project: Pro
           toast(`${MAX_REF_IMAGES} images au plus par projet`);
           break;
         }
-        await hooks.addImage(project.id, file);
+        await hooks.addImage(project.id, file, profile.id);
       }
     } catch (e) {
       toast.error("Image non ajoutée", { description: (e as Error).message });
@@ -232,7 +217,7 @@ function References({ project, profile, draft, setDraft, hooks }: { project: Pro
       setSending(false);
     }
   };
-  const dropImage = (id: string) => hooks.removeImage(project.id, id).catch((e: Error) => toast.error("Image non retirée", { description: e.message }));
+  const dropImage = (id: string) => hooks.removeImage(project.id, id, profile.id).catch((e: Error) => toast.error("Image non retirée", { description: e.message }));
 
   return (
     <div className="flex flex-col gap-3 border-t border-line pt-3">

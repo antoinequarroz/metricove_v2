@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Film, GalleryHorizontalEnd, Laptop, Scissors, Sparkles, Video } from "lucide-react";
+import { AudioLines, Clapperboard, Film, GalleryHorizontalEnd, Laptop, Library, Palette, Scissors, Shapes, Sparkles, Video } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { MontageJob } from "@/lib/montage";
@@ -11,13 +11,14 @@ const TABS = [
   { href: "/videos", label: "Bibliothèque", Icon: Film },
   { href: "/videos/montage", label: "Montage IA", Icon: Scissors },
   { href: "/videos/studio", label: "Studio", Icon: Clapperboard },
+  { href: "/videos/ressources", label: "Ressources", Icon: Library },
 ];
 
 /** Tabs at the top of the video pages. */
 export function VideoTabs() {
   const pathname = usePathname();
   return (
-    <nav className="flex rounded-lg border border-line bg-bg-2/70 p-0.5" aria-label="Vidéos">
+    <nav className="scroll-thin flex max-w-full overflow-x-auto rounded-lg border border-line bg-bg-2/70 p-0.5" aria-label="Vidéos">
       {TABS.map(({ href, label, Icon }) => {
         const on = href === "/videos" ? pathname === "/videos" : pathname.startsWith(href);
         return (
@@ -25,7 +26,7 @@ export function VideoTabs() {
             key={href}
             href={href}
             className={cn(
-              "flex h-7 items-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-[background-color,color,box-shadow] duration-150",
+              "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-[12.5px] font-medium transition-[background-color,color,box-shadow] duration-150",
               on ? "bg-surface text-ink shadow-card" : "text-ink-3 hover:text-ink",
             )}
           >
@@ -43,6 +44,39 @@ const STUDIO_TABS = [
   { href: "/videos/studio/visuels", label: "Carrousel et photo", Icon: GalleryHorizontalEnd },
   { href: "/videos/studio/anime", label: "Reel animé", Icon: Sparkles },
 ];
+
+const RESOURCE_TABS = [
+  { href: "/videos/ressources", label: "Styles", Icon: Palette },
+  { href: "/videos/ressources/illustrations", label: "Illustrations", Icon: Shapes },
+  { href: "/videos/ressources/bruitages", label: "Bruitages", Icon: AudioLines },
+  { href: "/videos/ressources/broll", label: "B-roll", Icon: Film },
+];
+
+/** What the videos draw from: the styles of the projects, the illustrations, the sound effects and the B-roll. */
+export function ResourceTabs() {
+  const pathname = usePathname();
+  return (
+    <nav className="scroll-thin flex max-w-full overflow-x-auto rounded-lg border border-line bg-bg-2/70 p-0.5" aria-label="Ressources">
+      {RESOURCE_TABS.map(({ href, label, Icon }) => {
+        const on = pathname === href;
+        return (
+          <Link
+            key={href}
+            href={href}
+            aria-current={on ? "page" : undefined}
+            className={cn(
+              "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-[background-color,color,box-shadow] duration-150",
+              on ? "bg-surface text-ink shadow-card" : "text-ink-3 hover:text-ink",
+            )}
+          >
+            <Icon className={cn("size-4", on ? "text-accent" : "")} />
+            {label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
 
 /** What the Studio makes: a video in front of the camera, visuals (carousel, photo post), or an animated reel. */
 export function StudioTabs() {

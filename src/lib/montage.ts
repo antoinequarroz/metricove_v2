@@ -524,6 +524,8 @@ export type MontageJob = {
   base?: number;
   /** Face-cam edit: B-roll asked to Claude for one passage (timeline seconds) of the last version (action "broll", worker 0.13.0). */
   brollAsk?: { range: [number, number]; note?: string };
+  /** One of the project's other styles the job is made with (left out: the default style). */
+  styleId?: string;
   /** Voice of the project (style profile): Claude writes with it. Copied when the job was made; refreshed for edits and covers when the Mac takes the job. */
   voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[]; strategy?: string };
   /** Colors and font of the project (style profile) for the video overlays: added when the Mac takes the job. */

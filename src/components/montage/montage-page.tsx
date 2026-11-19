@@ -6,7 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FORMATS, type MontageFormat, type MontageJob, type Rush } from "@/lib/montage";
+import { DEFAULT_STYLE } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
+import { useProfiles } from "@/lib/use-profiles";
 import { cn, fmt } from "@/lib/utils";
 import { Segmented } from "../calendar";
 import { Button } from "../ui";
@@ -141,6 +143,11 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
   const [hook, setHook] = useState("");
   const [cta, setCta] = useState("");
   const [projectId, setProjectId] = useState(activeProject === "all" ? "" : activeProject);
+  // The project's styles: its default one unless another is picked (a podcast, clips…).
+  const { styles } = useProfiles();
+  const projectStyles = projectId ? (styles?.[projectId] ?? []) : [];
+  const [styleId, setStyleId] = useState(DEFAULT_STYLE);
+  useEffect(() => setStyleId(DEFAULT_STYLE), [projectId]);
   const [scriptText, setScriptText] = useState(script ?? "");
   const [busy, setBusy] = useState(false);
 
@@ -159,6 +166,7 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
           kind: "montage",
           title,
           projectId: projectId || undefined,
+          ...(projectId && styleId !== DEFAULT_STYLE ? { styleId } : {}),
           rushIds: selected,
           script: scriptText || undefined,
           brief: { format, seconds: Number(seconds) || undefined, instructions, hook, cta },
@@ -234,7 +242,7 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
         <Segmented<MontageFormat> value={format} onChange={setFormat} options={FORMATS.map((f) => ({ value: f.value, label: f.label }))} />
         <span className="text-[12px] text-ink-3">{FORMATS.find((f) => f.value === format)?.hint}</span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-[1fr_140px_200px]">
+      <div className={cn("grid gap-3", projectStyles.length > 1 ? "sm:grid-cols-[1fr_120px_180px_180px]" : "sm:grid-cols-[1fr_140px_200px]")}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titre (pour toi)" aria-label="Titre" className={field} maxLength={120} />
         <input value={seconds} onChange={(e) => setSeconds(e.target.value.replace(/\D/g, ""))} placeholder="Durée (s)" aria-label="Durée visée en secondes" inputMode="numeric" className={field} />
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Projet" className={field}>
@@ -245,6 +253,15 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
             </option>
           ))}
         </select>
+        {projectStyles.length > 1 && (
+          <select value={styleId} onChange={(e) => setStyleId(e.target.value)} aria-label="Style" title="Le style du projet : couleurs, ton de Claude, notes, illustrations et bruitages" className={field}>
+            {projectStyles.map((st) => (
+              <option key={st.id} value={st.id}>
+                Style : {st.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <textarea
         value={instructions}
