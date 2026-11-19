@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
+import { ASSET_WORKER, MAX_ASSET_COUNT, MAX_ASSET_PROMPT, MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
@@ -61,6 +61,9 @@ type Body = {
   sources?: unknown;
   url?: unknown;
   text?: unknown;
+  // kind "asset"
+  assetKind?: unknown;
+  prompt?: unknown;
   // kind "plan"
   from?: unknown;
   days?: unknown;
@@ -83,6 +86,7 @@ export async function POST(req: Request) {
   if (b.kind === "motion") return motionJob(b);
   if (b.kind === "brand") return brandJob(b);
   if (b.kind === "plan") return planJob(b);
+  if (b.kind === "asset") return assetJob(b);
   const kind = b.kind === "script" ? "script" : "montage";
   const format: MontageFormat = ["9:16", "4:5", "1:1", "16:9"].includes(b.brief?.format as string) ? (b.brief!.format as MontageFormat) : "9:16";
   const rushIds = [...new Set(b.rushIds ?? [])].filter((id) => getRushRow(id));
@@ -358,6 +362,45 @@ function brandJob(b: Body) {
 
 const TZ = process.env.TZ || "Europe/Zurich";
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: TZ });
+
+/** Asks the Mac for illustrations or sound effects for the libraries, in the colors of a style. */
+function assetJob(b: Body) {
+  const kind = b.assetKind === "sfx" ? "sfx" : b.assetKind === "illustration" ? "illustration" : undefined;
+  if (!kind) return NextResponse.json({ error: "Bibliothèque inconnue" }, { status: 400 });
+  const prompt = typeof b.prompt === "string" ? b.prompt.replace(/\r\n?/g, "\n").trim().slice(0, MAX_ASSET_PROMPT) : "";
+  if (!prompt) return NextResponse.json({ error: kind === "sfx" ? "Décris le bruitage" : "Décris l'illustration" }, { status: 400 });
+  const count = Math.min(MAX_ASSET_COUNT, Math.max(1, Math.round(Number(b.count) || 1)));
+  const project = listProjects().find((p) => p.id === b.projectId);
+  const styleId = project ? styleIdOf(project.id, b.styleId) : undefined;
+  const style = project ? profileOf(project, styleId) : undefined;
+  const look = style?.look;
+  const palette = look ? [...new Set([look.accent, ...(look.theme === "custom" ? look.fields.flatMap((f) => [f.bg, f.ink]) : look.theme === "night" ? ["#111418", "#ffffff"] : look.theme === "paper" ? ["#f6f3ec", "#171614"] : [])].map((c) => c.toLowerCase()))] : undefined;
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "asset",
+    title: `${kind === "sfx" ? "Bruitage" : "Illustration"} : ${prompt}`.slice(0, 120),
+    projectId: project?.id,
+    ...(styleId && styleId !== DEFAULT_STYLE ? { styleId } : {}),
+    status: "queued",
+    action: "asset",
+    minWorker: ASSET_WORKER,
+    brief: { format: "1:1" },
+    asset: {
+      kind,
+      prompt,
+      count,
+      styles: project && styleId ? [`${project.id}:${styleId}`] : [],
+      ...(palette?.length ? { palette } : {}),
+      ...(style ? { style: `${project!.name} · ${style.name}` } : {}),
+    },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
 
 /** Asks the Mac for posts to plan over a period, from the digital strategy of the project. */
 function planJob(b: Body) {

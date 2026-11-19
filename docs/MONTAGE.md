@@ -44,7 +44,7 @@ Next.js 15.5.28 est corrigé par `patches/next@15.5.28.patch` (`patchedDependenc
 ```ts
 type Job = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan" | "asset";
   title: string;
   projectId?: string;
   status: "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
@@ -606,3 +606,16 @@ pour les posts, descriptions et textes de prompteur, et pour l'écriture des ree
 Le serveur y joint la stratégie, les comptes du projet et les posts déjà prévus autour de la période (`plan.taken`).
 Le Mac répond `PATCH { status: "done", plan: { items: [{ date, time, format, pillar, idea, why, caption, networks }], notes } }`.
 La page met chaque proposition en brouillon au calendrier, l'ouvre dans le Studio (`?idee=…`) ou la garde dans les idées du projet.
+
+## Styles, bibliothèques et `kind: "asset"` (worker 0.16.0)
+
+- Un projet a un style par défaut (`profile:<projet>`) et d'autres (`profile:<projet>:<style>`, liste `styles:<projet>`).
+  Une tâche peut porter `styleId` : la voix, le thème et le logo envoyés au Mac viennent de ce style. Les **notes** du
+  style (une règle par ligne) sont ajoutées à la fin de `voice.tone`.
+- Bibliothèques (`/api/library`) : illustrations (PNG, JPEG, WebP, SVG) et bruitages (MP3, WAV, OGG, M4A), chacun
+  rangé dans des styles `"<projet>:<style>"`. À la réclamation, une tâche montage, couverture ou reel reçoit
+  `job.assets = { illustrations: [{ name, tags, url, type }], sfx: [...] }` : ceux de son style, sinon ceux sans style.
+- `POST /api/montage/jobs` `{ kind: "asset", assetKind: "illustration" | "sfx", prompt, count: 1..4, projectId?, styleId? }`
+  → `job.asset = { kind, prompt, count, styles, palette?, style? }`, `minWorker` 0.16.0. Le Mac envoie chaque fichier
+  à `POST /api/library?kind=…&name=…&tags=…&styles=…&source=claude` (corps = le fichier), puis
+  `PATCH { status: "done", asset: { result: [ids] } }`.

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { isVideoJob, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
+import { isVideoJob, MAX_ASSET_COUNT, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
+import { findAsset } from "@/server/library";
 import { ingestVideo } from "@/server/media";
 import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, reportRun, restoreReel, saveJob, staleWrite, touchJob, touchWorker, workerStatus } from "@/server/montage";
 import fs from "node:fs";
@@ -58,6 +59,7 @@ type Body = {
   post?: { caption?: unknown; slides?: unknown };
   brand?: unknown;
   plan?: unknown;
+  asset?: { result?: unknown };
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -240,6 +242,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const result = job.brand.mode === "charte" ? cleanCharteResult(b.brand) : cleanStrategyResult(b.brand);
     if (typeof result === "string") return NextResponse.json({ error: result }, { status: 400 });
     job.brand.result = result;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
+  }
+  if (b.status === "done" && job.kind === "asset" && job.asset) {
+    // The files were sent to /api/library just before; only the ids of items that exist are kept.
+    const ids = (Array.isArray(b.asset?.result) ? b.asset.result : []).filter((id): id is string => typeof id === "string" && !!findAsset(id)).slice(0, MAX_ASSET_COUNT * 2);
+    if (!ids.length) return NextResponse.json({ error: "Rien n'a été ajouté à la bibliothèque" }, { status: 400 });
+    job.asset.result = ids;
     return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "plan" && job.plan) {

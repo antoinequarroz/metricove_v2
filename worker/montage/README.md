@@ -79,6 +79,19 @@ Réglages (`config.json` → `reel`) : `review` (relecture en images, `true`), `
 
 Réglé sur trois vraies vidéos (intégration de novembre 2026, voir `docs/MONTAGE.md`, « Intégration ») : textes courts (accroche de 2 à 5 mots, texte de 2 à 8 mots, `sub` de 12 mots au plus et jamais sur deux temps forts de suite), un temps fort toutes les 3 s environ (2 à 4 s chacun), 1 ou 2 moments dès que la demande a des objets, des chiffres, des étapes ou un avant/après, tailles de texte plus grandes (`TYPE.sizes` de `vocab.mjs`), dérive de caméra plus marquée. Dans un temps fort « number », une unité courte qui suit le nombre (« 3 h », « 15 min », « 2 ans ») monte avec lui dans le grand chiffre, et Claude est prié d'ouvrir le texte par le nombre.
 
+## Illustrations et bruitages (worker 0.16.0)
+
+Médias → Ressources → Illustrations ou Bruitages → « Créer avec Claude » envoie une tâche `asset` au Mac :
+
+- **Illustrations** : Claude dessine des SVG aux couleurs du style choisi (fond transparent, sans texte). Un SVG qui
+  contient du script, une image ou un lien vers l'extérieur est écarté.
+- **Bruitages** : Claude décrit chaque son ; le Mac le fait faire par ElevenLabs (effets sonores) quand il trouve une clé,
+  sinon par une recette FFmpeg (whoosh, pop, click, thud, ding, riser, glitch, impact, typing ; sources synthétiques
+  seulement). Clé : variable `ELEVENLABS_API_KEY`, ou `"elevenlabsKeyFile"` dans config.json = un fichier qui contient
+  une ligne `ELEVENLABS_API_KEY=…` (par ex. le `.env` d'un autre projet). La clé n'est jamais affichée.
+
+Les fichiers arrivent dans la bibliothèque, rangés dans le style choisi.
+
 ## Disque
 
 `workDir` et `rushesDir` sont configurables. Le worker refuse de travailler sous `minFreeGb` Go libres et efface ses fichiers intermédiaires après chaque rendu. HyperFrames rend avec `--workers 1` (sinon il stocke toutes les images sur le disque).

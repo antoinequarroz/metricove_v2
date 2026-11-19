@@ -10,6 +10,7 @@ import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import { inputClass } from "../montage/look-parts";
 import { Button } from "../ui";
+import { AssetMaker } from "./asset-maker";
 import { ResourceShell } from "./shell";
 
 const TEXT = {
@@ -94,6 +95,7 @@ export function LibraryPage({ kind }: { kind: AssetKind }) {
         </>
       }
     >
+      <AssetMaker kind={kind} styles={styleOptions} styleRef={filter !== "all" && filter !== "none" ? filter : undefined} onDone={reload} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <label className="relative min-w-0 max-sm:w-full">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-3" />

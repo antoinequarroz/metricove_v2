@@ -23,6 +23,7 @@
   "brollCache": "~/Movies/Metricove/broll-cache",
   "brollCacheGb": 1,
   "pexelsKey": "",
+  "elevenlabsKeyFile": "",
   "deepFilter": "~/Movies/Metricove/outils/deep-filter",
   "silenceDb": -35,
   "hyperframes": "hyperframes@0.8.137",

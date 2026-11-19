@@ -1,4 +1,4 @@
-// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion / brand / plan (contrat docs/MONTAGE.md).
+// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion / brand / plan / asset (contrat docs/MONTAGE.md).
 // Un reel animé (kind "motion") a ses propres actions motion (création ou retouche par Claude) et preview (retouche à la main).
 import { existsSync, readdirSync, statSync, rmSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -20,6 +20,7 @@ import { cleanMotion, makeMotion, renderPlan } from "./motion.mjs";
 import { reviseMotion, writeReelMarks } from "./motion-revise.mjs";
 import { directMotion } from "./motion-direct.mjs";
 import { handleVideo, isVideoJob } from "./reel/index.mjs";
+import { makeAssets } from "./asset.mjs";
 
 /** Passages de reels vidéo commencés par ce processus (suffixe du dossier de travail). */
 let runs = 0;
@@ -89,6 +90,13 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       const plan = await planContent(cfg, job, step, dir);
       await api.patch(job.id, { status: "done", plan });
       log(`[${job.id.slice(0, 8)}] plan de contenu envoyé (${plan.items?.length ?? 0} post(s))`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (action === "asset") {
+      const result = await makeAssets(api, cfg, job, step, dir);
+      await api.patch(job.id, { status: "done", asset: { result } });
+      log(`[${job.id.slice(0, 8)}] ${result.length} ${job.asset?.kind === "sfx" ? "bruitage(s)" : "illustration(s)"} dans la bibliothèque`);
       rmSync(dir, { recursive: true, force: true });
       return;
     }

@@ -398,7 +398,27 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan" | "asset";
+
+/** Oldest Mac program that makes illustrations and sound effects (kind "asset"). */
+export const ASSET_WORKER = "0.16.0";
+export const MAX_ASSET_PROMPT = 600;
+export const MAX_ASSET_COUNT = 4;
+
+/** What Claude is asked to make for a library, and what it made. */
+export type AssetRequest = {
+  kind: "illustration" | "sfx";
+  /** What Antoine wants, e.g. "un robot tech", "un whoosh court". */
+  prompt: string;
+  count: number;
+  /** Styles the new items go to ("<projectId>:<styleId>"). */
+  styles: string[];
+  /** The colors of the style (illustrations are drawn with them) and its name. */
+  palette?: string[];
+  style?: string;
+  /** Ids of the library items made. */
+  result?: string[];
+};
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -493,7 +513,7 @@ export const VIDEO_BOARD = { chars: 800_000, bytes: 600 * 1024, frames: 12, tile
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan" | "asset";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -511,6 +531,8 @@ export type MontageJob = {
   brand?: BrandRequest;
   /** kind "plan": posts Claude proposes for a period from the strategy (worker 0.14.0). */
   plan?: PlanRequest;
+  /** kind "asset": illustrations or sound effects Claude makes for the libraries (worker 0.16.0). */
+  asset?: AssetRequest;
   /** What the Mac has to say about the finished video (a reel that fell back to the standard animations). */
   notes?: string;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
