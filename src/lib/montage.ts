@@ -649,6 +649,8 @@ export type MontageJob = {
   minWorker?: string;
   /** The Claude model the Mac uses for this job (`claude --model`); left out, the one of Réglages, else the Mac's. */
   model?: string;
+  /** How hard Claude thinks for this job (`claude --effort`, worker 0.20.0); left out, the one of Réglages. */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
   /** Video: the next "motion" action writes a new video from the request instead of retouching a version. */
   regen?: boolean;
   run?: JobRun;

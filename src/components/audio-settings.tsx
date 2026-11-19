@@ -3,7 +3,7 @@
 import { Check, Loader2, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { type AudioOverview, CLAUDE_MODELS, MUSIC_PROVIDERS, type MusicProvider, type Voice, VOICE_PROVIDERS, type VoiceProvider } from "@/lib/audio-ai";
+import { type AudioOverview, CLAUDE_EFFORTS, CLAUDE_MODELS, MUSIC_PROVIDERS, type MusicProvider, type Voice, VOICE_PROVIDERS, type VoiceProvider } from "@/lib/audio-ai";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui";
 
@@ -270,27 +270,43 @@ export function ModelSection({ delay = 0 }: { delay?: number }) {
       toast.error("Non enregistré", { description: (e as Error).message });
     }
   };
+  const saveEffort = async (claudeEffort: string) => {
+    try {
+      setData(await put({ claudeEffort }));
+      toast.success(claudeEffort ? `Puissance : ${CLAUDE_EFFORTS.find((x) => x.id === claudeEffort)?.label.toLowerCase()}` : "Puissance de Claude Code par défaut");
+    } catch (e) {
+      toast.error("Non enregistré", { description: (e as Error).message });
+    }
+  };
   const value = data?.claudeModel ?? "";
-  const options = [{ id: "", label: "Celui du Mac", detail: "Le modèle de config.json, sinon celui de Claude Code." }, ...CLAUDE_MODELS];
+  const effort = data?.claudeEffort ?? "";
+  const groups = [...new Set(CLAUDE_MODELS.map((m) => m.group))];
+  const card = (on: boolean) => cn("press flex flex-col items-start gap-0.5 rounded-lg px-3 py-2.5 text-left", on ? "bg-accent-soft/60 shadow-[inset_0_0_0_1px_var(--accent)]" : "hover:bg-ink/[0.03]");
   return (
     <section className="rise" style={{ animationDelay: `${delay}ms` }}>
       <h2 className="text-[15px] font-semibold">Modèle Claude des vidéos</h2>
-      <p className="mt-1.5 text-[13px] text-ink-3">Le modèle que ton Mac utilise pour le montage face cam et le Reel animé. Chaque vidéo peut en choisir un autre.</p>
+      <p className="mt-1.5 text-[13px] text-ink-3">Le modèle et la puissance que ton Mac utilise pour le montage face cam et le Reel animé. Chaque vidéo peut en choisir d&apos;autres.</p>
       <div className="mt-3 overflow-hidden rounded-xl border border-line bg-surface shadow-card">
-        <div className="grid gap-1 p-2 sm:grid-cols-2">
-          {options.map((m) => (
-            <button
-              key={m.id || "mac"}
-              type="button"
-              disabled={!data}
-              onClick={() => save(m.id)}
-              className={cn("press flex flex-col items-start gap-0.5 rounded-lg px-3 py-2.5 text-left", value === m.id ? "bg-accent-soft/60 shadow-[inset_0_0_0_1px_var(--accent)]" : "hover:bg-ink/[0.03]")}
-            >
-              <span className="text-[13.5px] font-medium">{m.label}</span>
-              <span className="text-[12px] text-ink-3">{m.detail}</span>
-            </button>
-          ))}
+        <div className="p-2">
+          <button type="button" disabled={!data} onClick={() => save("")} className={cn(card(value === ""), "w-full")}>
+            <span className="text-[13.5px] font-medium">Celui du Mac</span>
+            <span className="text-[12px] text-ink-3">Le modèle de config.json, sinon celui de Claude Code.</span>
+          </button>
         </div>
+        {groups.map((g) => (
+          <div key={g} className="border-t border-line p-2">
+            <p className="px-3 pt-1 pb-1.5 text-[11.5px] font-medium text-ink-3">{g}</p>
+            <div className="grid gap-1 sm:grid-cols-2">
+              {CLAUDE_MODELS.filter((m) => m.group === g).map((m) => (
+                <button key={m.id} type="button" disabled={!data} onClick={() => save(m.id)} className={card(value === m.id)}>
+                  <span className="text-[13.5px] font-medium">{m.label}</span>
+                  <span className="text-[12px] text-ink-3">{m.detail}</span>
+                  <span className="font-mono text-[11px] text-ink-3/80">{m.id}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -303,6 +319,17 @@ export function ModelSection({ delay = 0 }: { delay?: number }) {
             Utiliser
           </Button>
         </form>
+        <div className="border-t border-line p-2">
+          <p className="px-3 pt-1 pb-1.5 text-[11.5px] font-medium text-ink-3">Puissance (temps de réflexion de Claude)</p>
+          <div className="grid gap-1 sm:grid-cols-3">
+            {[{ id: "", label: "Par défaut", detail: "Celle de Claude Code." }, ...CLAUDE_EFFORTS].map((x) => (
+              <button key={x.id || "default"} type="button" disabled={!data} onClick={() => saveEffort(x.id)} className={card(effort === x.id)}>
+                <span className="text-[13.5px] font-medium">{x.label}</span>
+                <span className="text-[12px] text-ink-3">{x.detail}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );

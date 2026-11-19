@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cleanModel, GEN_TRACK, libTrackId } from "@/lib/audio-ai";
+import { type ClaudeEffort, cleanEffort, cleanModel, GEN_TRACK, libTrackId } from "@/lib/audio-ai";
 import { ASSET_WORKER, MAX_STYLE_REFS, STYLE_WORKER, type StyleTask, MAX_ASSET_COUNT, MAX_ASSET_PROMPT, MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, AUDIO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
@@ -33,6 +33,8 @@ type Body = {
   kind?: MontageJob["kind"];
   /** The Claude model of the job (montage, reel); left out, the one of Réglages. */
   model?: unknown;
+  /** The thinking effort of the job (`claude --effort`); left out, the one of Réglages. */
+  effort?: unknown;
   /** Video reel: the voice-over. */
   voice?: unknown;
   title?: string;
@@ -126,6 +128,7 @@ export async function POST(req: Request) {
     },
     script: clip(b.script, 10_000),
     ...(cleanModel(b.model) ? { model: cleanModel(b.model) } : {}),
+    ...(cleanEffort(b.effort) ? { effort: cleanEffort(b.effort) as ClaudeEffort } : {}),
     rushIds,
     versions: [],
     createdAt: now,
@@ -272,6 +275,7 @@ function motionJob(b: Body) {
     brief: { format: "9:16" },
     motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, ...(direction ? { direction } : {}), ...(pace ? { pace } : {}), project: project?.name },
     ...(cleanModel(b.model) ? { model: cleanModel(b.model) } : {}),
+    ...(cleanEffort(b.effort) ? { effort: cleanEffort(b.effort) as ClaudeEffort } : {}),
     rushIds: [],
     versions: [],
     createdAt: now,
@@ -334,6 +338,7 @@ function videoJob(b: Body) {
     },
     minWorker: needsAudio ? AUDIO_WORKER : VIDEO_WORKER,
     ...(cleanModel(b.model) ? { model: cleanModel(b.model) } : {}),
+    ...(cleanEffort(b.effort) ? { effort: cleanEffort(b.effort) as ClaudeEffort } : {}),
     rushIds: [],
     versions: [],
     createdAt: now,

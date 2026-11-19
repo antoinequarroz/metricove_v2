@@ -17,7 +17,7 @@ import { TextGhost, TextPanel } from "./free-texts";
 import { Toggle } from "./look-parts";
 import { MusicFields } from "./music-fields";
 import { useAudioSettings } from "../resources/music-maker";
-import { ModelSelect } from "./audio-fields";
+import { ClaudeSelects } from "./audio-fields";
 import { fmtSec, JobStatus, WorkerBanner } from "./parts";
 import { Clamp, CompactRun, nb } from "./reel-progress";
 import { ReelTimeline } from "./reel-timeline";
@@ -206,6 +206,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
 
   // The Claude model of the next requests (the job's, else the one of Réglages).
   const [model, setModel] = useState(job.model ?? "");
+  const [effort, setEffort] = useState(job.effort ?? "");
   const audioSettings = useAudioSettings();
   const call = async (body: object, ok: string, ask?: ReelAsk) => {
     setBusy(true);
@@ -240,7 +241,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
   const revise = async () => {
     if (!version) return;
     const what = range ? `Demande envoyée à Claude pour le passage ${fmtT(range[0])} – ${fmtT(range[1])}` : filled.length ? `Demande et ${filled.length} note${filled.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude";
-    if (await call({ revise: feedback, marks: filled.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n, model }, what, "retouch")) {
+    if (await call({ revise: feedback, marks: filled.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n, model, effort }, what, "retouch")) {
       setFeedback("");
       setMarks([]);
       setRange(null);
@@ -255,7 +256,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
       setMarks([]);
     }
   };
-  const regenerate = () => call({ regenerate: true, model }, "Nouvelle version demandée : Claude repart de ta demande", "regen");
+  const regenerate = () => call({ regenerate: true, model, effort }, "Nouvelle version demandée : Claude repart de ta demande", "regen");
   const stop = () => {
     if (!confirm("Arrêter cette génération ? La version d'avant reste.")) return;
     call({ stop: true }, "Génération arrêtée");
@@ -715,8 +716,8 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60 disabled:opacity-60"
                     />
                     <label className="mt-2 flex min-w-0 items-center gap-2 text-[12px] text-ink-2">
-                      <span className="shrink-0">Modèle Claude</span>
-                      <ModelSelect value={model} onChange={setModel} audio={audioSettings} className="flex-1" />
+                      <span className="shrink-0">Claude</span>
+                      <ClaudeSelects model={model} effort={effort} onModel={setModel} onEffort={setEffort} audio={audioSettings} className="flex-1" />
                     </label>
                     <div className="mt-2 flex items-center gap-2">
                       <span className="min-w-0 flex-1 text-[11.5px] text-ink-3">

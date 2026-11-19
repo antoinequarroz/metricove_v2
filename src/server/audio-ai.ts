@@ -4,6 +4,7 @@ import "server-only";
 import {
   type AudioOverview,
   type AudioPrefs,
+  cleanEffort,
   cleanModel,
   DEFAULT_AUDIO_PREFS,
   GOOGLE_VOICES,
@@ -38,6 +39,7 @@ export function audioPrefs(): AudioPrefs {
     ...(typeof p.voiceName === "string" && p.voiceName ? { voiceName: p.voiceName.slice(0, 100) } : {}),
     musicProvider: MUSIC_PROVIDERS.some((m) => m.id === p.musicProvider) ? p.musicProvider! : DEFAULT_AUDIO_PREFS.musicProvider,
     claudeModel: cleanModel(p.claudeModel),
+    claudeEffort: cleanEffort(p.claudeEffort),
   };
 }
 
@@ -79,6 +81,11 @@ export function setAudioPrefs(raw: Record<string, unknown>): AudioPrefs | string
     const m = cleanModel(raw.claudeModel);
     if (raw.claudeModel && !m) return "Nom de modèle invalide (par exemple opus, sonnet ou claude-opus-5-5)";
     next.claudeModel = m;
+  }
+  if (raw.claudeEffort !== undefined) {
+    const e = cleanEffort(raw.claudeEffort);
+    if (raw.claudeEffort && !e) return "Puissance inconnue";
+    next.claudeEffort = e;
   }
   setSetting(PREFS, next);
   return next;

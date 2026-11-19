@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { type AudioOverview, CLAUDE_MODELS, GEN_TRACK, libTrack, libTrackId, modelLabel, VOICE_PROVIDERS, type VoiceProvider } from "@/lib/audio-ai";
+import { type AudioOverview, CLAUDE_EFFORTS, CLAUDE_MODELS, effortLabel, GEN_TRACK, libTrack, libTrackId, modelLabel, VOICE_PROVIDERS, type VoiceProvider } from "@/lib/audio-ai";
 import { useLibrary } from "@/lib/use-library";
 import { cn } from "@/lib/utils";
 import { useVoices, VoicePicker } from "../audio-settings";
@@ -73,16 +73,61 @@ export function TrackSelect({
 /** The Claude model of one video: "" = the one of Réglages (or the Mac's). */
 export function ModelSelect({ value, onChange, audio, disabled, className }: { value: string; onChange: (model: string) => void; audio: AudioOverview | null; disabled?: boolean; className?: string }) {
   const known = CLAUDE_MODELS.some((m) => m.id === value);
+  const groups = [...new Set(CLAUDE_MODELS.map((m) => m.group))];
   return (
     <select aria-label="Modèle Claude" value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={cn(selectClass, className)}>
       <option value="">Par défaut ({audio?.claudeModel ? modelLabel(audio.claudeModel) : "celui du Mac"})</option>
-      {CLAUDE_MODELS.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.label}
-        </option>
+      {groups.map((g) => (
+        <optgroup key={g} label={g}>
+          {CLAUDE_MODELS.filter((m) => m.group === g).map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </optgroup>
       ))}
       {value && !known && <option value={value}>{value}</option>}
     </select>
+  );
+}
+
+/** The thinking effort of one video (`claude --effort`): "" = the one of Réglages (or Claude Code's). */
+export function EffortSelect({ value, onChange, audio, disabled, className }: { value: string; onChange: (effort: string) => void; audio: AudioOverview | null; disabled?: boolean; className?: string }) {
+  return (
+    <select aria-label="Puissance de Claude" value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={cn(selectClass, className)}>
+      <option value="">Puissance par défaut ({effortLabel(audio?.claudeEffort)?.toLowerCase() ?? "celle de Claude Code"})</option>
+      {CLAUDE_EFFORTS.map((e) => (
+        <option key={e.id} value={e.id}>
+          Puissance {e.label.toLowerCase()}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Model and effort side by side (they wrap on a narrow column). */
+export function ClaudeSelects({
+  model,
+  effort,
+  onModel,
+  onEffort,
+  audio,
+  disabled,
+  className,
+}: {
+  model: string;
+  effort: string;
+  onModel: (model: string) => void;
+  onEffort: (effort: string) => void;
+  audio: AudioOverview | null;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <span className={cn("flex min-w-0 flex-wrap gap-2", className)}>
+      <ModelSelect value={model} onChange={onModel} audio={audio} disabled={disabled} className="min-w-0 flex-1 basis-40" />
+      <EffortSelect value={effort} onChange={onEffort} audio={audio} disabled={disabled} className="min-w-0 flex-1 basis-40" />
+    </span>
   );
 }
 

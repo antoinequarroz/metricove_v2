@@ -11,9 +11,9 @@ import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
-import { CLAUDE_MODELS, cleanModel, GEN_TRACK } from "@/lib/audio-ai";
+import { CLAUDE_EFFORTS, CLAUDE_MODELS, cleanEffort, cleanModel, GEN_TRACK } from "@/lib/audio-ai";
 import { useAudioSettings } from "../resources/music-maker";
-import { ModelSelect, TrackSelect, type VoiceChoice, VoiceOverFields, voiceOfChoice } from "./audio-fields";
+import { ClaudeSelects, TrackSelect, type VoiceChoice, VoiceOverFields, voiceOfChoice } from "./audio-fields";
 import { Switch } from "./controls";
 import { captureFrame, putCover } from "./cover-capture";
 import { inputClass, LookControls } from "./look-parts";
@@ -40,13 +40,15 @@ type Draft = {
   voice: VoiceChoice;
   /** The Claude model of this video ("" = the one of Réglages). */
   model: string;
+  /** The thinking effort of this video ("" = the one of Réglages). */
+  effort: string;
 };
 /** What the Studio keeps between visits: the draft (and the look adjusted for it), and the video it follows. */
 type Stored = { draft: Draft & { look?: Look; logo?: boolean; profileId?: string; autoProject?: string }; jobId?: string | null };
 
 const KEY = "metricove-reel-video-v1";
 const DAY = 24 * 3600_000;
-const EMPTY: Draft = { request: "", source: "idea", seconds: null, pace: null, music: true, track: "", direction: "", voice: { on: false }, model: "" };
+const EMPTY: Draft = { request: "", source: "idea", seconds: null, pace: null, music: true, track: "", direction: "", voice: { on: false }, model: "", effort: "" };
 const STARTER_LOOK: Look = PRESETS[0].look;
 /** The old editor of reels made of scenes, kept for a Mac that cannot make videos yet. */
 const LEGACY = "/videos/studio/anime?editeur=scenes";
@@ -99,6 +101,7 @@ function cleanDraft(d: Partial<Draft> | undefined): Draft {
     direction: typeof d?.direction === "string" ? d.direction.slice(0, MAX_DIRECTION) : "",
     voice: d?.voice && typeof d.voice === "object" ? { on: d.voice.on === true, ...(d.voice.provider === "elevenlabs" || d.voice.provider === "google" ? { provider: d.voice.provider } : {}), ...(typeof d.voice.voiceId === "string" ? { voiceId: d.voice.voiceId.slice(0, 100) } : {}), ...(typeof d.voice.name === "string" ? { name: d.voice.name.slice(0, 100) } : {}) } : { on: false },
     model: cleanModel(d?.model),
+    effort: cleanEffort(d?.effort),
   };
 }
 
@@ -378,6 +381,7 @@ export function ReelStudio() {
           track: draft.music && draft.track ? draft.track : undefined,
           voice: voiceOfChoice(draft.voice, audio),
           model: draft.model || undefined,
+          effort: draft.effort || undefined,
           // Whether a logo shows; the image itself is the one of the project's profile, which the Mac gets.
           logo: !!look.logo,
           look: { ...lookOf(look), logo: undefined },
@@ -410,7 +414,7 @@ export function ReelStudio() {
     const m = j.motion;
     if (!m?.request) return null;
     const before = draftNow.current;
-    setDraft(cleanDraft({ request: m.request, source: m.source, seconds: m.seconds ?? null, pace: m.pace ?? null, direction: m.direction ?? "", music: m.music, track: m.track ?? "", voice: m.voice ? { on: true, ...m.voice } : { on: false }, model: j.model ?? "" }));
+    setDraft(cleanDraft({ request: m.request, source: m.source, seconds: m.seconds ?? null, pace: m.pace ?? null, direction: m.direction ?? "", music: m.music, track: m.track ?? "", voice: m.voice ? { on: true, ...m.voice } : { on: false }, model: j.model ?? "", effort: j.effort ?? "" }));
     return before.request.trim() && before.request.trim() !== m.request.trim() ? before : null;
   };
   const draftBack = (before: Draft | null) => (before ? { action: { label: "Reprendre mon brouillon", onClick: () => setDraft(before) } } : {});
@@ -645,8 +649,12 @@ export function ReelStudio() {
                         <VoiceOverFields value={draft.voice} onChange={(voice) => patch({ voice })} audio={audio} />
                       </div>
                     </Setting>
-                    <Setting label="Modèle Claude" className="@min-[520px]:col-span-2" hint={draft.model ? CLAUDE_MODELS.find((m) => m.id === draft.model)?.detail : "Celui choisi dans Réglages"}>
-                      <ModelSelect value={draft.model} onChange={(model) => patch({ model })} audio={audio} className="w-full" />
+                    <Setting
+                      label="Modèle et puissance de Claude"
+                      className="@min-[520px]:col-span-2"
+                      hint={[draft.model ? CLAUDE_MODELS.find((m) => m.id === draft.model)?.detail : "", draft.effort ? CLAUDE_EFFORTS.find((e) => e.id === draft.effort)?.detail : ""].filter(Boolean).join(" ") || "Ceux choisis dans Réglages"}
+                    >
+                      <ClaudeSelects model={draft.model} effort={draft.effort} onModel={(model) => patch({ model })} onEffort={(effort) => patch({ effort })} audio={audio} className="w-full" />
                     </Setting>
                   </div>
 

@@ -50,7 +50,9 @@ export async function POST(req: Request) {
   const assets = (styled || claimed.kind === "motion") && claimed.projectId ? assetsFor(claimed.projectId, claimed.styleId) : undefined;
   // The Claude model: the job's own, else the one of Réglages (worker 0.19.0 passes it to `claude --model`).
   const model = claimed.model || audioPrefs().claudeModel || undefined;
-  const job = { ...claimed, ...(model ? { model } : {}), ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
+  // The thinking effort the same way (worker 0.20.0 passes it to `claude --effort`; older ones ignore it).
+  const effort = claimed.effort || audioPrefs().claudeEffort || undefined;
+  const job = { ...claimed, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

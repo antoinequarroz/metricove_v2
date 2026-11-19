@@ -15,7 +15,7 @@ import { Segmented } from "./controls";
 import { TextGhost, TextPanel } from "./free-texts";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { useAudioSettings } from "../resources/music-maker";
-import { ModelSelect } from "./audio-fields";
+import { ClaudeSelects } from "./audio-fields";
 import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
@@ -222,6 +222,7 @@ function Review({
 
   // The Claude model of the next requests (the job's, else the one of Réglages).
   const [model, setModel] = useState(job.model ?? "");
+  const [effort, setEffort] = useState(job.effort ?? "");
   const audioSettings = useAudioSettings();
   const call = async (body: object, ok: string) => {
     setBusy(true);
@@ -251,7 +252,7 @@ function Review({
   };
   /** A new version that handles the open review notes (and a few more words). */
   const revise = async (ids: string[], extra: string) => {
-    const ok = await call({ revise: extra, notes: ids, model }, ids.length ? `${ids.length} retour${ids.length > 1 ? "s" : ""} envoyé${ids.length > 1 ? "s" : ""} à Claude` : "Demande envoyée à Claude");
+    const ok = await call({ revise: extra, notes: ids, model, effort }, ids.length ? `${ids.length} retour${ids.length > 1 ? "s" : ""} envoyé${ids.length > 1 ? "s" : ""} à Claude` : "Demande envoyée à Claude");
     if (ok) void notes.reload();
     return ok;
   };
@@ -422,7 +423,7 @@ function Review({
           <span className="min-w-0 flex-1 text-pretty">
             <span className="font-medium text-danger">Le montage a échoué.</span> {job.error}
           </span>
-          <Button size="sm" onClick={() => call({ revise: job.feedback ?? "", model }, "Nouvel essai demandé")}>
+          <Button size="sm" onClick={() => call({ revise: job.feedback ?? "", model, effort }, "Nouvel essai demandé")}>
             <RotateCcw className="size-3.5" /> Réessayer
           </Button>
         </div>
@@ -638,8 +639,8 @@ function Review({
                     )}
                     {view === "claude" && job.status === "review" && (
                       <label className="flex min-w-0 items-center gap-2 text-[12px] text-ink-2">
-                        <span className="shrink-0">Modèle Claude</span>
-                        <ModelSelect value={model} onChange={setModel} audio={audioSettings} className="flex-1" />
+                        <span className="shrink-0">Claude</span>
+                        <ClaudeSelects model={model} effort={effort} onModel={setModel} onEffort={setEffort} audio={audioSettings} className="flex-1" />
                       </label>
                     )}
                     {view === "claude" && job.status === "review" && <StyleRules job={job} notes={notes.notes} />}

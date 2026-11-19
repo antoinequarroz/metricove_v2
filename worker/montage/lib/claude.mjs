@@ -60,13 +60,19 @@ const PROPOSAL_SCHEMA = {
   },
 };
 
-/** Le modèle choisi pour la tâche en cours (job.model, posé par withModel), sinon celui de config.json. */
+/** Le modèle et la puissance choisis pour la tâche en cours (job.model / job.effort, posés par withModel), sinon ceux de config.json. */
 const modelScope = new AsyncLocalStorage();
 const MODEL_OK = /^[a-z][a-z0-9.\-]*(\[1m\])?$/i;
-/** Lance `fn` avec le modèle Claude de la tâche (`claude --model`) : tous les appels faits dedans l'utilisent. */
-export const withModel = (model, fn) => modelScope.run(typeof model === "string" && MODEL_OK.test(model) && model.length <= 60 ? model : "", fn);
-export const modelOf = (cfg) => modelScope.getStore() || cfg.claude.model || "";
-const modelArgs = (cfg) => (modelOf(cfg) ? ["--model", modelOf(cfg)] : []);
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+/**
+ * Lance `fn` avec le modèle Claude de la tâche (`claude --model`) et sa puissance (`claude --effort`) : tous les
+ * appels faits dedans les utilisent.
+ */
+export const withModel = (model, fn, effort) =>
+  modelScope.run({ model: typeof model === "string" && MODEL_OK.test(model) && model.length <= 60 ? model : "", effort: EFFORTS.includes(effort) ? effort : "" }, fn);
+export const modelOf = (cfg) => modelScope.getStore()?.model || cfg.claude.model || "";
+export const effortOf = (cfg) => modelScope.getStore()?.effort || (EFFORTS.includes(cfg.claude.effort) ? cfg.claude.effort : "");
+const modelArgs = (cfg) => [...(modelOf(cfg) ? ["--model", modelOf(cfg)] : []), ...(effortOf(cfg) ? ["--effort", effortOf(cfg)] : [])];
 
 export async function ask(cfg, prompt, schema, cwd) {
   const args = ["-p", "--output-format", "json", "--disallowedTools", "Bash", "Edit", "Write", "WebFetch", "WebSearch", "NotebookEdit"];

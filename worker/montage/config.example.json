@@ -16,7 +16,8 @@
   },
   "claude": {
     "bin": "~/.local/bin/claude",
-    "model": ""
+    "model": "",
+    "effort": ""
   },
   "musicDir": "~/Movies/Metricove/musique",
   "brollDir": "~/Movies/Metricove/broll",

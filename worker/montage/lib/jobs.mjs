@@ -49,10 +49,11 @@ export function sweepRuns(cfg) {
   return n;
 }
 
-/** Une tâche, avec le modèle Claude qu'elle demande (job.model, posé par Metricove depuis la vidéo ou Réglages). */
+/** Une tâche, avec le modèle Claude et la puissance qu'elle demande (job.model, posé par Metricove depuis la vidéo ou Réglages). */
 export async function handle(api, cfg, claimed) {
-  if (claimed?.job?.model) log(`[${claimed.job.id.slice(0, 8)}] modèle Claude : ${claimed.job.model}`);
-  return withModel(claimed?.job?.model, () => handleJob(api, cfg, claimed));
+  const j = claimed?.job;
+  if (j?.model || j?.effort) log(`[${j.id.slice(0, 8)}] Claude : ${[j.model && `modèle ${j.model}`, j.effort && `puissance ${j.effort}`].filter(Boolean).join(", ")}`);
+  return withModel(j?.model, () => handleJob(api, cfg, claimed), j?.effort);
 }
 
 async function handleJob(api, cfg, { job, action, rushes = [], media }) {

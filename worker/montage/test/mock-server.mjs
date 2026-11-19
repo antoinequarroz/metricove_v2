@@ -226,7 +226,7 @@ function videoMock({ atLeast, from: gateFrom }) {
     minWorker: "0.15.0", rushIds: [], versions: [], createdAt: iso, updatedAt: iso,
   };
   // VOICE_OVER=1 (worker 0.19.0) : voix off, musique composée pour la vidéo et modèle Claude choisi.
-  if (E.VOICE_OVER) job = { ...job, minWorker: "0.19.0", model: "sonnet", motion: { ...job.motion, voice: { provider: "elevenlabs", voiceId: "testvoice01" }, track: "gen" } };
+  if (E.VOICE_OVER) job = { ...job, minWorker: "0.19.0", model: "claude-opus-5-5[1m]", effort: "high", motion: { ...job.motion, voice: { provider: "elevenlabs", voiceId: "testvoice01" }, track: "gen" } };
   const audioCalls = { tts: 0, music: 0 };
   const library = new Map();
   /** Un son de test : une note de `seconds` (ffmpeg), en WAV. */
@@ -566,7 +566,7 @@ function fakeClaude(args) {
   // Voix off et musique composée (worker 0.19.0) : les champs que le schéma demande.
   if (/"say"/.test(schema) && Array.isArray(answer.beats)) answer = { ...answer, beats: answer.beats.map((b, i) => ({ ...b, say: b.say || `Phrase dite numéro ${i + 1}, assez longue pour tenir plusieurs secondes à voix haute.` })) };
   if (/"music"/.test(schema) && !/"ok"/.test(schema)) answer = { ...answer, music: "Warm lo-fi beat, 90 BPM, soft piano, no vocals." };
-  if (process.env.CLAUDE_SPY_LOG) { const i = args.indexOf("--model"); appendFileSync(`${process.env.CLAUDE_SPY_LOG}.model`, `${i >= 0 ? args[i + 1] : "(aucun)"}\n`); }
+  if (process.env.CLAUDE_SPY_LOG) { const i = args.indexOf("--model"); const k = args.indexOf("--effort"); appendFileSync(`${process.env.CLAUDE_SPY_LOG}.model`, `${i >= 0 ? args[i + 1] : "(aucun)"} ${k >= 0 ? args[k + 1] : "(aucune)"}\n`); }
   const emit = (o) => process.stdout.write(JSON.stringify(o) + "\n");
   emit({ type: "system", subtype: "init" });
   if (process.env.CLAUDE_FAKE === "bad") { emit({ type: "result", subtype: "success", is_error: false, result: "pas de json ici" }); return; }
