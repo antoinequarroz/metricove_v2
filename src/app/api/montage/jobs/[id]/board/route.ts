@@ -6,7 +6,7 @@ import { boardFile, getJob, saveBoard, saveJob, staleWrite, touchJob, touchWorke
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * The storyboard of a video reel (worker 0.14.0), sent by the Mac before it renders: { image: "data:image/jpeg;base64,…",
+ * The storyboard of a video reel (worker 0.15.0), sent by the Mac before it renders: { image: "data:image/jpeg;base64,…",
  * frames: [{ id, t }], run? }, one tile per beat at the instant it is settled. The Studio shows it while the video renders.
  * `run` (optional): the `run.startedAt` of the Mac's claim.
  */

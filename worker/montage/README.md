@@ -47,7 +47,7 @@ node montage.mjs --dry-run  # travaille mais n'envoie rien à Metricove
 
 Autres réglages : `brollDir`, `brollCache`, `brollCacheGb`, `pexelsKey`, `musicDir`, `deepFilter` (chemin du binaire), `silenceDb` (seuil de silence, −35 dB), `whisper.dtw` (préréglage DTW du modèle, vide pour le couper), `whisper.dtwShift` (avance des débuts de mots, 0,15 s).
 
-## Reel vidéo (worker 0.14.0)
+## Reel vidéo (worker 0.15.0)
 
 Un reel animé demandé en mode vidéo (« Reel animé » du Studio) n'est plus une suite de scènes : c'est **un seul plan continu** de 15 à 60 s. Claude écrit la **partition** (temps forts : texte, mise en page, liaison avec le précédent, état de la forme de marque, caméra) et, si la demande appelle un visuel précis, au plus 3 **moments** (petites animations HyperFrames sur mesure, posées dans une zone fixe). Le moteur Plateau du Mac (`lib/reel/stage.mjs`) met le tout en scène : typographie, zone sûre, couleurs du projet, déterminisme.
 

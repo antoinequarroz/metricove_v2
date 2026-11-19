@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const version = typeof b.version === "string" ? b.version.slice(0, 20) : undefined;
   // The files of the Mac's music folder (worker 0.10.0), so that the page can offer them by name.
   const tracks = Array.isArray(b.tracks) ? b.tracks.filter((t): t is string => typeof t === "string" && t.length > 0 && t.length <= 200).slice(0, 200) : undefined;
-  // The Mac only asks for work between two jobs: it is no longer busy. `speed` (worker 0.14.0): what it learned of its
+  // The Mac only asks for work between two jobs: it is no longer busy. `speed` (worker 0.15.0): what it learned of its
   // own speed, for « prête dans environ 5 min ».
   workerSeen({ worker: typeof b.worker === "string" ? b.worker.slice(0, 40) : undefined, version, tracks, speed: cleanSpeed(b.speed) }, { idle: true });
   // The files of the Mac B-roll folder with a small picture (worker 0.13.0), sent when the folder changes.

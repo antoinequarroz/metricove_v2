@@ -13,7 +13,7 @@ export async function GET(req: Request, { params }: Ctx) {
 
 /**
  * The worker sends the preview of a version edited by hand: { upload, broll? } (B-roll shots it found), or for a reel
- * { upload, reel, notes? }. A video reel also sends `run` (worker ≥ 0.14.0, optional): the `run.startedAt` of its claim.
+ * { upload, reel, notes? }. A video reel also sends `run` (worker ≥ 0.15.0, optional): the `run.startedAt` of its claim.
  */
 export async function POST(req: Request, { params }: Ctx) {
   const { id, n } = await params;

@@ -446,7 +446,7 @@ function check(outDir, { orchestrator = {} } = {}) {
     const r = (v) => claims.find((c) => (c.version ?? null) === v)?.result;
     ok(r(null) === 204, "faux serveur : réclamation sans version → 204 (la vidéo attend)");
     ok(r("0.13.0") === 204, "faux serveur : réclamation 0.13.0 → 204 tant que la vidéo est en file");
-    ok(r("0.14.0") === 200, "faux serveur : réclamation 0.14.0 → la vidéo");
+    ok(r("0.15.0") === 200, "faux serveur : réclamation 0.15.0 → la vidéo");
   }
 
   // Chrome hors ligne (JAMAIS retiré) : le worker a rendu par chrome-offline.sh, et chaque Chrome vu sous lui le portait.
@@ -566,9 +566,9 @@ async function orchestrate(args) {
   const orch = { scenario, fake: fake || false, minutes, startedAt: new Date().toISOString() };
 
   if (scenario === "old") {
-    // Un Mac trop ancien (ou qui ne dit pas sa version) ne reçoit jamais la vidéo ; un 0.14.0 la prend.
+    // Un Mac trop ancien (ou qui ne dit pas sa version) ne reçoit jamais la vidéo ; un 0.15.0 la prend.
     const claim = (version) => fetch(`http://localhost:${port}/api/montage/worker/claim`, { method: "POST", headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" }, body: JSON.stringify({ worker: "mac", ...(version ? { version } : {}) }) }).then((r) => r.status);
-    orch.claims = { none: await claim(), old: await claim("0.13.0"), new: await claim("0.14.0") };
+    orch.claims = { none: await claim(), old: await claim("0.13.0"), new: await claim("0.15.0") };
     mock.kill("SIGTERM");
     await sleep(500);
     return finishRun(out, orch);
@@ -754,6 +754,7 @@ async function serverRun(args) {
     if (!J?.id) throw new Error("création impossible");
     ok((await claim()).s === 204, "réclamation sans version → 204 (la vidéo attend)");
     ok((await claim("0.13.0")).s === 204, "réclamation 0.13.0 → 204");
+    ok((await claim("0.14.1")).s === 204, "réclamation 0.14.1 (stratégie et charte, sans la vidéo) → 204");
     ok((await claim("0.9.9")).s === 204, "réclamation 0.9.9 → 204 (versions comparées en nombres, pas en texte)");
     const c1 = await claim(VIDEO_WORKER);
     const R1 = c1.b?.job?.run?.startedAt;
@@ -908,7 +909,7 @@ async function serverRun(args) {
       ok(r.s === 200 && r.b?.job?.status === "review", "un reel à scènes garde withdraw", `${r.s}`);
     }
 
-    // F. Silence du Mac (--slow) : 45 s sur une vidéo d'un worker 0.14.0, 120 s sur ses autres chemins (battement 60 s).
+    // F. Silence du Mac (--slow) : 45 s sur une vidéo d'un worker 0.15.0, 120 s sur ses autres chemins (battement 60 s).
     if (slow) {
       const sj = await req("POST", "/api/montage/jobs", { kind: "script", title: "Contrôle check-video-run (présence)", brief: { instructions: "Contrôle de présence : job de test, supprimé à la fin." } });
       const S = sj.b?.job;
@@ -932,7 +933,7 @@ async function serverRun(args) {
       w = (await req("GET", "/api/montage")).b?.worker || {};
       ok(w.online && w.busy?.id === J.id, "vidéo, 60 s sans PATCH ni réclamation : toujours en ligne (occupé, 90 s au plus)", JSON.stringify(w));
       // « Arrêter » puis « Régénérer » avant que le Mac le voie : son rapport suivant est refusé (409, l'ordre de s'arrêter
-      // pour un worker 0.14.0), mais dit qu'il est là. Sans cela la carte en file lirait « Ton Mac est éteint ».
+      // pour un worker 0.15.0), mais dit qu'il est là. Sans cela la carte en file lirait « Ton Mac est éteint ».
       await patch(J.id, { stop: true });
       await patch(J.id, { regenerate: true });
       w = (await req("GET", "/api/montage")).b?.worker || {};

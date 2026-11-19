@@ -167,7 +167,7 @@ Réponds uniquement avec le JSON demandé.`;
   return ask(cfg, prompt, BROLL_SCHEMA, cwd);
 }
 
-// ─── Reel vidéo : appels en flux, outils restreints, délais (worker 0.14.0) ─────────────────────────────────────────
+// ─── Reel vidéo : appels en flux, outils restreints, délais (worker 0.15.0) ─────────────────────────────────────────
 
 /** Drapeaux lus par `claude --help`, par binaire : { f, until } (une lecture réussie vaut pour tout le processus). */
 const flagsCache = new Map();

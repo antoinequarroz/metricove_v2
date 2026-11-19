@@ -43,7 +43,7 @@ export function useProfiles() {
     return () => void listeners.delete(setProfiles);
   }, [reload]);
 
-  const save = useCallback(async (projectId: string, change: { look?: Look; tone?: string; skill?: string; preset?: string; refs?: { examples?: { id: string; text: string }[]; ideas?: { id: string; text: string }[] } }) => {
+  const save = useCallback(async (projectId: string, change: { look?: Look; tone?: string; skill?: string; strategy?: string; strategySource?: string; preset?: string; refs?: { examples?: { id: string; text: string }[]; ideas?: { id: string; text: string }[] } }) => {
     const { profile } = await call<{ profile: StyleProfile }>(`/api/profiles/${projectId}`, { method: "PUT", body: JSON.stringify(change) });
     publish({ ...(cache ?? {}), [projectId]: profile });
     return profile;

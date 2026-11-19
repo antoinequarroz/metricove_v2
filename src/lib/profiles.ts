@@ -40,6 +40,10 @@ export type StyleProfile = {
   tone: string;
   /** Folder of a skill on the Mac (holding a SKILL.md) that Claude reads before writing. Empty for none. */
   skill: string;
+  /** The digital strategy of the project (audience, pillars, rhythm, goals): Claude plans and writes from it. Empty for none. */
+  strategy: string;
+  /** Name of the document the strategy was read from, when it came from one. */
+  strategySource?: string;
   /** What Claude imitates and draws from: model posts, inspiration images, ideas. */
   refs: ProfileRefs;
   /** True once Antoine chose the look himself (it differs from the starter style): only then it dresses the videos. */
@@ -159,7 +163,7 @@ export function presetFor(projectName: string): PresetId {
 
 export const starterProfile = (preset: PresetId, handle = ""): StyleProfile => {
   const p = presetOf(preset);
-  return { preset: p.id, look: { ...p.look, handle }, tone: p.tone, skill: "", refs: emptyRefs(), saved: false };
+  return { preset: p.id, look: { ...p.look, handle }, tone: p.tone, skill: "", strategy: "", refs: emptyRefs(), saved: false };
 };
 
 const LOOK_KEYS = ["theme", "accent", "font", "grid", "pill", "align", "valign", "grain", "numbers", "handle", "logo"] as const;

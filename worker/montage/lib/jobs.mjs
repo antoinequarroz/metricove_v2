@@ -1,4 +1,4 @@
-// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion (contrat docs/MONTAGE.md).
+// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion / brand / plan (contrat docs/MONTAGE.md).
 // Un reel animé (kind "motion") a ses propres actions motion (création ou retouche par Claude) et preview (retouche à la main).
 import { existsSync, readdirSync, statSync, rmSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -14,6 +14,8 @@ import { writeCaption } from "./caption.mjs";
 import { makeCover } from "./cover.mjs";
 import { withFont } from "./fonts.mjs";
 import { writePost } from "./post.mjs";
+import { readBrand } from "./brand.mjs";
+import { planContent } from "./plan.mjs";
 import { cleanMotion, makeMotion, renderPlan } from "./motion.mjs";
 import { reviseMotion, writeReelMarks } from "./motion-revise.mjs";
 import { directMotion } from "./motion-direct.mjs";
@@ -76,8 +78,22 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       rmSync(dir, { recursive: true, force: true });
       return;
     }
+    if (action === "brand") {
+      const brand = await readBrand(api, cfg, job, step);
+      await api.patch(job.id, { status: "done", brand });
+      log(`[${job.id.slice(0, 8)}] ${job.brand?.mode === "charte" ? "charte" : "stratégie"} lue et envoyée`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (action === "plan") {
+      const plan = await planContent(cfg, job, step, dir);
+      await api.patch(job.id, { status: "done", plan });
+      log(`[${job.id.slice(0, 8)}] plan de contenu envoyé (${plan.items?.length ?? 0} post(s))`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
     if (video) {
-      // Reel vidéo continu (worker 0.14.0) : sa propre progression (battement de 15 s) remplace celui de 60 s.
+      // Reel vidéo continu (worker 0.15.0) : sa propre progression (battement de 15 s) remplace celui de 60 s.
       clearInterval(beat);
       assertSpace(cfg);
       await handleVideo(api, cfg, job, action, dir);

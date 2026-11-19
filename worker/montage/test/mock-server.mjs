@@ -9,7 +9,7 @@
 //   EDIT='{"audio":{…},"captions":{…},"exports":["1:1"]}'  après la 1re version, une version « edit » avec ces réglages (action preview)
 //   MARK=/chemin/image.jpg  ensuite, une demande de nouvelle version avec une note dessinée (action propose)
 //
-// MOCK=video : le reel vidéo continu (worker 0.14.0), voir videoMock() plus bas et docs/MONTAGE.md.
+// MOCK=video : le reel vidéo continu (worker 0.15.0), voir videoMock() plus bas et docs/MONTAGE.md.
 //   MOCK=video [REQUEST=…] [SECONDS=20] node test/mock-server.mjs /tmp/mc/mock 3999
 // `node test/mock-server.mjs --fake-claude …` : faux `claude` (appelé par claude-spy.sh quand CLAUDE_FAKE est posé).
 import { createServer } from "node:http";
@@ -144,7 +144,7 @@ if (MODE === "montage") createServer(async (req, res) => {
 if (MODE === "video") videoMock(await versionGate());
 if (MODE === "fake-claude") fakeClaude(process.argv.slice(3));
 
-/* ---------- MOCK=video : reel vidéo continu (worker 0.14.0) ---------- */
+/* ---------- MOCK=video : reel vidéo continu (worker 0.15.0) ---------- */
 
 /**
  * La comparaison de versions de la porte : celle du site (src/lib/worker-version.ts, que Node ≥ 22.18 lit directement
@@ -222,7 +222,7 @@ function videoMock({ atLeast, from: gateFrom }) {
     id: `video-${scenario}-1`, kind: "motion", title: "Reel animé : " + REQUEST.split("\n")[0].slice(0, 60), projectId: "prj-test", status: "queued", action: "motion",
     brief: { format: "9:16", ...(SECONDS ? { seconds: SECONDS } : {}) },
     motion: { mode: "video", scenes: [], request: REQUEST, source: ["idea", "script", "post"].includes(E.SOURCE) ? E.SOURCE : "idea", ...(SECONDS ? { seconds: SECONDS } : {}), ...(["calm", "normal", "fast"].includes(E.PACE) ? { pace: E.PACE } : {}), music: true, logo: true, look: LOOK, project: "Test" },
-    minWorker: "0.14.0", rushIds: [], versions: [], createdAt: iso, updatedAt: iso,
+    minWorker: "0.15.0", rushIds: [], versions: [], createdAt: iso, updatedAt: iso,
   };
   if (scenario === "legacy") {
     job = { ...job, title: "Reel animé : Trois erreurs", minWorker: undefined, motion: { scenes: [{ title: "Trois erreurs", body: "qui font décrocher sur un reel" }, { title: "Abonne-toi", body: "pour la suite" }], look: LOOK, logo: false, music: true, project: "Test" } };
@@ -262,7 +262,7 @@ function videoMock({ atLeast, from: gateFrom }) {
   // Comme staleWrite du vrai serveur : une écriture d'un passage terminé (run différent ; sans run, une vidéo sans
   // action ou de nouveau en file) est refusée en 409 et rien n'est enregistré.
   const stale = (d) => (typeof d.run === "string" && d.run ? d.run !== job.run?.startedAt : !!job.minWorker && (!job.action || job.status === "queued"));
-  /** Le passage d'une écriture : celui de son `run` (worker 0.14.0), sinon le dernier réclamé. */
+  /** Le passage d'une écriture : celui de son `run` (worker 0.15.0), sinon le dernier réclamé. */
   const runOf = (d) => (typeof d.run === "string" && state.runIds[d.run]) || state.runs;
   const STALE = { error: "Ce passage du Mac est terminé (arrêté, repris ou remplacé) : rien n'est enregistré" };
   const pageJob = (j) => ({ ...j, versions: j.versions.map((v) => (v.reel?.video ? { ...v, reel: { ...v.reel, video: { ...v.reel.video, moments: (v.reel.video.moments || []).map(({ code, ...m }) => ({ ...m, custom: !!code })) } } } : v)) });
@@ -365,7 +365,7 @@ function videoMock({ atLeast, from: gateFrom }) {
     }
     if (p === `/api/montage/jobs/${job.id}` && req.method === "GET") {
       if (state.deleted) return reply(404, { error: "Montage introuvable" });
-      return reply(200, { job: pageJob(job), worker: { online: true, version: "0.14.0", busy: job.action ? { id: job.id, title: job.title } : undefined }, now: Date.now() });
+      return reply(200, { job: pageJob(job), worker: { online: true, version: "0.15.0", busy: job.action ? { id: job.id, title: job.title } : undefined }, now: Date.now() });
     }
     if (p === `/api/montage/jobs/${job.id}` && req.method === "PATCH") {
       const d = json();

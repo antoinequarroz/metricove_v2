@@ -35,6 +35,13 @@ export function StudioPage() {
   const { data } = useMontage();
   const [script, setScript] = useState("");
   const [idea, setIdea] = useState("");
+  // An idea sent from the Stratégie page (?idee=…): it waits in the field for the teleprompter text.
+  useEffect(() => {
+    const sent = new URLSearchParams(window.location.search).get("idee")?.trim();
+    if (!sent) return;
+    setIdea(sent.slice(0, 2000));
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
   const [scriptJob, setScriptJob] = useState<string | null>(null);
   const lines = useMemo(() => sentences(script), [script]);
 

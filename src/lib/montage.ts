@@ -1,4 +1,5 @@
 import type { Look } from "./profiles";
+import type { BrandRequest, PlanRequest } from "./strategy";
 /** Shared types for AI video editing. The contract is in docs/MONTAGE.md. */
 
 export type MontageFormat = "9:16" | "4:5" | "1:1" | "16:9";
@@ -185,7 +186,7 @@ export type ReelPlan = {
   direction?: string;
   /** Length of the rendered video, in seconds. */
   duration?: number;
-  /** Continuous video reel (worker 0.14.0). With it, `scenes` is [] and `pace` is the rhythm of the whole video. */
+  /** Continuous video reel (worker 0.15.0). With it, `scenes` is [] and `pace` is the rhythm of the whole video. */
   video?: ReelVideo;
 };
 
@@ -206,10 +207,10 @@ export function reelTimeline(plan: ReelPlan, rendered = false) {
   });
 }
 
-/* ---------- Continuous video reel (worker 0.14.0, docs/MONTAGE.md « Reel vidéo continu ») ---------- */
+/* ---------- Continuous video reel (worker 0.15.0, docs/MONTAGE.md « Reel vidéo continu ») ---------- */
 
 /** Oldest Mac program that makes video reels: a video job carries it as `minWorker`, and only such a Mac can claim it. */
-export const VIDEO_WORKER = "0.14.0";
+export const VIDEO_WORKER = "0.15.0";
 /** Version of the Mac's stage engine (ReelVideo.engine). A plan made by a newer engine is refused, never guessed. */
 export const VIDEO_ENGINE = 1;
 // The lists stay one per line: worker/montage/test/reel-vocab.test.mjs reads them with a regex and compares them to lib/reel/vocab.mjs.
@@ -397,7 +398,7 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan";
 
 /** What the Mac needs to write a post description, and what it wrote. */
 export type CaptionRequest = {
@@ -443,7 +444,7 @@ export type MotionRequest = {
   /** Speed of the whole reel; left out, Claude chooses when there is a direction, else normal. */
   pace?: "calm" | "normal" | "fast";
   project?: string;
-  /** "video": a continuous video written by Claude from `request` (worker 0.14.0, `scenes` is []). Left out = "scenes" (legacy). */
+  /** "video": a continuous video written by Claude from `request` (worker 0.15.0, `scenes` is []). Left out = "scenes" (legacy). */
   mode?: "scenes" | "video";
   /** Video only: what Antoine asks (REEL_VIDEO.minRequest to REEL_VIDEO.request characters). */
   request?: string;
@@ -492,7 +493,7 @@ export const VIDEO_BOARD = { chars: 800_000, bytes: 600 * 1024, frames: 12, tile
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -506,6 +507,10 @@ export type MontageJob = {
   /** kind "post": a whole post written by Claude from an idea (slide texts and the description). */
   post?: PostRequest;
   motion?: MotionRequest;
+  /** kind "brand": a strategy or a charte that Claude reads for a project (worker 0.14.0). */
+  brand?: BrandRequest;
+  /** kind "plan": posts Claude proposes for a period from the strategy (worker 0.14.0). */
+  plan?: PlanRequest;
   /** What the Mac has to say about the finished video (a reel that fell back to the standard animations). */
   notes?: string;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */
@@ -520,7 +525,7 @@ export type MontageJob = {
   /** Face-cam edit: B-roll asked to Claude for one passage (timeline seconds) of the last version (action "broll", worker 0.13.0). */
   brollAsk?: { range: [number, number]; note?: string };
   /** Voice of the project (style profile): Claude writes with it. Copied when the job was made; refreshed for edits and covers when the Mac takes the job. */
-  voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[] };
+  voice?: { tone?: string; skill?: string; examples?: string[]; images?: string[]; strategy?: string };
   /** Colors and font of the project (style profile) for the video overlays: added when the Mac takes the job. */
   theme?: { accent: string; ink: string; dark?: string; text?: string; font?: string; googleFont?: string; fontStretch?: string };
   /** Subtitle style of the project, copied when the job was made. */

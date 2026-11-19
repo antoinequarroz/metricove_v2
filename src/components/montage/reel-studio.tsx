@@ -130,6 +130,7 @@ export function ReelStudio() {
   /** The video to follow is decided (from the address, this browser or the list): until then the one kept here stays kept. */
   const [settled, setSettled] = useState(false);
   const storedJob = useRef<string | null>(null);
+  const ideaSent = useRef(false);
   const logoOn = useRef(true);
   useEffect(() => {
     const s = readStored();
@@ -140,6 +141,14 @@ export function ReelStudio() {
       setAutoProject(typeof s.draft.autoProject === "string" ? s.draft.autoProject : undefined);
       logoOn.current = s.draft.logo !== false;
       storedJob.current = typeof s.jobId === "string" ? s.jobId : null;
+    }
+    // An idea sent from the Stratégie page (?idee=…): it waits in the field, nothing is asked yet, and the screen opens
+    // on the request rather than on the video kept here.
+    const sent = new URLSearchParams(window.location.search).get("idee")?.trim();
+    if (sent) {
+      setDraft((d) => ({ ...d, request: sent.slice(0, REEL_VIDEO.request), source: "idea" }));
+      ideaSent.current = true;
+      window.history.replaceState(null, "", window.location.pathname);
     }
     setRestored(true);
   }, []);
@@ -237,6 +246,7 @@ export function ReelStudio() {
   // nothing: the screen is at rest.
   useEffect(() => {
     if (arrived.current || !restored) return;
+    if (ideaSent.current) return follow(null);
     if (reel) return follow(reel);
     if (!data) return;
     const now = data.now ?? Date.now();

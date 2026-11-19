@@ -5,6 +5,7 @@ import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, JOB_PHASES, MAX_TEXTS, MUSIC_FADE, REE
 import { atLeast } from "@/lib/worker-version";
 import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db } from "./db";
+import { removeSources } from "./sources";
 
 /* ---------- Tables ---------- */
 
@@ -269,17 +270,20 @@ export function saveJob(job: MontageJob, claimed?: number | null) {
 }
 
 export function deleteJob(id: string) {
+  // The documents a reading request was made of go with it.
+  const job = getJob(id);
+  if (job?.brand && job.projectId) removeSources(job.projectId, job.brand.files.map((f) => f.id));
   init().prepare("delete from montage_jobs where id = ?").run(id);
   fs.rmSync(path.join(DATA_DIR, "montage", path.basename(id)), { recursive: true, force: true });
 }
 
 /** A claim without news for this long is given again (Mac asleep, crash). */
 const CLAIM_STALE = 15 * 60_000;
-/** Same for a video job held by a worker ≥ 0.14.0: it reports every 15 s, and workDir/worker.lock keeps it alone on its Mac. */
+/** Same for a video job held by a worker ≥ 0.15.0: it reports every 15 s, and workDir/worker.lock keeps it alone on its Mac. */
 const CLAIM_STALE_FAST = 90_000;
 
 /**
- * Does the worker that holds this job report every 15 s? Only a video job run by a worker ≥ 0.14.0 does (its own
+ * Does the worker that holds this job report every 15 s? Only a video job run by a worker ≥ 0.15.0 does (its own
  * progress heartbeat); every other path of that same worker (script, caption, post, cover, face-cam edit, reels of
  * scenes) and every older worker still report once a minute.
  */
@@ -288,7 +292,7 @@ const fastBeat = (job: MontageJob) => isVideoJob(job) && atLeast(job.run?.by, VI
 /**
  * Gives the oldest waiting job to the worker of version `version`, skipping the jobs it is too old for (`minWorker`;
  * a missing version counts as "0.0.0", so it gets no such job). A claim without news for 15 minutes is given again,
- * or for 90 s for a video job held by a worker ≥ 0.14.0 (fastBeat): a Mac that crashed in the middle of a video takes
+ * or for 90 s for a video job held by a worker ≥ 0.15.0 (fastBeat): a Mac that crashed in the middle of a video takes
  * it back as soon as it returns. `run` starts again: the worker that held the job sees `run.startedAt` change and stops.
  */
 export function claimJob(version?: string): MontageJob | undefined {
@@ -315,7 +319,7 @@ export function claimJob(version?: string): MontageJob | undefined {
 
 /**
  * A write from the worker that belongs to a run that is over: answered 409, nothing is stored. `run` is the
- * `run.startedAt` the worker got with its claim and sends back with each write (worker ≥ 0.14.0, optional): another
+ * `run.startedAt` the worker got with its claim and sends back with each write (worker ≥ 0.15.0, optional): another
  * value means the page stopped that run, or another claim took the job (`queue()` and `release()` clear `run`, a claim
  * sets a new one). Without it (older workers, or a worker that does not send it yet), only a video job (`video`) is
  * checked, by its state: it takes worker writes only while it is claimed, never with no action (stopped, cancelled,
@@ -323,7 +327,7 @@ export function claimJob(version?: string): MontageJob | undefined {
  * keep their old behaviour. Returns the French reason, or undefined when the write is the current run's.
  * A refused write still says the Mac is there: its presence is refreshed (its `busy` job is left as it is, and
  * workerStatus no longer counts it once it is not the Mac's), so that a request queued after a stop never reads « Mac
- * éteint » while the Mac drops the old run. A worker 0.14.0 takes the 409 as the order to stop.
+ * éteint » while the Mac drops the old run. A worker 0.15.0 takes the 409 as the order to stop.
  */
 export function staleWrite(job: MontageJob, run: unknown, video = isVideoJob(job)): string | undefined {
   let why: string | undefined;
@@ -413,7 +417,7 @@ export function reportRun(job: MontageJob, b: Record<string, unknown>) {
   job.run = run;
 }
 
-/* ---------- Storyboard of a video job (worker 0.14.0) ---------- */
+/* ---------- Storyboard of a video job (worker 0.15.0) ---------- */
 
 export const boardPath = (jobId: string) => path.join(dir("montage", path.basename(jobId)), "board.jpg");
 
@@ -538,7 +542,7 @@ export function macBroll(): { list: MacBroll[]; at?: string } {
   return { list: v.list, at: new Date(v.at).toISOString() };
 }
 
-/** Presence windows: seen recently, or busy and reporting (a busy Mac sends no claim; it reports every 15 s on a video job of a 0.14.0 worker, every 60 s otherwise). */
+/** Presence windows: seen recently, or busy and reporting (a busy Mac sends no claim; it reports every 15 s on a video job of a 0.15.0 worker, every 60 s otherwise). */
 const SEEN_MS = 30_000;
 const BUSY_MS = 90_000;
 const SILENT_MS = 45_000;
@@ -790,7 +794,7 @@ function cleanCode(raw: unknown): ReelCode | undefined {
 
 const PACES = ["calm", "normal", "fast"] as const;
 
-/* ---------- Continuous video reel (worker 0.14.0): the `video` of a plan ---------- */
+/* ---------- Continuous video reel (worker 0.15.0): the `video` of a plan ---------- */
 
 const pick = <T extends string>(v: unknown, among: readonly T[], fallback: T): T => (among.includes(v as T) ? (v as T) : fallback);
 /** Free text that may keep its line breaks (request, direction, caption). */
@@ -952,7 +956,7 @@ export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
  * The plan of a reel version. From the Mac (`base` left out): taken as it is, code included.
  * From the page: the code never travels through the browser, so each scene takes the code of the scene with the same id
  * in `base` when the page still marks it `custom`. A whole custom scene whose text changed loses its code (the text is in it).
- * A video plan (`video`, worker 0.14.0) has no scenes: its `video` goes through cleanVideo. From the page, only a base
+ * A video plan (`video`, worker 0.15.0) has no scenes: its `video` goes through cleanVideo. From the page, only a base
  * with a video makes a video plan (a page can never turn a reel of scenes into a video, nor bring code).
  */
 export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan | string {

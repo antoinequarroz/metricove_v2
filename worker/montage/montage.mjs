@@ -24,7 +24,7 @@ import { stagePage } from "./lib/reel/stage.mjs";
 import { speedOf, learnStats, readStats, statsFile } from "./lib/reel/progress.mjs";
 import { FPS, GSAP } from "./lib/reel/vocab.mjs";
 
-const VERSION = "0.14.0";
+const VERSION = "0.15.0";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 const CONFIG_FILE = process.env.MONTAGE_CONFIG || join(HERE, "config.json");
@@ -43,7 +43,7 @@ async function check() {
   const r = await fetch(cfg.metricoveUrl + "/login").then((x) => x.status, (e) => e.message);
   ok(r === 200, `Metricove ${cfg.metricoveUrl} (${r})`);
 
-  // Reel vidéo (worker 0.14.0).
+  // Reel vidéo (worker 0.15.0).
   const g = gsapState();
   ok(g.core, `GSAP local ${cfg.gsapDir || "(gsapDir absent : lance --setup-reel)"}`);
   if (g.core && g.missing.length) warn(`plugins GSAP absents : ${g.missing.join(", ")} (les moments qui s'en servent seront retirés)`);

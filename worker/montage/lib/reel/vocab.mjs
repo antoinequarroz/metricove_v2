@@ -1,4 +1,4 @@
-// Vocabulaire du moteur « Plateau » (reel vidéo continu, worker 0.14.0, engine 1).
+// Vocabulaire du moteur « Plateau » (reel vidéo continu, worker 0.15.0, engine 1).
 // Ce que Claude peut écrire dans une partition (mises en page, liaisons, états de la forme, caméra, zones des moments),
 // les limites et budgets de caractères, les cadres des zones, les préréglages de rythme et les constantes de mise en
 // scène du moteur. Une seule source pour score.mjs, sandbox.mjs, stage.mjs et stage-runtime.js (moteur), prompt.mjs
@@ -25,7 +25,7 @@ export const QUANTUM = 1 / FPS;
 /** Version du moteur écrite dans video.engine. Un plan d'engine supérieur vient d'un Mac plus récent : refusé. */
 export const ENGINE = 1;
 /** Version minimale du worker pour un job vidéo (job.minWorker, VIDEO_WORKER côté site). */
-export const VIDEO_WORKER = "0.14.0";
+export const VIDEO_WORKER = "0.15.0";
 /** HyperFrames est épinglé : lint, check, snapshot et render, jamais validate (déprécié), jamais add. */
 export const HYPERFRAMES = "0.8.137";
 export const HF_PACKAGE = `hyperframes@${HYPERFRAMES}`;

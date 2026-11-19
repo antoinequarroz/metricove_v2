@@ -6,7 +6,7 @@ import { addVersion, cleanEdl, cleanReel, dropUpload, EMPTY_EDL, getJob, moveInt
 
 /**
  * The worker sends a proposal: { edl, notes?, upload? (preview video) }, or for an animated reel { reel, notes?, upload }.
- * A video reel also sends `run` (worker ≥ 0.14.0, optional): the `run.startedAt` of its claim.
+ * A video reel also sends `run` (worker ≥ 0.15.0, optional): the `run.startedAt` of its claim.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
