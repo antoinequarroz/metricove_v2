@@ -19,6 +19,7 @@ import { Timeline, type Selection } from "./timeline";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
 import { TranscriptPanel } from "./transcript-panel";
 import { InspectOverlay } from "./inspect-overlay";
+import { StyleRules } from "./style-rules";
 import { notesAsMarks, ReviewNotesPanel, useReviewNotes, type NoteDraft } from "./review-notes";
 import { montageApi, useMontage } from "./use-montage";
 import { VideoReview } from "./video-review";
@@ -630,6 +631,7 @@ function Review({
                         onSend={revise}
                       />
                     )}
+                    {view === "claude" && job.status === "review" && <StyleRules job={job} notes={notes.notes} />}
 
                     {view === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
                     {view === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}

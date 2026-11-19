@@ -25,6 +25,8 @@
   "libraryCache": "~/Movies/Metricove/bibliotheque-cache",
   "pexelsKey": "",
   "elevenlabsKeyFile": "",
+  "ytDlp": "yt-dlp",
+  "ytDlpCookies": "",
   "deepFilter": "~/Movies/Metricove/outils/deep-filter",
   "silenceDb": -35,
   "hyperframes": "hyperframes@0.8.137",

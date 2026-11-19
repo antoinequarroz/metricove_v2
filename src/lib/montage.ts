@@ -446,12 +446,44 @@ export type MontageVersion = {
 };
 
 export type JobStatus = "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
-export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan" | "asset";
+export type JobAction = null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll" | "brand" | "plan" | "asset" | "style";
 
 /** Oldest Mac program that makes illustrations and sound effects (kind "asset"). */
 export const ASSET_WORKER = "0.16.0";
 export const MAX_ASSET_PROMPT = 600;
 export const MAX_ASSET_COUNT = 4;
+
+/** Oldest Mac program that writes style rules and copies a creator's style (kind "style"). */
+export const STYLE_WORKER = "0.18.0";
+export const MAX_STYLE_REFS = 3;
+export const MAX_RULES = 6;
+
+/**
+ * kind "style". `rules`: Claude turns the review notes Antoine resolved into rules for the notes of the style
+ * (he picks which to add). `copy`: the Mac fetches up to 3 reels (links read with yt-dlp, or videos of the Médias
+ * library), measures them (shots, sound, words per minute, frames) and Claude writes a new style from them.
+ */
+export type StyleTask = {
+  mode: "rules" | "copy";
+  /** The style the rules are for, or that the copy starts from. */
+  styleId: string;
+  /** rules: the montage the notes come from, and the notes (text, element, version). */
+  from?: string;
+  notes?: string[];
+  /** The notes the style already has (rules already there are not proposed again). */
+  current?: string;
+  /** copy: the name of the new style, the reels. */
+  name?: string;
+  refs?: { url?: string; mediaId?: string; title?: string }[];
+  result?: {
+    rules?: string[];
+    /** copy: the style made, what Claude saw, its notes. */
+    styleId?: string;
+    summary?: string;
+    notes?: string;
+    accent?: string;
+  };
+};
 
 /** What Claude is asked to make for a library, and what it made. */
 export type AssetRequest = {
@@ -561,7 +593,7 @@ export const VIDEO_BOARD = { chars: 800_000, bytes: 600 * 1024, frames: 12, tile
 
 export type MontageJob = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan" | "asset";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion" | "brand" | "plan" | "asset" | "style";
   title: string;
   projectId?: string;
   status: JobStatus;
@@ -581,6 +613,8 @@ export type MontageJob = {
   plan?: PlanRequest;
   /** kind "asset": illustrations or sound effects Claude makes for the libraries (worker 0.16.0). */
   asset?: AssetRequest;
+  /** kind "style": rules for a style drawn from resolved review notes, or a style copied from a creator's reels (worker 0.18.0). */
+  styleTask?: StyleTask;
   /** What the Mac has to say about the finished video (a reel that fell back to the standard animations). */
   notes?: string;
   /** kind "cover": the video whose feed cover the Mac makes, then PUTs to /api/media/:id/cover. */

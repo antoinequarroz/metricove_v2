@@ -1,7 +1,7 @@
 "use client";
 
 import { Copy, Loader2, Plus, Star, Trash2, Undo2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { styleRef, type LibraryItem } from "@/lib/library";
 import { DEFAULT_STYLE, MAX_STYLE_NAME, MAX_STYLES, noteLines, type StyleProfile } from "@/lib/profiles";
@@ -15,6 +15,7 @@ import { inputClass, SlideCanvas } from "../montage/look-parts";
 import { StyleEditor } from "../style-profiles";
 import { Button } from "../ui";
 import { ResourceShell } from "./shell";
+import { StyleCopier } from "./style-copier";
 
 const FONT_NAME = { serif: "Serif", sans: "Sans", grotesque: "Bricolage Grotesque" } as const;
 
@@ -124,6 +125,13 @@ function ProjectStyles({
       setBusy(false);
     }
   };
+  /** A style copied from a creator: the styles are read again and the new one opens. */
+  const copied = useCallback(
+    (styleId?: string) => {
+      void hooks.reload().then(() => styleId && onPick(styleId));
+    },
+    [hooks, onPick],
+  );
   const run = async (what: string, fn: () => Promise<unknown>, done?: string) => {
     if (busy) return;
     setBusy(true);
@@ -144,12 +152,15 @@ function ProjectStyles({
         <span className="text-[12px] text-ink-3">
           {list.length} style{list.length > 1 ? "s" : ""}
         </span>
-        {list.length < MAX_STYLES && !adding && (
-          <Button size="sm" className="ml-auto" onClick={() => (setAdding(true), setFrom(picked ?? DEFAULT_STYLE))}>
-            <Plus className="size-3.5" />
-            Nouveau style
-          </Button>
-        )}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {list.length < MAX_STYLES && <StyleCopier project={project} list={list} onDone={copied} />}
+          {list.length < MAX_STYLES && !adding && (
+            <Button size="sm" onClick={() => (setAdding(true), setFrom(picked ?? DEFAULT_STYLE))}>
+              <Plus className="size-3.5" />
+              Nouveau style
+            </Button>
+          )}
+        </div>
       </div>
       {adding && (
         <form onSubmit={create} className="rise mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-2/50 p-2.5">

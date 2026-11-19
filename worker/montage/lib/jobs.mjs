@@ -7,6 +7,7 @@ import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
 import { proposeEdit, proposeBroll, writeScript } from "./claude.mjs";
 import { renderEdl } from "./render.mjs";
+import { makeStyle } from "./style.mjs";
 import { STAGE_KINDS, STAGE_ANIMS, BUILTIN_SFX } from "./stage.mjs";
 import { timeline, toRush, toTimeline, FILLER, captionsOf, audioOf } from "./edl.mjs";
 import { listTracks } from "./audio.mjs";
@@ -91,6 +92,13 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       const plan = await planContent(cfg, job, step, dir);
       await api.patch(job.id, { status: "done", plan });
       log(`[${job.id.slice(0, 8)}] plan de contenu envoyé (${plan.items?.length ?? 0} post(s))`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (action === "style") {
+      const style = await makeStyle(api, cfg, job, step, dir);
+      await api.patch(job.id, { status: "done", style });
+      log(`[${job.id.slice(0, 8)}] style : ${style.rules ? `${style.rules.length} règle(s) proposée(s)` : "nouveau style écrit"}`);
       rmSync(dir, { recursive: true, force: true });
       return;
     }

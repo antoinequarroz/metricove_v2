@@ -651,3 +651,23 @@ par FFmpeg, bruitages mélangés sous la voix. Un Mac plus ancien ignore ces cha
   texte, carte d'un temps fort, accroche, B-roll, visage) pour voir sa place, le commenter ou le modifier.
 - Transcription : clic sur un mot = aller à ce moment, Maj + clic = choisir des mots (couper, remettre, commenter),
   double-clic = corriger le mot.
+
+## Règles tirées des retours et « Copier un créateur » (`kind: "style"`, worker 0.18.0, METRI-37)
+
+Une tâche `kind: "style"` (action `style`, `minWorker` 0.18.0) porte `job.styleTask` :
+
+- **`mode: "rules"`** — sous les retours de l'écran de relecture, « Proposer des règles ». Le serveur met dans
+  `styleTask.notes` les retours **résolus** du montage `from` (« [élément visé] texte », 30 au plus) et dans `current` les
+  notes actuelles du style. Le Mac (`lib/style.mjs`, `writeRules`) demande à Claude 1 à 6 règles générales, et renvoie
+  `PATCH {status: "done", style: {rules}}` ; le serveur les garde dans `styleTask.result.rules`. Antoine coche celles à
+  garder : l'interface les ajoute aux notes du style (`PUT /api/profiles/:id?style=…`), sans doublon, puis retire la tâche.
+- **`mode: "copy"`** — Ressources → Styles → « Copier un créateur ». `refs` : jusqu'à 3 liens `https://` (lus par yt-dlp
+  sur le Mac) ou vidéos de la bibliothèque (`mediaId`, téléchargées par `/api/media/:id/file`). Pour chaque reel le Mac
+  mesure la durée, les coupes (`select=gt(scene,0.18)`, une au plus toutes les 0,25 s), le volume et la présence d'un fond
+  sonore continu (`volumedetect` + `silencedetect`), le débit de parole (whisper) et fait 2 planches de 6 images ; Claude
+  lit les planches et écrit 8 à 14 notes, un résumé et la couleur d'accent. Un reel illisible n'arrête pas la tâche (il
+  est cité dans le résumé) ; aucun reel lisible = échec. À la fin le serveur crée un nouveau style du projet (copié du
+  style choisi pour les couleurs et le ton) avec ces notes et cet accent : `styleTask.result.styleId`.
+
+Réglages du Mac (`config.json`) : `ytDlp` (chemin de yt-dlp, `brew install yt-dlp`) et `ytDlpCookies` (navigateur dont
+yt-dlp prend les cookies, par ex. `"chrome"` : Instagram demande souvent d'être connecté).

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { isVideoJob, MAX_ASSET_COUNT, MAX_SENT_NOTES, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
+import { isVideoJob, MAX_ASSET_COUNT, MAX_RULES, MAX_SENT_NOTES, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
 import { findAsset } from "@/server/library";
+import { listProjects } from "@/server/db";
+import { createStyle, saveProfile } from "@/server/profiles";
 import { markSent, notesAsMarks } from "@/server/review-notes";
 import { ingestVideo } from "@/server/media";
 import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, reportRun, restoreReel, saveJob, staleWrite, touchJob, touchWorker, workerStatus } from "@/server/montage";
@@ -63,6 +65,8 @@ type Body = {
   brand?: unknown;
   plan?: unknown;
   asset?: { result?: unknown };
+  /** kind "style": { rules } or, for a copy, { summary, notes, accent? }. */
+  style?: { rules?: unknown; summary?: unknown; notes?: unknown; accent?: unknown };
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -256,6 +260,28 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const ids = (Array.isArray(b.asset?.result) ? b.asset.result : []).filter((id): id is string => typeof id === "string" && !!findAsset(id)).slice(0, MAX_ASSET_COUNT * 2);
     if (!ids.length) return NextResponse.json({ error: "Rien n'a été ajouté à la bibliothèque" }, { status: 400 });
     job.asset.result = ids;
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
+  }
+  if (b.status === "done" && job.kind === "style" && job.styleTask) {
+    const t = job.styleTask;
+    const line = (x: unknown, n: number) => (typeof x === "string" ? x.replace(/\s+/g, " ").replace(/^[-•*]\s*/, "").trim().slice(0, n) : "");
+    if (t.mode === "rules") {
+      const rules = [...new Set((Array.isArray(b.style?.rules) ? b.style.rules : []).map((x) => line(x, 240)).filter(Boolean))].slice(0, MAX_RULES);
+      if (!rules.length) return NextResponse.json({ error: "Aucune règle proposée" }, { status: 400 });
+      t.result = { rules };
+      return NextResponse.json({ job: pageJob(release(job, "done")) });
+    }
+    // A copy: the new style is made now, from the style it starts from, with Claude's notes (and accent color).
+    const project = listProjects().find((p) => p.id === job.projectId);
+    if (!project) return NextResponse.json({ error: "Projet introuvable" }, { status: 400 });
+    const notes = typeof b.style?.notes === "string" ? b.style.notes.replace(/\r\n?/g, "\n").trim().slice(0, 4000) : "";
+    if (!notes) return NextResponse.json({ error: "Claude n'a pas écrit de notes" }, { status: 400 });
+    const made = createStyle(project, t.name || "Style copié", t.styleId);
+    if (typeof made === "string") return NextResponse.json({ error: made }, { status: 400 });
+    const accent = typeof b.style?.accent === "string" && /^#[0-9a-f]{6}$/i.test(b.style.accent) ? b.style.accent.toLowerCase() : undefined;
+    const saved = saveProfile(project, { notes, ...(accent ? { look: { ...made.look, accent } } : {}) }, made.id);
+    if (typeof saved === "string") saveProfile(project, { notes }, made.id);
+    t.result = { styleId: made.id, notes, summary: line(b.style?.summary, 1200) || undefined, ...(accent ? { accent } : {}) };
     return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "plan" && job.plan) {

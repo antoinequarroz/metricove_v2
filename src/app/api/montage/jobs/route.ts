@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ASSET_WORKER, MAX_ASSET_COUNT, MAX_ASSET_PROMPT, MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
+import { ASSET_WORKER, MAX_STYLE_REFS, STYLE_WORKER, type StyleTask, MAX_ASSET_COUNT, MAX_ASSET_PROMPT, MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
@@ -9,6 +9,7 @@ import { profileOf, styleIdOf, voiceOf } from "@/server/profiles";
 import { DEFAULT_STYLE } from "@/lib/profiles";
 import { MAX_FOCUS, MAX_PLAN_ITEMS, MAX_SOURCE_TEXT, MAX_SOURCES, PLAN_DAYS, PLAN_FORMATS, type PlanFormat, type SourceFile } from "@/lib/strategy";
 import { sourceFile } from "@/server/sources";
+import { listNotes } from "@/server/review-notes";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,10 @@ type Body = {
   text?: unknown;
   // kind "asset"
   assetKind?: unknown;
+  // kind "style" (mode, from, name too)
+  noteIds?: unknown;
+  refs?: unknown;
+  name?: unknown;
   prompt?: unknown;
   // kind "plan"
   from?: unknown;
@@ -87,6 +92,7 @@ export async function POST(req: Request) {
   if (b.kind === "brand") return brandJob(b);
   if (b.kind === "plan") return planJob(b);
   if (b.kind === "asset") return assetJob(b);
+  if (b.kind === "style") return styleJob(b);
   const kind = b.kind === "script" ? "script" : "montage";
   const format: MontageFormat = ["9:16", "4:5", "1:1", "16:9"].includes(b.brief?.format as string) ? (b.brief!.format as MontageFormat) : "9:16";
   const rushIds = [...new Set(b.rushIds ?? [])].filter((id) => getRushRow(id));
@@ -394,6 +400,65 @@ function assetJob(b: Body) {
       ...(palette?.length ? { palette } : {}),
       ...(style ? { style: `${project!.name} · ${style.name}` } : {}),
     },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/**
+ * Asks the Mac about a style: rules drawn from the review notes Antoine resolved on a montage (mode "rules"), or a new
+ * style copied from up to 3 reels (mode "copy": links read with yt-dlp on the Mac, or videos of the Médias library).
+ */
+function styleJob(b: Body) {
+  const project = listProjects().find((p) => p.id === b.projectId);
+  if (!project) return NextResponse.json({ error: "Choisis le projet" }, { status: 400 });
+  const styleId = styleIdOf(project.id, b.styleId);
+  const style = profileOf(project, styleId);
+  const now = new Date().toISOString();
+  let task: StyleTask;
+  let title: string;
+  if (b.mode === "rules") {
+    const from = typeof b.from === "string" ? listJobs().find((j) => j.id === b.from && j.kind === "montage") : undefined;
+    if (!from) return NextResponse.json({ error: "Montage introuvable" }, { status: 400 });
+    const ids = Array.isArray(b.noteIds) ? (b.noteIds as unknown[]).filter((x): x is string => typeof x === "string") : [];
+    const notes = listNotes(from.id)
+      .filter((n) => n.status === "resolved" && (!ids.length || ids.includes(n.id)) && (n.text.trim() || n.target))
+      .slice(0, 30)
+      .map((n) => `${n.target ? `[${n.target.label}] ` : ""}${n.text.trim() || "(sans texte)"}`.slice(0, 400));
+    if (!notes.length) return NextResponse.json({ error: "Aucun retour résolu avec du texte" }, { status: 400 });
+    task = { mode: "rules", styleId, from: from.id, notes, ...(style.notes.trim() ? { current: style.notes.slice(0, 4000) } : {}) };
+    title = `Règles du style « ${style.name} »`;
+  } else if (b.mode === "copy") {
+    const media = listMedia();
+    const refs = (Array.isArray(b.refs) ? (b.refs as Record<string, unknown>[]) : [])
+      .flatMap((r): NonNullable<StyleTask["refs"]> => {
+        if (typeof r?.mediaId === "string") {
+          const m = media.find((x) => x.id === r.mediaId);
+          return m ? [{ mediaId: m.id, title: m.title.slice(0, 120) }] : [];
+        }
+        const url = typeof r?.url === "string" ? r.url.trim() : "";
+        return /^https:\/\/[^\s"'<>]{4,500}$/.test(url) ? [{ url }] : [];
+      })
+      .slice(0, MAX_STYLE_REFS);
+    if (!refs.length) return NextResponse.json({ error: "Colle au moins un lien de reel, ou choisis une vidéo" }, { status: 400 });
+    const name = typeof b.name === "string" && b.name.trim() ? b.name.trim().slice(0, 40) : "Style copié";
+    task = { mode: "copy", styleId, name, refs };
+    title = `Copier un style : ${name}`;
+  } else return NextResponse.json({ error: "Demande inconnue" }, { status: 400 });
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "style",
+    title: title.slice(0, 120),
+    projectId: project.id,
+    ...(styleId !== DEFAULT_STYLE ? { styleId } : {}),
+    status: "queued",
+    action: "style",
+    minWorker: STYLE_WORKER,
+    brief: { format: "9:16" },
+    styleTask: task,
     rushIds: [],
     versions: [],
     createdAt: now,
