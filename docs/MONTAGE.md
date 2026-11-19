@@ -704,6 +704,12 @@ vérification, le Mac fait lire chaque phrase (`POST /api/audio/tts`, cache `voi
 (lib/reel/narration.mjs) pose chaque phrase 0,15 s après le début de son temps fort, baisse la musique dessous
 (sidechaincompress, musique à la moitié du volume choisi) et normalise à −14 LUFS.
 
+**Par style de projet (worker 0.21.0).** Un style peut porter `media` `{ voice?, voiceOn?, musicProvider?, musicStyle?,
+claudeModel?, claudeEffort? }` (Ressources → Styles, « Voix, musique et Claude des vidéos »). Ordre : choix de la vidéo,
+puis style, puis Réglages. La réclamation ajoute `model`/`effort` et `music { provider?, style? }` ; le Mac met le style
+de musique dans la consigne de Claude et à la fin de la consigne envoyée au compositeur. Les pages partent de
+`audioFor(Réglages, style.media)` (voix par défaut, voix off activée d'office, modèle et puissance affichés).
+
 ### Look vidéo d'un style (`look.video`, worker 0.21.0)
 
 Un style peut porter un **look vidéo** : police Google Fonts (n'importe quelle famille), graisse, capitales, couleur du

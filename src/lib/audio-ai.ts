@@ -85,3 +85,50 @@ export const MUSIC_SECONDS: [number, number] = [5, 180];
 export const GEN_TRACK = "gen";
 export const libTrack = (id: string) => `lib:${id}`;
 export const libTrackId = (track?: string) => (track && /^lib:[a-z0-9]{12}$/.test(track) ? track.slice(4) : undefined);
+
+/**
+ * What a style of a project chooses for its videos (Ressources → Styles): its voice, who composes its music and in
+ * what style, its Claude model and effort. Left out, the choice of Réglages applies; a video can still change it.
+ */
+export type StyleMedia = {
+  voice?: { provider: VoiceProvider; voiceId: string; name?: string };
+  /** The voice-over of a new animated reel starts on. */
+  voiceOn?: boolean;
+  musicProvider?: MusicProvider;
+  /** Words added to every music composed for this style, e.g. "lo-fi chill, piano doux". */
+  musicStyle?: string;
+  claudeModel?: string;
+  claudeEffort?: ClaudeEffort;
+};
+export const MAX_MUSIC_STYLE = 300;
+
+export function cleanMedia(raw: unknown): StyleMedia | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const v = r.voice as Record<string, unknown> | undefined;
+  const voiceId = typeof v?.voiceId === "string" ? v.voiceId.trim().slice(0, 100) : "";
+  const provider = VOICE_PROVIDERS.some((p) => p.id === v?.provider) ? (v!.provider as VoiceProvider) : undefined;
+  const name = typeof v?.name === "string" ? v.name.replace(/[\0-\x1f]/g, "").trim().slice(0, 100) : "";
+  const musicStyle = typeof r.musicStyle === "string" ? r.musicStyle.replace(/[\0-\x1f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_MUSIC_STYLE) : "";
+  const m: StyleMedia = {
+    ...(provider && /^[A-Za-z0-9_-]+$/.test(voiceId) ? { voice: { provider, voiceId, ...(name ? { name } : {}) } } : {}),
+    ...(r.voiceOn === true ? { voiceOn: true } : {}),
+    ...(MUSIC_PROVIDERS.some((p) => p.id === r.musicProvider) ? { musicProvider: r.musicProvider as MusicProvider } : {}),
+    ...(musicStyle ? { musicStyle } : {}),
+    ...(cleanModel(r.claudeModel) ? { claudeModel: cleanModel(r.claudeModel) } : {}),
+    ...(cleanEffort(r.claudeEffort) ? { claudeEffort: cleanEffort(r.claudeEffort) as ClaudeEffort } : {}),
+  };
+  return Object.keys(m).length ? m : undefined;
+}
+
+/** Réglages with the choices of a style on top: what a video of that style uses when it says nothing. */
+export function audioFor(audio: AudioOverview | null, media?: StyleMedia): AudioOverview | null {
+  if (!audio || !media) return audio;
+  return {
+    ...audio,
+    ...(media.voice ? { voiceProvider: media.voice.provider, voiceId: media.voice.voiceId, voiceName: media.voice.name } : {}),
+    ...(media.musicProvider ? { musicProvider: media.musicProvider } : {}),
+    ...(media.claudeModel ? { claudeModel: media.claudeModel } : {}),
+    ...(media.claudeEffort ? { claudeEffort: media.claudeEffort } : {}),
+  };
+}

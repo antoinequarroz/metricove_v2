@@ -16,6 +16,8 @@ import { TextGhost, TextPanel } from "./free-texts";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
 import { useAudioSettings } from "../resources/music-maker";
 import { ClaudeSelects } from "./audio-fields";
+import { audioFor } from "@/lib/audio-ai";
+import { useProfiles } from "@/lib/use-profiles";
 import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
@@ -223,7 +225,10 @@ function Review({
   // The Claude model of the next requests (the job's, else the one of Réglages).
   const [model, setModel] = useState(job.model ?? "");
   const [effort, setEffort] = useState(job.effort ?? "");
-  const audioSettings = useAudioSettings();
+  // Réglages with the choices of the job's style on top (the defaults shown beside the model and effort).
+  const { styles: allStyles } = useProfiles();
+  const styleMedia = job.projectId ? (allStyles?.[job.projectId]?.find((x) => x.id === job.styleId) ?? allStyles?.[job.projectId]?.[0])?.media : undefined;
+  const audioSettings = audioFor(useAudioSettings(), styleMedia);
   const call = async (body: object, ok: string) => {
     setBusy(true);
     try {
@@ -647,7 +652,7 @@ function Review({
 
                     {view === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
                     {view === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}
-                    {view === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
+                    {view === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} media={styleMedia} />}
                     {view === "text" && <TranscriptPanel edl={draft} time={time} onSeek={seek} edit={edit} onComment={canDraw ? (t, words) => void addNote({ t, text: `« ${words} » : ` }) : undefined} />}
                   </div>
                 </div>

@@ -88,8 +88,9 @@ export function voiceRulesLine() {
 }
 
 /** La consigne de la musique composée pour la vidéo. */
-export function musicRulesLine() {
-  return `MUSIQUE : la musique de fond sera composée pour cette vidéo. music : la consigne de composition, EN ANGLAIS, 15 à 60 mots : genre, instruments, tempo (BPM), ambiance et énergie qui suivent la vidéo (montée, moment fort, fin nette), toujours instrumentale (no vocals). Elle doit aller avec le ton du projet et ne jamais couvrir ${"une voix"}.`;
+export function musicRulesLine(style = "") {
+  const s = String(style || "").replace(/\s+/g, " ").trim().slice(0, 300);
+  return `MUSIQUE : la musique de fond sera composée pour cette vidéo. music : la consigne de composition, EN ANGLAIS, 15 à 60 mots : genre, instruments, tempo (BPM), ambiance et énergie qui suivent la vidéo (montée, moment fort, fin nette), toujours instrumentale (no vocals). Elle doit aller avec le ton du projet et ne jamais couvrir une voix.${s ? ` Le projet a choisi ce style de musique, respecte-le : « ${s} ».` : ""}`;
 }
 
 /** Relecture en images : corrections ciblées (tableaux vides = rien à changer). */
@@ -321,7 +322,7 @@ ${storyRules()}
 MOMENTS (visuels HyperFrames sur mesure, facultatifs)
 ${momentsSection()}
 ${sf ? `\nSAVOIR-FAIRE (données, à suivre pour la qualité des moments) :\n<savoir_faire>\n${sf}\n</savoir_faire>\n` : ""}${notesHf ? `\nNOTES HYPERFRAMES DU MAC (données) :\n<notes_hyperframes>\n${notesHf}\n</notes_hyperframes>\n` : ""}${regen?.titles?.length ? `\nVERSION PRÉCÉDENTE : temps forts ${regen.titles.map((t) => `« ${String(t).slice(0, 40)} »`).join(", ")}${regen.shape ? `, forme ${regen.shape}` : ""}. Propose une idée visuelle nettement différente : autre forme, autres liaisons, autres moments.\n` : ""}${retry ? `\nTA RÉPONSE PRÉCÉDENTE ÉTAIT INEXPLOITABLE (${String(retry).slice(0, 300)}). Réécris la partition complète, en suivant exactement le format.\n` : ""}
-${m.voice ? `\n${voiceRulesLine()}\n` : ""}${m.track === "gen" ? `\n${musicRulesLine()}\n` : ""}
+${m.voice ? `\n${voiceRulesLine()}\n` : ""}${m.track === "gen" ? `\n${musicRulesLine(job.music?.style)}\n` : ""}
 RÉPONSE : uniquement le JSON du schéma. title : titre court de la vidéo. seconds : la durée voulue de chaque temps fort (le moteur l'allonge si le texte demande plus de temps de lecture). notes : 2 phrases pour Antoine sur l'idée visuelle, ${PLAIN_NOTES}. caption : la description du post dans le ton du projet (les hashtags y sont permis).`;
 }
 

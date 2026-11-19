@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FORMATS, type MontageFormat, type MontageJob, type Rush } from "@/lib/montage";
 import { useAudioSettings } from "../resources/music-maker";
+import { audioFor } from "@/lib/audio-ai";
 import { ClaudeSelects } from "./audio-fields";
 import { DEFAULT_STYLE } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
@@ -154,7 +155,9 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
-  const audio = useAudioSettings();
+  const settingsAudio = useAudioSettings();
+  // The model and effort of the chosen style come before those of Réglages.
+  const audio = audioFor(settingsAudio, projectStyles.find((x) => x.id === styleId)?.media ?? projectStyles[0]?.media);
 
   // Takes filmed in the Studio arrive selected.
   useEffect(() => setSelected((s) => [...new Set([...s, ...preset])]), [preset.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps

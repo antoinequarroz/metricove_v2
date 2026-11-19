@@ -11,7 +11,7 @@ import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
-import { CLAUDE_EFFORTS, CLAUDE_MODELS, cleanEffort, cleanModel, GEN_TRACK } from "@/lib/audio-ai";
+import { audioFor, CLAUDE_EFFORTS, CLAUDE_MODELS, cleanEffort, cleanModel, GEN_TRACK } from "@/lib/audio-ai";
 import { useAudioSettings } from "../resources/music-maker";
 import { ClaudeSelects, TrackSelect, type VoiceChoice, VoiceOverFields, voiceOfChoice } from "./audio-fields";
 import { Switch } from "./controls";
@@ -135,7 +135,7 @@ export function ReelStudio() {
   const posts = useStore((s) => s.posts);
 
   // Réglages → Voix et musique (keys set, default voice, music provider, Claude model).
-  const audio = useAudioSettings();
+  const settingsAudio = useAudioSettings();
 
   // ---- Draft and look, kept in this browser ----
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -185,6 +185,8 @@ export function ReelStudio() {
   const styled = profileId && profiles?.[profileId] ? profileId : undefined;
   const profile = styled ? profiles![styled] : undefined;
   const styledProject = projects.find((p) => p.id === styled);
+  // Réglages with the voice, music and Claude chosen for the project's style on top.
+  const audio = audioFor(settingsAudio, profile?.media);
   const ideas = profile?.refs.ideas ?? [];
   const lookChanged = !!profile && !sameLook(look, profile.look);
   const applyProfile = (id: string) => {
@@ -192,6 +194,8 @@ export function ReelStudio() {
     if (p) {
       setLook({ ...lookOf(p.look), logo: p.look.logo || undefined });
       setProfileId(id);
+      // The voice of the project's style: on when the style says so, its voice unless one is picked again.
+      if (p.media?.voiceOn || p.media?.voice) patch({ voice: { on: !!p.media.voiceOn || draftNow.current.voice.on } });
     } else setProfileId(undefined);
   };
   // The logo is never kept in this browser: it comes back from the profile (the Mac gets that one anyway).

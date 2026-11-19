@@ -18,6 +18,8 @@ import { Toggle } from "./look-parts";
 import { MusicFields } from "./music-fields";
 import { useAudioSettings } from "../resources/music-maker";
 import { ClaudeSelects } from "./audio-fields";
+import { audioFor } from "@/lib/audio-ai";
+import { useProfiles } from "@/lib/use-profiles";
 import { fmtSec, JobStatus, WorkerBanner } from "./parts";
 import { Clamp, CompactRun, nb } from "./reel-progress";
 import { ReelTimeline } from "./reel-timeline";
@@ -207,7 +209,10 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
   // The Claude model of the next requests (the job's, else the one of Réglages).
   const [model, setModel] = useState(job.model ?? "");
   const [effort, setEffort] = useState(job.effort ?? "");
-  const audioSettings = useAudioSettings();
+  // Réglages with the choices of the job's style on top (the defaults shown beside the model and effort).
+  const { styles: allStyles } = useProfiles();
+  const styleMedia = job.projectId ? (allStyles?.[job.projectId]?.find((x) => x.id === job.styleId) ?? allStyles?.[job.projectId]?.[0])?.media : undefined;
+  const audioSettings = audioFor(useAudioSettings(), styleMedia);
   const call = async (body: object, ok: string, ask?: ReelAsk) => {
     setBusy(true);
     try {
@@ -778,6 +783,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       disabled={!draft.music}
                       auto="Le premier du dossier"
                       duration={total}
+                      media={styleMedia}
                     />
                     <p className="text-[12px] text-ink-3">{"Une musique de Ressources → Musique, un morceau du dossier Musique de ton Mac, ou une musique composée pour cette vidéo."}</p>
                     <div className="flex flex-col gap-1.5 border-t border-line pt-3">

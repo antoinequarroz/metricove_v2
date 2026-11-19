@@ -73,8 +73,8 @@ export class Api {
   }
 
   /** Musique composée par Metricove (ElevenLabs Music ou Lyria) et rangée dans Ressources → Musique : renvoie l'élément { id, … }. */
-  async composeMusic({ prompt, seconds, name, tags }, { signal } = {}) {
-    const r = await this.req("POST", "/api/audio/music", { json: { prompt, seconds, name, tags }, timeoutMs: 300_000, signal });
+  async composeMusic({ prompt, provider, seconds, name, tags }, { signal } = {}) {
+    const r = await this.req("POST", "/api/audio/music", { json: { prompt, seconds, name, tags, ...(provider ? { provider } : {}) }, timeoutMs: 300_000, signal });
     if (!r?.item?.id) throw new Error("Metricove n'a pas renvoyé la musique.");
     return r.item;
   }

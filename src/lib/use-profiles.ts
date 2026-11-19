@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { StyleMedia } from "./audio-ai";
 import { DEFAULT_STYLE, MAX_REF_IMAGE_BYTES, type Look, type StyleProfile } from "./profiles";
 
 export type ProfileChange = {
@@ -13,6 +14,8 @@ export type ProfileChange = {
   strategy?: string;
   strategySource?: string;
   preset?: string;
+  /** null goes back to Réglages. */
+  media?: StyleMedia | null;
   refs?: { examples?: { id: string; text: string }[]; ideas?: { id: string; text: string }[] };
 };
 

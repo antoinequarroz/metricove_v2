@@ -1,4 +1,4 @@
-// Voix off et musique composée du reel vidéo (worker 0.19.0).
+// Voix off et musique composée du reel vidéo (worker 0.19.0 ; style et fournisseur du projet : 0.21.0).
 // - Voix off : Metricove lit la phrase `say` de chaque temps fort (ElevenLabs ou Google, clés sur le serveur) ; les
 //   fichiers sont gardés en cache sur le Mac (même voix + même phrase = pas de nouvel appel) ; chaque temps fort dure
 //   au moins le temps de sa phrase (fixed) ; au mixage chaque phrase part 0,15 s après le début de son temps fort.
@@ -137,12 +137,16 @@ export function fallbackMusicPrompt(plan) {
  * Fait composer la musique de la vidéo (plan.track === "gen") et renvoie le plan avec track = « lib:<id> ». Une panne
  * laisse la vidéo sans musique (track vidé) avec la raison dans les notes.
  */
-export async function composeForVideo(api, plan, duration, { signal, notes = [] } = {}) {
+export async function composeForVideo(api, plan, duration, { signal, notes = [], music } = {}) {
   if (plan.track !== "gen" || !plan.music) return plan;
-  const prompt = String(plan.musicPrompt || "").trim() || fallbackMusicPrompt(plan);
+  // Le style de musique du projet (Ressources → Styles) s'ajoute à la consigne de Claude, 600 caractères au plus.
+  const style = String(music?.style || "").replace(/\s+/g, " ").trim().slice(0, 300);
+  const base = String(plan.musicPrompt || "").trim() || fallbackMusicPrompt(plan);
+  const prompt = style ? `${base.slice(0, 590 - style.length)} Style: ${style}.` : base;
+  const provider = music?.provider === "google" || music?.provider === "elevenlabs" ? music.provider : undefined;
   try {
     log(`musique composée pour la vidéo (${Math.ceil(duration)} s) : ${prompt.slice(0, 120)}`);
-    const item = await api.composeMusic({ prompt, seconds: Math.ceil(duration) + 1, name: `Reel · ${String(plan.video?.title || "musique").slice(0, 60)}`, tags: ["reel"] }, { signal });
+    const item = await api.composeMusic({ prompt, provider, seconds: Math.ceil(duration) + 1, name: `Reel · ${String(plan.video?.title || "musique").slice(0, 60)}`, tags: ["reel"] }, { signal });
     notes.push(`Musique composée pour cette vidéo, rangée dans Ressources → Musique (« ${prompt.slice(0, 140)}${prompt.length > 140 ? "…" : ""} »).`);
     const { musicPrompt: _p, ...rest } = plan;
     void _p;

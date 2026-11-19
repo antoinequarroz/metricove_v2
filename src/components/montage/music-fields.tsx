@@ -3,7 +3,7 @@
 import { Loader2, Music } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { libTrack, MUSIC_PROMPT_MAX } from "@/lib/audio-ai";
+import { libTrack, MUSIC_PROMPT_MAX, type StyleMedia } from "@/lib/audio-ai";
 import { MUSIC_FADE, type MusicCue } from "@/lib/montage";
 import { reloadLibrary } from "@/lib/use-library";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,24 @@ type Value = MusicCue & { track?: string };
  * this video (ElevenLabs Music or Lyria, `duration` seconds); where it starts in the file, its fades.
  * `tracks`: the files the Mac last reported (none when it has not said yet, or when the folder is empty).
  */
-export function MusicFields({ value, onChange, tracks, disabled, auto, duration }: { value: Value; onChange: (patch: Value) => void; tracks?: string[]; disabled?: boolean; auto: string; duration?: number }) {
+export function MusicFields({
+  value,
+  onChange,
+  tracks,
+  disabled,
+  auto,
+  duration,
+  media,
+}: {
+  value: Value;
+  onChange: (patch: Value) => void;
+  tracks?: string[];
+  disabled?: boolean;
+  auto: string;
+  duration?: number;
+  /** The choices of the video's style: its music provider, and its music style to start the description from. */
+  media?: StyleMedia;
+}) {
   const audio = useAudioSettings();
   const [asking, setAsking] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -29,7 +46,7 @@ export function MusicFields({ value, onChange, tracks, disabled, auto, duration 
     setBusy(true);
     try {
       const seconds = Math.max(10, Math.min(180, Math.ceil((duration ?? 30) + 2)));
-      const res = await fetch("/api/audio/music", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, seconds }) });
+      const res = await fetch("/api/audio/music", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, seconds, ...(media?.musicProvider ? { provider: media.musicProvider } : {}) }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
       await reloadLibrary();
@@ -68,7 +85,10 @@ export function MusicFields({ value, onChange, tracks, disabled, auto, duration 
         <TrackSelect value={value.track ?? ""} onChange={(t) => onChange({ track: t || undefined })} tracks={tracks} audio={audio} disabled={disabled} allowGen={false} auto={auto} className="flex-1" />
       </label>
       {!asking ? (
-        <button type="button" disabled={disabled || !canCompose} onClick={() => setAsking(true)} title={canCompose ? undefined : "Ajoute une clé ElevenLabs ou Google dans Réglages → Voix et musique"} className="press flex items-center gap-1.5 self-start rounded-md px-1.5 py-1 text-[12px] text-accent hover:bg-accent-soft/50 disabled:text-ink-3 disabled:opacity-60">
+        <button type="button" disabled={disabled || !canCompose} onClick={() => {
+            setAsking(true);
+            if (!prompt && media?.musicStyle) setPrompt(media.musicStyle);
+          }} title={canCompose ? undefined : "Ajoute une clé ElevenLabs ou Google dans Réglages → Voix et musique"} className="press flex items-center gap-1.5 self-start rounded-md px-1.5 py-1 text-[12px] text-accent hover:bg-accent-soft/50 disabled:text-ink-3 disabled:opacity-60">
           <Music className="size-3.5" /> Composer une musique pour cette vidéo
         </button>
       ) : (

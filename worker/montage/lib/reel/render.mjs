@@ -468,7 +468,7 @@ export async function produce(cfg, ctx) {
   P.start("finish", STEP.finish);
   const out = join(ctx.dir, "reel.mp4");
   // La musique composée pour cette vidéo, à sa durée exacte (le plan garde « lib:<id> » : une retouche la réutilise).
-  if (st.plan.track === "gen") st.plan = await composeForVideo(api, st.plan, D, { signal, notes });
+  if (st.plan.track === "gen") st.plan = await composeForVideo(api, st.plan, D, { signal, notes, music: job?.music });
   const fin = await finish(cfg, st.plan, silent, out, D, notes, signal, { clips, marks: st.stage.marks });
   rmSync(silent, { force: true });
   await probe(out, D, signal);
