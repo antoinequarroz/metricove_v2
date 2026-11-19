@@ -100,12 +100,26 @@ async function fetchRef(api, cfg, ref, base) {
   const bin = cfg.ytDlp || "yt-dlp";
   const args = ["--no-playlist", "--no-progress", "-f", "mp4/bestvideo*+bestaudio/best", "--merge-output-format", "mp4", "--max-filesize", "300M", "-o", `${base}.%(ext)s`];
   // Instagram et TikTok demandent souvent d'être connecté : yt-dlp prend alors les cookies du navigateur choisi.
-  if (cfg.ytDlpCookies) args.push("--cookies-from-browser", String(cfg.ytDlpCookies));
-  args.push(ref.url);
-  await run(bin, args, { timeoutMs: 180_000 }).catch((e) => {
-    if (e.code === "ENOENT") throw new Error("yt-dlp n'est pas installé sur le Mac (brew install yt-dlp), ou choisis une vidéo de la bibliothèque");
-    throw new Error(`le lien n'a pas pu être lu${cfg.ytDlpCookies ? "" : " (Instagram demande souvent ytDlpCookies dans config.json)"} : ${String(e.stderr || e.message).trim().split("\n").pop().slice(0, 200)}`);
-  });
+  // Si ces cookies sont introuvables (navigateur absent ou autre profil), on réessaie sans eux.
+  const cookies = cfg.ytDlpCookies ? String(cfg.ytDlpCookies) : "";
+  const tryGet = (withCookies) => run(bin, [...args, ...(withCookies ? ["--cookies-from-browser", cookies] : []), ref.url], { timeoutMs: 180_000 });
+  const why = (e) => String(e.stderr || e.message).trim().split("\n").pop().slice(0, 200);
+  await tryGet(!!cookies)
+    .catch((e) => {
+      if (!cookies || e.code === "ENOENT" || !/cookie/i.test(String(e.stderr || e.message))) throw e;
+      log(`cookies de « ${cookies} » illisibles (${why(e)}) : nouvel essai sans cookies`);
+      return tryGet(false).catch((e2) => {
+        e2.cookieError = why(e);
+        throw e2;
+      });
+    })
+    .catch((e) => {
+      if (e.code === "ENOENT") throw new Error("yt-dlp n'est pas installé sur le Mac (brew install yt-dlp), ou choisis une vidéo de la bibliothèque");
+      const hint = e.cookieError
+        ? ` (les cookies du navigateur « ${cookies} » sont introuvables : mets dans ytDlpCookies de config.json le navigateur où tu es connecté à Instagram, par ex. safari, firefox, brave, edge)`
+        : cookies ? "" : " (Instagram demande souvent ytDlpCookies dans config.json)";
+      throw new Error(`le lien n'a pas pu être lu${hint} : ${why(e)}`);
+    });
   const dirOf = base.slice(0, base.lastIndexOf("/"));
   const name = readdirSync(dirOf).find((n) => n.startsWith(base.split("/").pop() + ".") && !n.endsWith(".part"));
   if (!name) throw new Error("yt-dlp n'a rien téléchargé");
