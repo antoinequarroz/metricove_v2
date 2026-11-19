@@ -2,8 +2,8 @@
 //   rules : Claude tire des règles de style des retours qu'Antoine a résolus sur un montage ;
 //   copy  : le Mac récupère jusqu'à 3 reels (liens lus par yt-dlp, ou vidéos de la bibliothèque Médias), les mesure
 //           (durée des plans, son, débit de parole, images clés) et Claude en écrit les notes d'un nouveau style.
-import { createWriteStream, existsSync, renameSync, statSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { createWriteStream, existsSync, readFileSync, renameSync, statSync, readdirSync } from "node:fs";
+import { basename, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ask } from "./claude.mjs";
@@ -38,14 +38,39 @@ Réponds uniquement avec le JSON demandé.`;
   return (r.rules || []).map((x) => String(x).trim()).filter(Boolean).slice(0, 6);
 }
 
+const HEXS = { type: "string", description: "#rrggbb, ou vide" };
 const COPY_SCHEMA = {
-  type: "object", required: ["summary", "notes"],
+  type: "object", required: ["summary", "notes", "video"],
   properties: {
     summary: { type: "string", description: "2 à 3 phrases : ce qui fait ce style" },
     notes: { type: "array", items: { type: "string" }, description: "8 à 14 règles de montage, une par ligne" },
     accent: { type: "string", description: "couleur d'accent dominante des textes ou cartes, #rrggbb, ou vide" },
+    video: {
+      type: "object", required: ["font", "weight", "upper"],
+      description: "le look des sous-titres et textes du créateur, tel qu'on le voit sur les images",
+      properties: {
+        font: { type: "string", description: "nom exact d'une famille Google Fonts, la plus proche de la police des sous-titres" },
+        weight: { type: "integer", description: "graisse des sous-titres : 400, 500, 600, 700, 800 ou 900" },
+        upper: { type: "boolean", description: "sous-titres en capitales" },
+        text: { ...HEXS, description: "couleur des mots des sous-titres, #rrggbb" },
+        stroke: { type: "integer", description: "épaisseur du contour des lettres en px pour une image de 1080 de large (0 = aucun, 3 à 8 si contour net)" },
+        strokeColor: HEXS,
+        box: { type: "string", enum: ["none", "line", "word"], description: "fond coloré derrière toute la ligne, derrière le mot dit seulement, ou aucun" },
+        boxColor: HEXS,
+        shadow: { type: "boolean", description: "ombre douce sous les lettres" },
+        hook: { type: "string", enum: ["band", "text", "box"], description: "titre d'ouverture : bandeau de couleur, gros texte seul, ou cadre blanc" },
+        position: { type: "string", enum: ["bottom", "middle", "top"], description: "place des sous-titres" },
+        anim: { type: "string", enum: ["karaoke", "pop", "simple"], description: "karaoke = le mot dit change de couleur, pop = mots qui apparaissent un à un, simple = ligne entière" },
+        size: { type: "string", enum: ["s", "m", "l"], description: "taille des sous-titres : s petite, m moyenne, l grosse (plus d'un dixième de la largeur par lettre)" },
+        highlight: { ...HEXS, description: "couleur des mots mis en avant, #rrggbb" },
+        card: { ...HEXS, description: "fond des cartes plein écran s'il y en a, #rrggbb" },
+      },
+    },
   },
 };
+
+// Polices fréquentes des reels, toutes sur Google Fonts : Claude choisit de préférence parmi elles.
+const FONTS = "Montserrat, Poppins, Inter, Bebas Neue, Anton, Oswald, Archivo Black, Archivo, Roboto, Roboto Condensed, Lexend, DM Sans, Manrope, Plus Jakarta Sans, Outfit, Sora, Space Grotesk, Bricolage Grotesque, Barlow, Barlow Condensed, Rubik, Nunito, Kanit, League Spartan, Lilita One, Luckiest Guy, Bangers, Titan One, Permanent Marker, Playfair Display, DM Serif Display, Instrument Serif, Fraunces, Libre Baskerville, Caveat";
 
 async function copyStyle(api, cfg, job, step, dir) {
   const t = job.styleTask;
@@ -65,16 +90,18 @@ async function copyStyle(api, cfg, job, step, dir) {
   if (!ok.length) throw new Error(`Aucun reel n'a pu être lu : ${seen.map((x) => x.error).join(" ; ")}`.slice(0, 600));
   await step("Claude écrit le style…", 0.75);
   const lines = ok.map((x) => `Reel ${x.i}${x.ref.title ? ` (« ${x.ref.title} »)` : ""} : ${x.duration.toFixed(1)} s, ${x.width}×${x.height}, ${x.cuts} coupes (un plan dure ${x.shot.toFixed(1)} s en moyenne, le plus court ${x.shortest.toFixed(1)} s)` +
-    `${x.wpm ? `, ${x.wpm} mots par minute` : ""}, son ${x.loudness}${x.music ? ", musique ou fond sonore continu" : ""}. Planches d'images : ${x.sheets.join(", ")} (une image toutes les ${x.every.toFixed(1)} s, dans l'ordre, de gauche à droite puis de haut en bas).`);
+    `${x.wpm ? `, ${x.wpm} mots par minute` : ""}, son ${x.loudness}${x.music ? ", musique ou fond sonore continu" : ""}. Planches d'images : ${x.sheets.join(", ")} (une image toutes les ${x.every.toFixed(1)} s, dans l'ordre, de gauche à droite puis de haut en bas). Images en grand : ${x.frames.map((f) => basename(f)).join(", ")}.`);
   const failed = seen.filter((x) => x.error).map((x) => `Reel ${x.i} illisible (${x.error.slice(0, 120)}).`);
   const prompt = `Tu es monteur vidéo. Antoine veut un style de montage pour ses vidéos face caméra inspiré de ${ok.length > 1 ? "ces reels" : "ce reel"}.
 Mesures faites par son Mac (les coupes sont détectées automatiquement : une coupe sèche sur le même décor peut échapper, les planches font foi) :
 ${lines.join("\n")}
 ${failed.join("\n")}
-Lis chaque planche d'images avec l'outil Read avant de répondre. Regarde : place, taille, police (avec ou sans empattement, grasse, capitales), couleur et animation probable des sous-titres ; mots mis en couleur ; textes et cartes à l'écran ; écran coupé, plein cadre, visage en incrustation ; zooms et recadrages ; B-roll ; emojis ; couleurs dominantes ; rythme.
+Lis chaque planche et chaque image en grand avec l'outil Read avant de répondre. Regarde : place, taille, police (avec ou sans empattement, étroite ou large, grasse, capitales), couleur, contour, fond et animation probable des sous-titres ; mots mis en couleur ; textes et cartes à l'écran ; écran coupé, plein cadre, visage en incrustation ; zooms et recadrages ; B-roll ; emojis ; couleurs dominantes ; rythme.
+Le but est qu'on reconnaisse ce créateur au premier coup d'œil : sois précis et fidèle, pas générique. Une règle comme « sous-titres lisibles » ne sert à rien ; « sous-titres en Anton blanc à contour noir épais, 2 à 3 mots, au tiers bas, mot dit en jaune #ffd400 » sert.
 Écris les notes du nouveau style : 8 à 14 règles concrètes, à l'impératif, une idée chacune, que Claude pourra suivre en montant les rushes d'Antoine (sous-titres, accroche, rythme des coupes et des zooms, temps forts mis en scène, B-roll, bruitages, musique, fin). Donne des chiffres quand les mesures en donnent (durée des plans, débit).
 N'invente rien qu'on ne voit ou n'entend pas ; ne copie ni logo, ni nom, ni texte du créateur. Français, sans emoji.
 summary : 2 à 3 phrases pour Antoine. accent : la couleur des mots mis en avant si elle est nette (#rrggbb), sinon vide.
+video : le look tel qu'il est sur les images, que le Mac reproduira tel quel. font : la famille Google Fonts la plus proche de la police des sous-titres, de préférence parmi ${FONTS} ; mesure les couleurs sur les images (pas de couleur au hasard) ; s'il n'y a pas de sous-titres, décris les textes à l'écran.
 Réponds uniquement avec le JSON demandé.`;
   const r = await ask(cfg, prompt, COPY_SCHEMA, dir);
   const notes = (r.notes || []).map((x) => String(x).replace(/^[-•*]\s*/, "").trim()).filter(Boolean).slice(0, 16);
@@ -83,7 +110,10 @@ Réponds uniquement avec le JSON demandé.`;
   let said = String(r.summary || "").trim();
   if (said.length > 700) said = said.slice(0, 700).replace(/[^.!?]*$/, "").trim() || said.slice(0, 700);
   const summary = [said, ...failed].filter(Boolean).join(" ");
-  return { notes: notes.join("\n"), summary, ...(/^#[0-9a-f]{6}$/i.test(r.accent || "") ? { accent: r.accent } : {}) };
+  // Des images clés du reel restent dans le style comme images d'inspiration (6 au plus, réparties entre les reels).
+  const per = Math.max(1, Math.floor(6 / ok.length));
+  const frames = ok.flatMap((x) => x.frames.slice(0, per)).slice(0, 6).map((f) => readFileSync(f).toString("base64"));
+  return { notes: notes.join("\n"), summary, ...(/^#[0-9a-f]{6}$/i.test(r.accent || "") ? { accent: r.accent } : {}), ...(r.video && typeof r.video === "object" ? { video: r.video } : {}), frames };
 }
 
 /** Le fichier d'un reel : une vidéo de la bibliothèque Médias, ou un lien lu par yt-dlp. */
@@ -100,12 +130,26 @@ async function fetchRef(api, cfg, ref, base) {
   const bin = cfg.ytDlp || "yt-dlp";
   const args = ["--no-playlist", "--no-progress", "-f", "mp4/bestvideo*+bestaudio/best", "--merge-output-format", "mp4", "--max-filesize", "300M", "-o", `${base}.%(ext)s`];
   // Instagram et TikTok demandent souvent d'être connecté : yt-dlp prend alors les cookies du navigateur choisi.
-  if (cfg.ytDlpCookies) args.push("--cookies-from-browser", String(cfg.ytDlpCookies));
-  args.push(ref.url);
-  await run(bin, args, { timeoutMs: 180_000 }).catch((e) => {
-    if (e.code === "ENOENT") throw new Error("yt-dlp n'est pas installé sur le Mac (brew install yt-dlp), ou choisis une vidéo de la bibliothèque");
-    throw new Error(`le lien n'a pas pu être lu${cfg.ytDlpCookies ? "" : " (Instagram demande souvent ytDlpCookies dans config.json)"} : ${String(e.stderr || e.message).trim().split("\n").pop().slice(0, 200)}`);
-  });
+  // Si ces cookies sont introuvables (navigateur absent ou autre profil), on réessaie sans eux.
+  const cookies = cfg.ytDlpCookies ? String(cfg.ytDlpCookies) : "";
+  const tryGet = (withCookies) => run(bin, [...args, ...(withCookies ? ["--cookies-from-browser", cookies] : []), ref.url], { timeoutMs: 180_000 });
+  const why = (e) => String(e.stderr || e.message).trim().split("\n").pop().slice(0, 200);
+  await tryGet(!!cookies)
+    .catch((e) => {
+      if (!cookies || e.code === "ENOENT" || !/cookie/i.test(String(e.stderr || e.message))) throw e;
+      log(`cookies de « ${cookies} » illisibles (${why(e)}) : nouvel essai sans cookies`);
+      return tryGet(false).catch((e2) => {
+        e2.cookieError = why(e);
+        throw e2;
+      });
+    })
+    .catch((e) => {
+      if (e.code === "ENOENT") throw new Error("yt-dlp n'est pas installé sur le Mac (brew install yt-dlp), ou choisis une vidéo de la bibliothèque");
+      const hint = e.cookieError
+        ? ` (les cookies du navigateur « ${cookies} » sont introuvables : mets dans ytDlpCookies de config.json le navigateur où tu es connecté à Instagram, par ex. safari, firefox, brave, edge)`
+        : cookies ? "" : " (Instagram demande souvent ytDlpCookies dans config.json)";
+      throw new Error(`le lien n'a pas pu être lu${hint} : ${why(e)}`);
+    });
   const dirOf = base.slice(0, base.lastIndexOf("/"));
   const name = readdirSync(dirOf).find((n) => n.startsWith(base.split("/").pop() + ".") && !n.endsWith(".part"));
   if (!name) throw new Error("yt-dlp n'a rien téléchargé");
@@ -150,7 +194,15 @@ async function measure(cfg, file, dir, n) {
     await run("ffmpeg", ["-v", "error", "-y", "-ss", start.toFixed(2), "-i", file, "-vf", `fps=1/${every.toFixed(3)},scale=360:-2,tile=3x2:padding=6:color=white`, "-frames:v", "1", "-q:v", "4", join(dir, "..", name)]).catch(() => {});
     if (existsSync(join(dir, "..", name))) sheets.push(name);
   }
+  // Six images en grand (540 px de large), réparties sur le reel : Claude y lit la police, et elles restent dans le style.
+  const frames = [];
+  for (const [k, at] of [0.08, 0.25, 0.4, 0.55, 0.7, 0.88].entries()) {
+    const out = join(dir, "..", `image-${n}-${k + 1}.jpg`);
+    await run("ffmpeg", ["-v", "error", "-y", "-ss", (duration * at).toFixed(2), "-i", file, "-vf", "scale=540:-2", "-frames:v", "1", "-q:v", "3", out]).catch(() => {});
+    if (existsSync(out)) frames.push(out);
+  }
   return {
+    frames,
     duration, width: info.width, height: info.height,
     cuts: cuts.length,
     shot: shots.length ? shots.reduce((a, b) => a + b, 0) / shots.length : duration,

@@ -77,7 +77,7 @@ export function StyleCopier({ project, list, onDone }: { project: Project; list:
           {open && (
             <form onSubmit={send} className="rise flex flex-col gap-2 rounded-xl border border-line bg-surface-2/50 p-3">
               <p className="text-[12.5px] text-pretty text-ink-2">
-                Colle jusqu&apos;à {MAX_STYLE_REFS} reels du créateur dont tu aimes le montage, ou choisis des vidéos de ta bibliothèque. Ton Mac les mesure (durée des plans, son, débit de parole, images clés) et Claude écrit un nouveau style avec ses notes.
+                Colle jusqu&apos;à {MAX_STYLE_REFS} reels du créateur dont tu aimes le montage, ou choisis des vidéos de ta bibliothèque. Ton Mac les mesure (durée des plans, son, débit de parole, images clés) et Claude en tire un nouveau style : sa police, ses couleurs, le dessin et la place des sous-titres, ses notes de montage, et des images clés que Claude regardera en montant.
               </p>
               <div className="flex flex-wrap gap-2">
                 <input aria-label="Nom du nouveau style" value={name} onChange={(e) => setName(e.target.value)} maxLength={MAX_STYLE_NAME} placeholder="Nom, par ex. Façon Hugo" className={cn(inputClass, "h-9 sm:max-w-64")} />
@@ -153,7 +153,12 @@ export function StyleCopier({ project, list, onDone }: { project: Project; list:
                 </>
               )}
               {j.status === "failed" && j.error && <span className="text-pretty text-warn">{j.error}</span>}
-              {j.status === "done" && j.styleTask?.result?.summary && <span className="text-pretty text-ink-2">{j.styleTask.result.summary}</span>}
+              {j.status === "done" && j.styleTask?.result?.summary && (
+                <span className="text-pretty text-ink-2">
+                  {j.styleTask.result.font && <b className="font-medium text-ink">Police {j.styleTask.result.font}. </b>}
+                  {j.styleTask.result.summary}
+                </span>
+              )}
             </div>
           ))}
         </div>

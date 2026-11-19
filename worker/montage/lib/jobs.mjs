@@ -23,6 +23,7 @@ import { reviseMotion, writeReelMarks } from "./motion-revise.mjs";
 import { directMotion } from "./motion-direct.mjs";
 import { handleVideo, isVideoJob } from "./reel/index.mjs";
 import { makeAssets } from "./asset.mjs";
+import { referenceImages } from "./voice.mjs";
 
 /** Passages de reels vidéo commencés par ce processus (suffixe du dossier de travail). */
 let runs = 0;
@@ -203,7 +204,9 @@ async function handleJob(api, cfg, { job, action, rushes = [], media }) {
       const marks = writeMarks(job, cands, dir);
       const brollAuto = settings.brollAuto !== false;
       const stage = settings.stageAuto !== false ? stageChoices(job) : null;
-      const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, broll: brollAuto ? listBroll(cfg) : null, stage, cwd: dir });
+      // Images d'inspiration du style (images clés d'un créateur copié, captures choisies par Antoine) : Claude les regarde.
+      const insp = await referenceImages(api, job, join(dir, "inspiration"));
+      const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, broll: brollAuto ? listBroll(cfg) : null, stage, inspiration: insp.files.map((f) => join("inspiration", basename(f))), cwd: dir }).finally(insp.clean);
       const edl = buildEdl(job, cands, p, { settings, captions, tracks, stage });
       // Les textes posés à la main restent d'une proposition à l'autre.
       if (last?.edl.texts?.length) edl.texts = last.edl.texts;

@@ -1,7 +1,8 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { cleanLook, cleanRefs, DEFAULT_STYLE, emptyRefs, MAX_NOTES, MAX_REF_IMAGE_BYTES, MAX_REF_IMAGES, MAX_SKILL, MAX_STYLE_NAME, MAX_STYLES, MAX_TONE, noteLines, PRESETS, presetFor, type ProfileRefs, sameLook, STYLE_ID, starterProfile, type StyleProfile } from "@/lib/profiles";
+import { DEFAULT_CAPTIONS, type CaptionStyle } from "@/lib/montage";
+import { cleanLook, cleanRefs, DEFAULT_STYLE, emptyRefs, MAX_NOTES, MAX_REF_IMAGE_BYTES, MAX_REF_IMAGES, MAX_SKILL, MAX_STYLE_NAME, MAX_STYLES, MAX_TONE, noteLines, PRESETS, presetFor, type ProfileRefs, sameLook, STYLE_ID, starterProfile, type StyleProfile, type VideoLook } from "@/lib/profiles";
 import { MAX_STRATEGY } from "@/lib/strategy";
 import type { Project } from "@/lib/types";
 import { DATA_DIR, getSetting, listAccounts, listProjects, setSetting } from "./db";
@@ -249,7 +250,9 @@ export function forgetProfile(projectId: string) {
 }
 
 /** Colors and font of the Mac's video overlays (subtitles, opening hook, end card) and generic covers. */
-export type VideoTheme = { accent: string; ink: string; dark?: string; text?: string; font?: string; googleFont?: string; fontStretch?: string };
+export type VideoTheme = { accent: string; ink: string; dark?: string; text?: string; font?: string; googleFont?: string; fontStretch?: string; design?: VideoDesign };
+/** How the Mac draws subtitles, hook and cards (worker 0.21.0; older workers ignore it). */
+export type VideoDesign = Pick<VideoLook, "weight" | "upper" | "stroke" | "strokeColor" | "box" | "boxColor" | "shadow" | "hook">;
 
 const luminance = (hex: string) => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -279,7 +282,30 @@ export function themeOf(projectId: string | undefined, styleId?: string): VideoT
     ...(look.font === "grotesque"
       ? { font: "Bricolage Grotesque", googleFont: "Bricolage Grotesque:opsz,wdth,wght@12..96,75..100,200..800", fontStretch: "90%" }
       : {}),
+    ...videoParts(look.video),
   };
+}
+
+/** The video look of a style, as theme keys: its font (from Google Fonts), colors and drawing of the subtitles. */
+function videoParts(v: VideoLook | undefined): Partial<VideoTheme> {
+  if (!v) return {};
+  const design: VideoDesign = {};
+  for (const k of ["weight", "upper", "stroke", "strokeColor", "box", "boxColor", "shadow", "hook"] as const) if (v[k] !== undefined) (design as Record<string, unknown>)[k] = v[k];
+  return {
+    // A static weight is asked first; the Mac falls back on the family alone when Google has no such weight.
+    ...(v.font ? { font: v.font, googleFont: `${v.font}:wght@${v.weight ?? 800}`, fontStretch: "100%" } : {}),
+    ...(v.text ? { text: v.text } : {}),
+    ...(v.card ? { dark: v.card } : {}),
+    ...(Object.keys(design).length ? { design } : {}),
+  };
+}
+
+/** The subtitle settings a style's video look sets (place, animation, size, key word color), over the project's. */
+export function captionsOf(projectId: string | undefined, styleId: string | undefined, base: CaptionStyle | undefined): CaptionStyle | undefined {
+  const project = projectId ? listProjects().find((p) => p.id === projectId) : undefined;
+  const v = project ? profileOf(project, styleId).look.video : undefined;
+  if (!v || !(v.position || v.anim || v.size || v.highlight)) return base;
+  return { ...DEFAULT_CAPTIONS, ...base, ...(v.position ? { position: v.position } : {}), ...(v.anim ? { look: v.anim } : {}), ...(v.size ? { size: v.size } : {}), ...(v.highlight ? { highlight: v.highlight } : {}) };
 }
 
 export type Voice = { tone?: string; skill?: string; examples?: string[]; images?: string[]; strategy?: string };

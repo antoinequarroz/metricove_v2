@@ -176,7 +176,7 @@ export const MAX_SFX = 20;
 /** The Mac version that renders key moments and sound effects. */
 export const STAGE_WORKER = "0.17.0";
 /** Oldest Mac that reads `model`, the voice-over, library music and music composed for a video. */
-export const AUDIO_WORKER = "0.19.0";
+export const AUDIO_WORKER = "0.20.0";
 
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };
 /** A text put on the video by hand: when, where (centre of the text, 0 to 1 of the picture), how big. */
@@ -456,7 +456,7 @@ export const MAX_ASSET_PROMPT = 600;
 export const MAX_ASSET_COUNT = 4;
 
 /** Oldest Mac program that writes style rules and copies a creator's style (kind "style"). */
-export const STYLE_WORKER = "0.18.0";
+export const STYLE_WORKER = "0.21.0";
 export const MAX_STYLE_REFS = 3;
 export const MAX_RULES = 6;
 
@@ -484,6 +484,8 @@ export type StyleTask = {
     summary?: string;
     notes?: string;
     accent?: string;
+    /** copy: the Google font Claude matched to the creator's subtitles. */
+    font?: string;
   };
 };
 

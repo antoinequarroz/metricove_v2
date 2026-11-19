@@ -6,7 +6,8 @@ import { DEFAULT_STYLE, MAX_REF_IMAGE_BYTES, type Look, type StyleProfile } from
 export type ProfileChange = {
   name?: string;
   notes?: string;
-  look?: Look;
+  /** `video: null` takes the video look away (left out, it stays as it is). */
+  look?: Omit<Look, "video"> & { video?: Look["video"] | null };
   tone?: string;
   skill?: string;
   strategy?: string;

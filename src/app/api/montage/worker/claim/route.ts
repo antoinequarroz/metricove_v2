@@ -48,11 +48,12 @@ export async function POST(req: Request) {
   if (claimed.motion && logo) claimed.motion = { ...claimed.motion, look: { ...claimed.motion.look, logo } };
   // The illustrations and sound effects of the job's style (worker 0.16.0 uses them; older ones ignore them).
   const assets = (styled || claimed.kind === "motion") && claimed.projectId ? assetsFor(claimed.projectId, claimed.styleId) : undefined;
-  // The Claude model: the job's own, else the one of Réglages (worker 0.19.0 passes it to `claude --model`).
+  // A montage also gets the inspiration images of its style (worker 0.19.0 shows them to Claude; older ones ignore them).
+  // The Claude model: the job's own, else the one of Réglages (passed to `claude --model`).
   const model = claimed.model || audioPrefs().claudeModel || undefined;
-  // The thinking effort the same way (worker 0.20.0 passes it to `claude --effort`; older ones ignore it).
+  // The thinking effort the same way (passed to `claude --effort`; older workers ignore it).
   const effort = claimed.effort || audioPrefs().claudeEffort || undefined;
-  const job = { ...claimed, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
+  const job = { ...claimed, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill, ...(claimed.kind === "montage" && voice.images ? { images: voice.images } : {}) } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

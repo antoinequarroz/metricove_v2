@@ -288,7 +288,7 @@ function StyleCard({ project, style, items, fonts, on, onClick }: { project: Pro
             <span key={c} title={c} className="size-3.5 rounded-full shadow-[0_0_0_1.5px_var(--surface),0_0_0_2.5px_var(--line-strong)]" style={{ background: c }} />
           ))}
         </span>
-        <span>{FONT_NAME[look.font]}</span>
+        <span>{look.video?.font ?? FONT_NAME[look.font]}</span>
         <span>
           {rules} note{rules > 1 ? "s" : ""}
         </span>

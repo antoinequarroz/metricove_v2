@@ -672,7 +672,7 @@ Une tâche `kind: "style"` (action `style`, `minWorker` 0.18.0) porte `job.style
 Réglages du Mac (`config.json`) : `ytDlp` (chemin de yt-dlp, `brew install yt-dlp`) et `ytDlpCookies` (navigateur dont
 yt-dlp prend les cookies, par ex. `"chrome"` : Instagram demande souvent d'être connecté).
 
-## Voix, musique et modèle Claude (worker 0.19.0, METRI-38 à 41)
+## Voix, musique, modèle Claude et puissance (worker 0.20.0, METRI-38 à 41)
 
 **Clés et choix (Réglages → Voix et musique, Modèle Claude des vidéos).** Réglage `audioKeys` `{ elevenlabs?, google? }`
 (sinon `ELEVENLABS_API_KEY`, `GEMINI_API_KEY` ou `GOOGLE_API_KEY` du `.env`), jamais renvoyé à la page ni au Mac ;
@@ -694,7 +694,7 @@ inconnu donne une erreur claire (`code: "MODEL"`).
 **Pistes de musique.** `track` (EDL face cam, plan du reel) accepte aussi `lib:<id>` (une musique de la bibliothèque,
 téléchargée une fois dans `libraryCache`) et, pour un reel vidéo, `gen` : Claude écrit la consigne (`music`, en
 anglais, dans la partition) et, une fois la durée connue, le Mac demande `POST /api/audio/music` ; le plan rendu garde
-`lib:<id>` (une retouche ou une édition réutilise la même musique). Un Mac avant 0.19.0 ne reçoit jamais un reel avec
+`lib:<id>` (une retouche ou une édition réutilise la même musique). Un Mac avant 0.20.0 ne reçoit jamais un reel avec
 voix off, `gen` ou `lib:` (`minWorker: AUDIO_WORKER`).
 
 **Voix off du reel.** `motion.voice { provider, voiceId, name? }` → `video.voiceOver`. Chaque temps fort porte `say`
@@ -703,3 +703,15 @@ vérification, le Mac fait lire chaque phrase (`POST /api/audio/tts`, cache `voi
 ~/Movies/Metricove/voix-cache), allonge le temps fort à phrase + 0,6 s au moins (`fixed`), puis au mixage
 (lib/reel/narration.mjs) pose chaque phrase 0,15 s après le début de son temps fort, baisse la musique dessous
 (sidechaincompress, musique à la moitié du volume choisi) et normalise à −14 LUFS.
+
+### Look vidéo d'un style (`look.video`, worker 0.21.0)
+
+Un style peut porter un **look vidéo** : police Google Fonts (n'importe quelle famille), graisse, capitales, couleur du
+texte, contour, fond derrière la ligne ou le mot dit, ombre, type d'accroche (bandeau, gros texte, cadre blanc), place,
+apparition et taille des sous-titres, couleur des mots mis en avant et fond des cartes. Il se règle dans Ressources →
+Styles (« Look des vidéos », avec un aperçu) et « Copier un créateur » le remplit d'après les images du reel.
+- Au claim, `themeOf` ajoute `font`/`googleFont`, `text`, `dark` et `theme.design` ; le Mac (hf.mjs, stage.mjs) dessine
+  sous-titres, accroche, carton de fin et cartes avec. Une graisse que Google n'a pas : la famille seule est prise.
+- À la création d'un montage, `captionsOf` met la place, l'apparition, la taille et la couleur du style dans `job.style`.
+- La copie garde 6 images clés des reels comme images d'inspiration du style ; un montage les reçoit (`voice.images`)
+  et Claude les lit avant de proposer la mise en scène.
