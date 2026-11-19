@@ -246,10 +246,11 @@ export function cleanScore(raw, { target, pace, base, seed, request, source, dir
       for (const b of free()) b.seconds = quantize(clamp(Math.max(floor(b), b.seconds * k), VIDEO.seconds[0], VIDEO.seconds[1]));
       const got = sum();
       if (Math.abs(got - goal) > goal * TIMING.tolerance) {
-        // La vraie raison : l'étirement ou la réduction plafonnés, ou le temps de lire (ou 10 s par temps fort).
+        // La vraie raison, dite pour Antoine (les notes sont lues dans le Studio) : l'étirement plafonné (×1,35) ralentirait
+        // la vidéo, 10 s au plus par temps fort ; plus longue, c'est toujours le temps de lire (réduction plafonnée à ×0,85).
         const why = got < goal
-          ? (want > TIMING.scale[1] ? `étirement plafonné à ×${frNum(TIMING.scale[1])}` : `${VIDEO.seconds[1]} s au plus par temps fort`)
-          : (want < TIMING.scale[0] ? `réduction plafonnée à ×${frNum(TIMING.scale[0])}` : "pour garder le temps de lire");
+          ? (want > TIMING.scale[1] ? "plus long, le rythme deviendrait lent : ajoute de la matière à la demande" : `${VIDEO.seconds[1]} s au plus par temps fort`)
+          : "pour garder le temps de lire tous les textes";
         // « seulement » pour une vidéo restée plus courte que la cible ; plus longue, elle « garde » sa durée.
         fix(got < goal ? `Durée visée ${goal} s : ${frSec(got)} s seulement (${why}).` : `Durée visée ${goal} s : la vidéo garde ${frSec(got)} s (${why}).`);
       }

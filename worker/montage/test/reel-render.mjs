@@ -18,7 +18,7 @@ import * as HF from "../lib/reel/hf-cli.mjs";
 import { checkMoments } from "../lib/reel/sandbox.mjs";
 import { cleanScore, timeScore } from "../lib/reel/score.mjs";
 import { stagePage } from "../lib/reel/stage.mjs";
-import { FPS, H, HF_PACKAGE, TOOLS, W } from "../lib/reel/vocab.mjs";
+import { FPS, H, HF_PACKAGE, RHYTHM, TOOLS, W } from "../lib/reel/vocab.mjs";
 
 const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith("--")));
@@ -143,7 +143,8 @@ async function main() {
     const t0 = Date.now();
     const c = await HF.check(cfg, hf);
     sum.checkMs = Date.now() - t0;
-    sum.advice = c.advice.map((f) => `${f.code} ${f.target}${f.message ? ` : ${String(f.message).slice(0, 160)}` : ""}`);
+    // Comme produce() : les constats de place pendant une liaison ne comptent pas (HF.heldOnly).
+    sum.advice = HF.heldOnly(c.advice, stage.marks, stage.settle, (RHYTHM[plan.pace] || RHYTHM.normal).bridge).map((f) => `${f.code} ${f.target}${f.message ? ` : ${String(f.message).slice(0, 160)}` : ""}`);
     const b = HF.blame(c.blocking, stage.momentIds);
     for (const f of c.blocking) say(`check : ${f.code} ${f.target} — ${f.message}`);
     const faulty = Object.keys(b.moments);

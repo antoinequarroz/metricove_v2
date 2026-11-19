@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { reelTimeline, type FreeText, type MontageJob, type MontageMark, type ReelPlan, type ReelScene } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { atLeast } from "@/lib/worker-version";
 import { Button } from "../ui";
 import { Annotator } from "./annotator";
 import { Segmented } from "./controls";
@@ -20,12 +21,7 @@ import { useTimelineKeys, useUndo } from "./timeline-kit";
 import { montageApi, type WorkerStatus } from "./use-montage";
 
 /** Oldest Mac program that knows the editing screen of a reel (versions, requests on a passage, edits by hand). */
-const REVIEW_WORKER = [0, 9, 0];
-const atLeast = (version: string | undefined, min: number[]) => {
-  const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
-  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
-  return true;
-};
+const REVIEW_WORKER = "0.9.0";
 
 const MIN_SCENE = 1.5;
 const MAX_SCENE = 15;

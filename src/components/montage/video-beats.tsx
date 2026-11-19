@@ -5,6 +5,7 @@ import { REEL_ACTORS, REEL_BRIDGES, REEL_CAMERAS, REEL_LAYOUTS, REEL_VIDEO, VIDE
 import { cn } from "@/lib/utils";
 import { Switch } from "./controls";
 import { inputClass } from "./look-parts";
+import { fmtLen } from "./parts";
 import { nb } from "./reel-progress";
 
 /* ---------- Names shown for the engine's choices ---------- */
@@ -339,7 +340,7 @@ function BeatCard({
             aria-label={`Durée du temps fort ${i + 1}`}
             className="min-w-0 flex-1 accent-[var(--accent)]"
           />
-          <span className="tabular w-11 text-right font-mono text-[11.5px]">{(b.fixed ? b.seconds : length).toFixed(1)}{"\u00a0"}s</span>
+          <span className="tabular w-11 text-right font-mono text-[11.5px]">{fmtLen(b.fixed ? b.seconds : length)}</span>
           {b.fixed ? (
             <button onClick={() => set({ fixed: undefined })} disabled={off} className="press w-9 text-[11.5px] text-ink-3 underline-offset-2 hover:text-ink hover:underline" title="Laisser le moteur calculer la durée d'après le texte et le rythme">
               Auto

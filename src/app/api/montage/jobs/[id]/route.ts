@@ -88,7 +88,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
     // A generation (regeneration, retouch, edit) on a video reel that already has videos: the Mac sees the action gone,
     // stops within seconds and sends nothing. A first generation has nothing to go back to: it is cancelled (DELETE).
     // Only a video job: the worker of a reel of scenes only stops when the job is deleted, it keeps withdraw and cancel.
-    if (!isVideoJob(job) || !busy || !job.versions.some((v) => v.reel && v.preview)) return NextResponse.json({ error: "Rien à rétablir : annule plutôt" }, { status: 400 });
+    // The Mac may have finished between the click (after a confirm) and this request: nothing to stop, the video is there.
+    if (isVideoJob(job) && !busy) return NextResponse.json({ job: pageJob(job) });
+    if (!isVideoJob(job) || !job.versions.some((v) => v.reel && v.preview)) return NextResponse.json({ error: "Rien à rétablir : annule plutôt" }, { status: 400 });
     restoreReel(job);
     job.regen = undefined;
     return NextResponse.json({ job: pageJob(release(job, "review")) });
@@ -203,23 +205,23 @@ export async function PATCH(req: Request, { params }: Ctx) {
       // A retouch that failed must not lock a reel that already has good versions: it stays open, with the error
       // on show and the text of the request kept so that it can be reworded.
       restoreReel(job);
-      return NextResponse.json({ job: release(job, "review") });
+      return NextResponse.json({ job: pageJob(release(job, "review")) });
     }
-    return NextResponse.json({ job: release(job, "failed") });
+    return NextResponse.json({ job: pageJob(release(job, "failed")) });
   }
   if (b.status === "done" && job.kind === "script") {
     job.script = (b.script ?? "").slice(0, 10_000);
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "cover") {
     // The image itself was sent to /api/media/:id/cover just before.
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "caption" && job.caption) {
     const text = (b.caption ?? "").trim().slice(0, 5000);
     if (!text) return NextResponse.json({ error: "Description vide" }, { status: 400 });
     job.caption.result = { caption: text, youtubeTitle: b.youtubeTitle?.trim().slice(0, 100) || undefined };
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "post" && job.post) {
     const caption = typeof b.post?.caption === "string" ? b.post.caption.trim().slice(0, 5000) : "";
@@ -229,7 +231,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       .filter((s) => s.title || s.body);
     if (!slides.length) return NextResponse.json({ error: "Post vide" }, { status: 400 });
     job.post.result = { caption, slides };
-    return NextResponse.json({ job: release(job, "done") });
+    return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.step !== undefined || b.progress !== undefined || b.phase !== undefined) {
     // Only while the job is the Mac's: a report on a job nobody holds (finished, cancelled, or waiting in the queue

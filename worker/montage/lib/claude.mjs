@@ -185,20 +185,21 @@ export async function claudeFlags(cfg, { refresh = false, retryMs = 2000 } = {})
   const hit = flagsCache.get(bin);
   let f = !refresh && hit && hit.until > Date.now() ? hit.f : null;
   if (!f) {
-    let help = "";
-    for (let k = 0; k < 2 && !help; k++) {
+    let help = "", gone = false;
+    // Un binaire absent (ENOENT, EACCES) ne se répare pas en 2 s : pas de second essai.
+    for (let k = 0; k < 2 && !help && !gone; k++) {
       if (k) await sleep(retryMs);
-      try { help = await run(bin, ["--help"], { timeoutMs: 20_000 }); } catch { help = ""; }
+      try { help = await run(bin, ["--help"], { timeoutMs: 20_000 }); } catch (e) { help = ""; gone = !!binMissing(e); }
     }
     const has = (re) => re.test(help);
     f = {
-      found: !!help,
+      found: !!help, gone: !help && gone,
       restricted: has(/--restricted\b/), tools: has(/--tools\b/), stream: has(/stream-json/), partial: has(/--include-partial-messages/),
       effort: has(/--effort\b/), strictMcp: has(/--strict-mcp-config/), noSession: has(/--no-session-persistence/), schema: has(/--json-schema/),
     };
     f.missing = [!f.restricted && "--restricted", !f.tools && "--tools", !f.stream && "stream-json"].filter(Boolean);
     flagsCache.set(bin, { f, until: help ? Infinity : Date.now() + FLAGS_RETRY_MS });
-    if (!help) log("claude --help ne répond pas : les vidéos passent par l'ancien appel (nouvel essai dans 5 min)");
+    if (!help) log(gone ? `Claude Code introuvable (claude.bin = ${bin}) : les vidéos échoueront tant que config.json n'est pas corrigé (nouvel essai dans 5 min)` : "claude --help ne répond pas : les vidéos passent par l'ancien appel (nouvel essai dans 5 min)");
   }
   const refused = cfg.reel?.restricted === false;
   // why : pourquoi le chemin complet n'est pas possible ("absent" : --help ne répond pas ; "old" : Claude Code trop
@@ -235,6 +236,13 @@ function claudeTrouble(text, rate) {
 }
 
 const err = (message, code, extra = {}) => Object.assign(new Error(message), { code }, extra);
+
+/** Le lancement même de la commande a échoué (binaire absent ou non exécutable) : le code (ENOENT, EACCES), sinon null. */
+const binMissing = (e) => (e && /^spawn\b/.test(String(e.syscall || "")) && ["ENOENT", "EACCES"].includes(e.code) ? e.code : null);
+
+/** Le message clair quand Claude Code manque sur le Mac (au lieu de « spawn …/claude ENOENT »). */
+export const claudeMissing = (cfg, code = "ENOENT") =>
+  err(`Claude Code est introuvable sur le Mac (claude.bin = ${cfg.claude.bin}, ${code}) : corrige « claude.bin » dans config.json, puis lance node montage.mjs --check.`, "CLAUDE_MISSING");
 
 /**
  * Appel de Claude Code pour le reel vidéo, en flux : `claude -p --output-format stream-json --verbose
@@ -281,6 +289,7 @@ export async function askStream(cfg, prompt, schema, cwd, { tools = "", timeoutM
   } catch (e) {
     if (e.code === "TIMEOUT") throw err((TIMEOUT_TEXT[what] || TIMEOUT_TEXT.write)(fmtDelay(timeoutMs)), "TIMEOUT");
     if (signal?.aborted) throw e;
+    if (binMissing(e)) throw claudeMissing(cfg, binMissing(e));
     failure = e;
   }
   stats.ms = Date.now() - t0; stats.chars = chars;
@@ -329,6 +338,7 @@ async function plainAsk(cfg, prompt, schema, cwd, { timeoutMs, signal, what, sta
   } catch (e) {
     if (e.code === "TIMEOUT") throw err((TIMEOUT_TEXT[what] || TIMEOUT_TEXT.write)(fmtDelay(timeoutMs)), "TIMEOUT");
     if (signal?.aborted) throw e;
+    if (binMissing(e)) throw claudeMissing(cfg, binMissing(e));
     const t = claudeTrouble(e.message);
     throw err(t.message, t.kind === "auth" ? "AUTH" : t.kind === "limit" ? "LIMIT" : "CLAUDE");
   }

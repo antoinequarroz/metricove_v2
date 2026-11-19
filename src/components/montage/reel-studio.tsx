@@ -15,7 +15,7 @@ import { Switch } from "./controls";
 import { captureFrame, putCover } from "./cover-capture";
 import { inputClass, LookControls } from "./look-parts";
 import { JobStatus, MediaHeader, StudioTabs } from "./parts";
-import { DISPLAY_FONT, ENTER, ErrorCard, FailedBanner, IdleCard, LibraryCard, lookColors, MacPill, MacStatus, nb, Poster, ResultCard, RunningCard, StaleNote, Storyboard, useBoardTiles, WaitingCard } from "./reel-progress";
+import { announceText, DISPLAY_FONT, ENTER, ErrorCard, FailedBanner, IdleCard, LibraryCard, lookColors, MacPill, MacStatus, nb, Poster, ResultCard, RunningCard, StaleNote, Storyboard, useBoardTiles, WaitingCard } from "./reel-progress";
 import { montageApi, useMontage, type WorkerStatus } from "./use-montage";
 import { aboutText, askOf, askOfJob, forgetAsk, isLive, macState, reelView, rememberAsk, renderHead, runBeats, useReelJob, useServerClock, videoEstimate, videoVersions, type ReelView } from "./use-reel-job";
 
@@ -206,6 +206,17 @@ export function ReelStudio() {
   // ---- The video followed here: in the address (?reel=) and in this browser ----
   const [seed, setSeed] = useState<MontageJob | undefined>();
   const arrived = useRef(false);
+  /** The video this tab follows, as last asked by follow() (the address catches up a moment later). */
+  const wanted = useRef<string | null>(null);
+  const address = useCallback(
+    (id: string | null) => {
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set("reel", id);
+      else url.searchParams.delete("reel");
+      if (url.search !== window.location.search) router.replace(url.pathname + url.search, { scroll: false });
+    },
+    [router],
+  );
   /**
    * Follows a video (or none). The address is changed through the router, so that its history entry holds this video:
    * Back from another screen comes back to it, not to the one the page was opened with.
@@ -213,15 +224,13 @@ export function ReelStudio() {
   const follow = useCallback(
     (id: string | null, first?: MontageJob) => {
       arrived.current = true;
+      wanted.current = id;
       setSettled(true);
       setJobId(id);
       setSeed(first);
-      const url = new URL(window.location.href);
-      if (id) url.searchParams.set("reel", id);
-      else url.searchParams.delete("reel");
-      if (url.search !== window.location.search) router.replace(url.pathname + url.search, { scroll: false });
+      address(id);
     },
-    [router],
+    [address],
   );
   // On arrival: the address first (right away, the job is read on its own), then the video kept here (unless done for
   // more than a day), then the latest video still running or waiting to be looked at; those two need the list. Otherwise,
@@ -239,6 +248,16 @@ export function ReelStudio() {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     follow(latest?.id ?? null);
   }, [restored, data, reel, follow]);
+  // After arrival the address still leads: another ?reel (a link, Back or Forward on this same page) follows that video.
+  // An address that lost ?reel while a video is followed (the « Reel animé » tab) gets it back, as an arrival without
+  // ?reel would show the video kept here anyway.
+  useEffect(() => {
+    if (!arrived.current) return;
+    const id = reel ?? null;
+    if (id === wanted.current) return;
+    if (id) follow(id);
+    else address(wanted.current);
+  }, [reel, follow, address]);
 
   const live = useReelJob(jobId);
   const listed = jobId ? data?.jobs.find((j) => j.id === jobId) : undefined;
@@ -304,6 +323,17 @@ export function ReelStudio() {
   const request = draft.request.trim();
   const tooShort = request.length < REEL_VIDEO.minRequest;
   const running = view.kind === "queued" || view.kind === "running";
+  // Below xl, a video asked here: the screen (now first, max-xl:order-first) is scrolled into view once it is in place.
+  const showScreen = useRef(false);
+  useEffect(() => {
+    if (!showScreen.current || view.kind === "idle") return;
+    showScreen.current = false;
+    // Only the Studio's own scroll box moves (scrollIntoView would also shift the page's overflow-hidden boxes).
+    const el = screenRef.current;
+    const box = el?.closest<HTMLElement>("[data-reel-body]");
+    if (!el || !box) return;
+    box.scrollTo({ top: el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 16, behavior: reduced() ? "auto" : "smooth" });
+  }, [view.kind, jobId]);
 
   const generate = async () => {
     if (tooShort || creating || running) return;
@@ -329,8 +359,9 @@ export function ReelStudio() {
       }, { timeoutMs: 20_000 });
       follow(created.id, created);
       refreshList();
-      // On a phone the screen is under the request: brought into view.
-      if (!window.matchMedia("(min-width: 1280px)").matches) screenRef.current?.scrollIntoView({ behavior: reduced() ? "auto" : "smooth", block: "start" });
+      // On a phone or a tablet the screen moves above the request once the view is no longer at rest: brought into
+      // view after that render (see the effect below), not before, or the scroll goes to where it used to be.
+      if (!window.matchMedia("(min-width: 1280px)").matches) showScreen.current = true;
     } catch (e) {
       toast.error("Demande impossible", { description: nb((e as Error).message) });
     } finally {
@@ -618,8 +649,9 @@ export function ReelStudio() {
                       {running ? (
                         <>
                           <span>Une vidéo à la fois.</span>
+                          {/* Same word as the rail: with a video already there, only the new version stops. */}
                           <Button size="sm" variant="ghost" onClick={cancel} disabled={!!busy}>
-                            <X className="size-3.5" /> Annuler
+                            <X className="size-3.5" /> {hasVideo ? "Arrêter" : "Annuler"}
                           </Button>
                         </>
                       ) : hint ? (
@@ -649,6 +681,10 @@ export function ReelStudio() {
                   className={cn("scroll-thin flex min-w-0 flex-1 flex-col gap-3 sm:max-xl:max-w-[360px] xl:h-full xl:w-(--rail) xl:flex-none xl:overflow-y-auto", railMore && "[mask-image:linear-gradient(to_bottom,black_calc(100%-36px),transparent)]")}
                 >
                   {readError && <StaleNote at={readAt} />}
+                  {/* Outside the rail's cards (remounted with each state): read out on each phase or state, not on the percent. */}
+                  <p className="sr-only" role="status" aria-live="polite">
+                    {announceText(view)}
+                  </p>
                   <Rail
                     key={`${view.kind}:${jobId ?? ""}`}
                     view={view}

@@ -172,14 +172,15 @@ export const TYPE = frozen({
   fitStep: 0.94,
   sizes: {
     hero: [220, 84],
-    stack: [132, 64],
-    number: [300, 150], // le nombre
-    numberText: [84, 52], // le texte sous le nombre
-    sub: [56, 40],
-    list: [64, 46], // chaque élément d'une liste
-    listTitle: [96, 56], // le texte au-dessus des éléments
-    cta: [140, 80],
-    pill: [60, 40], // la pastille du cta (sub ou « Abonne-toi »)
+    // Réglés sur trois vraies vidéos (intégration) : une affiche de reel se lit de loin, le texte court prend la place.
+    stack: [156, 72],
+    number: [360, 170], // le nombre
+    numberText: [96, 60], // le texte sous le nombre
+    sub: [60, 44],
+    list: [76, 52], // chaque élément d'une liste
+    listTitle: [112, 64], // le texte au-dessus des éléments
+    cta: [150, 84],
+    pill: [62, 44], // la pastille du cta (sub ou « Abonne-toi »)
     over: [84, 44], // zone full : le texte devient un surtitre d'une ou deux lignes
     handle: [42, 32], // @handle de la signature
   },
@@ -235,7 +236,7 @@ export const ACTOR = frozen({
 
 /** Caméra. Jamais de mouvement de caméra pendant un zoom. */
 export const CAMERA = frozen({
-  drift: { y: -18, scale: 1.012 },
+  drift: { y: -28, scale: 1.015 },
   push: { scale: 1.06 },
 });
 

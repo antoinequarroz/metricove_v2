@@ -7,9 +7,9 @@ import { VIDEO_WORKER, type MontageJob, type MontageVersion } from "@/lib/montag
 import type { Look } from "@/lib/profiles";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
-import { Progress } from "./parts";
+import { fmtLen, Progress } from "./parts";
 import type { WorkerStatus } from "./use-montage";
-import { aboutText, durationText, etaText, liveProgress, PHASE_LINES, quietMinutes, renderHead, runBeats, videoEstimate, type MacState, type ReelAsk } from "./use-reel-job";
+import { aboutText, durationText, etaText, liveProgress, PHASE_LINES, quietMinutes, renderHead, runBeats, videoEstimate, type MacState, type ReelAsk, type ReelView } from "./use-reel-job";
 
 /** Calm entrance of a card that replaces another (composite only; no movement when motion is reduced). */
 export const ENTER = "transition-[opacity,transform] duration-180 ease-[var(--ease-out)] starting:translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0";
@@ -53,13 +53,21 @@ export function macPillText(mac: MacState) {
   }
 }
 
+/** What to do on a Mac too old for videos (the same steps as docs/MONTAGE.md, without --check). */
+const OLD_STEPS = "Sur le Mac : git pull, node montage.mjs --setup-reel, puis relance le programme.";
+const COMMANDS = /(git pull|node montage\.mjs --setup-reel)/;
+/** A text with the Mac's commands kept on one line each (« --setup-reel » would break after its dashes), copied as typed. */
+function Commands({ text }: { text: string }) {
+  return text.split(COMMANDS).map((part, i) => (i % 2 ? <span key={i} className="whitespace-nowrap">{part}</span> : part));
+}
+
 const MAC_HINT: Record<MacState["kind"], string> = {
   ready: "Le programme de montage tourne sur ton Mac : il prend les vidéos dès que tu les demandes.",
   mine: "Ton Mac fabrique la vidéo que tu suis ici.",
   busy: "Ton Mac termine une autre demande : la tienne suit dans la file.",
   silent: "Ton Mac a une vidéo en cours mais ne donne plus de nouvelles (veille ?). Elle reprendra à son retour.",
   offline: "Le Mac est éteint, en veille, ou le programme de montage est arrêté. Les demandes attendent son retour.",
-  old: "Sur le Mac : git pull, node montage.mjs --setup-reel, puis relance le programme.",
+  old: OLD_STEPS,
   never: "Le programme de montage n'a encore jamais contacté Metricove depuis un Mac.",
 };
 
@@ -84,7 +92,7 @@ export function MacStatus({ mac, worker, target, legacy }: { mac: MacState; work
   else if (mac.kind === "old")
     text = (
       <>
-        {nb(mac.version ? `Programme du Mac trop ancien (${mac.version}, il faut ${VIDEO_WORKER}).` : `Programme du Mac de version inconnue : il faut ${VIDEO_WORKER} pour les vidéos.`)}{" "}
+        <Commands text={nb(`${mac.version ? `Programme du Mac trop ancien (${mac.version}, il faut ${VIDEO_WORKER}).` : `Programme du Mac de version inconnue : il faut ${VIDEO_WORKER} pour les vidéos.`} ${OLD_STEPS}`)} />{" "}
         {legacy && (
           <Link href={legacy} className="font-medium text-accent underline-offset-2 hover:underline">
             Ancien éditeur par scènes
@@ -108,7 +116,7 @@ export function waitReason(mac: MacState) {
     case "offline":
       return `Ton Mac est éteint ou en veille${mac.seen ? ` (vu ${mac.seen})` : ""}. La vidéo démarrera dès qu'il se réveille.`;
     case "old":
-      return `${mac.version ? `Le programme du Mac est trop ancien (${mac.version}, il faut ${VIDEO_WORKER}).` : `Le programme du Mac n'a pas dit sa version (il faut ${VIDEO_WORKER}).`} Sur le Mac : git pull puis relance-le. Ta demande attendra.`;
+      return `${mac.version ? `Le programme du Mac est trop ancien (${mac.version}, il faut ${VIDEO_WORKER}).` : `Le programme du Mac n'a pas dit sa version (il faut ${VIDEO_WORKER}).`} ${OLD_STEPS} Ta demande attendra.`;
     case "busy":
       return nb(`Ton Mac termine « ${mac.busyTitle} » ; ta vidéo suit.`);
     case "silent":
@@ -128,7 +136,7 @@ export function WaitingCard({ mac, ahead, onCancel, cancelLabel = "Annuler", bus
         En attente du Mac
       </p>
       <p className="mt-1.5 text-[12.5px] leading-relaxed text-ink-2" aria-live="polite">
-        {nb(waitReason(mac))}
+        <Commands text={nb(waitReason(mac))} />
       </p>
       {!!ahead && ahead > 0 && <p className="tabular mt-1.5 text-[12px] text-ink-3">{ahead === 1 ? "1 demande avant la tienne" : `${ahead} demandes avant la tienne`}</p>}
       <Button size="sm" className="mt-3" onClick={onCancel} disabled={busy}>
@@ -170,6 +178,30 @@ export function useRunInfo(job: MontageJob, now: number) {
   };
 }
 
+/**
+ * One short line for screen readers (the Studio's live region): it changes with the phase or the state only, never
+ * with the percent or the remaining time.
+ */
+export function announceText(view: ReelView) {
+  switch (view.kind) {
+    case "queued":
+      return "En attente du Mac";
+    case "running": {
+      if (view.silent) return "Ton Mac ne répond plus (veille ?)";
+      const run = view.job.run;
+      return PHASE_LINES.find((l) => run?.phase && l.phases.includes(run.phase))?.title ?? "Le Mac travaille sur ta vidéo";
+    }
+    case "ready":
+      return view.failed ? FAILED_TITLE[view.ask ?? "unknown"] : "Ta vidéo est prête";
+    case "library":
+      return "Ta vidéo est dans ta bibliothèque";
+    case "failed":
+      return "La vidéo n'a pas pu être générée";
+    default:
+      return "";
+  }
+}
+
 /** The steps of a video, with the real time of those done and a detail on the one running. */
 export function PhaseTrack({ job, compact }: { job: MontageJob; compact?: boolean }) {
   const run = job.run;
@@ -209,7 +241,6 @@ export function PhaseTrack({ job, compact }: { job: MontageJob; compact?: boolea
   );
 }
 
-const fmtLen = (s: number) => `${s.toFixed(1).replace(".", ",")} s`;
 
 /** The beats Claude wrote, each with its length; while rendering, the one under the render head stands out. */
 export function BeatList({ job }: { job: MontageJob }) {
@@ -245,7 +276,8 @@ export function RunningCard({ job, now, silent, worker, onCancel, cancelLabel = 
       <div className={cn("flex flex-col gap-2 transition-opacity duration-200", silent && "opacity-55")}>
         <div>
           <p className="text-[13.5px] font-semibold">{info.title}</p>
-          <p className="tabular mt-0.5 text-[12.5px] text-ink-3" aria-live="polite">
+          {/* Not a live region: it moves every few seconds. The Studio announces the phase (announceText). */}
+          <p className="tabular mt-0.5 text-[12.5px] text-ink-3">
             {nb(info.phased ? `${info.pct} %${info.eta ? ` · ${info.eta}` : ""}` : `${info.value !== undefined ? `${info.pct} % · ` : ""}${info.since ? `depuis ${info.since}` : ""}`)}
           </p>
         </div>
@@ -274,10 +306,11 @@ export function RunningCard({ job, now, silent, worker, onCancel, cancelLabel = 
 export function CompactRun({ job, now, onStop, busy }: { job: MontageJob; now: number; onStop?: () => void; busy?: boolean }) {
   const info = useRunInfo(job, now);
   return (
-    <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-1.5" aria-live="polite">
+    <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-1.5">
       <Loader2 className={cn("size-3.5 shrink-0 text-accent", SPIN)} />
       <div className="min-w-0">
-        <p className="truncate text-[12.5px] font-medium">{job.status === "queued" ? "En attente du Mac" : info.title}</p>
+        {/* Read out when the phase changes, not the percent beside it (which moves every few seconds). */}
+        <p className="truncate text-[12.5px] font-medium" aria-live="polite">{job.status === "queued" ? "En attente du Mac" : info.title}</p>
         <div className="mt-1 w-40">
           <Progress value={job.status === "queued" ? undefined : info.value} />
         </div>
@@ -463,22 +496,21 @@ export function IdleCard({ estimate }: { estimate?: string }) {
         ))}
       </ol>
       <p className="mt-3 text-[12px] leading-relaxed text-ink-3">
-        {nb("Un seul plan continu, dans le style du projet : le texte reste entier, le décor ne se fige jamais.")}
-        {estimate ? ` Compte ${estimate}.` : ""}
+        {nb(`Un seul plan continu, dans le style du projet : le texte reste entier, le décor ne se fige jamais.${estimate ? ` Compte ${estimate}.` : ""}`)}
       </p>
     </section>
   );
 }
 
 /** Text that shows 3 lines, then all of it on « Plus ». */
-function Clamp({ text }: { text: string }) {
+export function Clamp({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const long = text.length > 160 || text.split("\n").length > 3;
   return (
     <div>
       <p className={cn("text-[12px] leading-relaxed whitespace-pre-line text-ink-2", !open && "line-clamp-3")}>{text}</p>
       {long && (
-        <button onClick={() => setOpen((o) => !o)} className="press mt-0.5 text-[12px] font-medium text-accent">
+        <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="press mt-0.5 text-[12px] font-medium text-accent">
           {open ? "Moins" : "Plus"}
         </button>
       )}
@@ -590,7 +622,8 @@ export function FailedBanner({ error, ask, jobId, onRegenerate, busy }: { error:
     </Link>
   );
   return (
-    <section className={cn("rounded-xl border border-danger/35 bg-danger/8 p-3", ENTER)} aria-live="polite">
+    // Not a live region: the Studio's status line (announceText) reads its title out once.
+    <section className={cn("rounded-xl border border-danger/35 bg-danger/8 p-3", ENTER)}>
       <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-danger">
         <AlertTriangle className="size-3.5 shrink-0" /> {FAILED_TITLE[ask ?? "unknown"]}
       </p>
@@ -683,7 +716,8 @@ export function ErrorCard({ error, onRetry, onEdit, busy }: { error?: string; on
   const cause = nb((error || "Le Mac n'a pas dit pourquoi.").trim());
   const short = cause.length > 300 ? `${cause.slice(0, 300).trimEnd()}…` : cause;
   return (
-    <section className={cn("flex flex-col gap-3 rounded-xl border border-danger/35 bg-danger/8 p-3.5", ENTER)} aria-live="polite">
+    // Not a live region: the Studio's status line (announceText) reads its title out once.
+    <section className={cn("flex flex-col gap-3 rounded-xl border border-danger/35 bg-danger/8 p-3.5", ENTER)}>
       <div>
         <p className="flex items-center gap-1.5 text-[13.5px] font-semibold text-danger">
           <AlertTriangle className="size-4" /> La vidéo n&apos;a pas pu être générée.

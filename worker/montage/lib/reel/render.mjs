@@ -7,17 +7,17 @@
 //   f) un moment encore bloquant est retiré (avec une note) ; une erreur moteur → mode sûr ;
 //   g) rendu, avec repli : sans les moments frais, sans aucun moment, en mode sûr, puis échec clair.
 // LA PAGE RENDUE EST TOUJOURS LA DERNIÈRE PAGE VÉRIFIÉE. Puis finition ffmpeg (musique ou piste muette) et ffprobe.
-import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run, log, ensureDir, fmtDelay } from "../util.mjs";
 import { pickTrack, musicCue } from "../audio.mjs";
-import { askStream, claudeFlags, flagsNote } from "../claude.mjs";
+import { askStream, claudeFlags, claudeMissing, flagsNote } from "../claude.mjs";
 import { checkMoment } from "./sandbox.mjs";
-import { stagePage } from "./stage.mjs";
+import { stagePage, gsapCore, GSAP_MISSING } from "./stage.mjs";
 import { cleanScore, applyReview } from "./score.mjs";
 import * as HF from "./hf-cli.mjs";
 import { REVIEW_SCHEMA, reviewPrompt } from "./prompt.mjs";
-import { FPS, W, H, TOOLS, CODE } from "./vocab.mjs";
+import { FPS, W, H, TOOLS, CODE, RHYTHM } from "./vocab.mjs";
 import { STEP } from "./progress.mjs";
 
 /** Réglages du reel (config.json → reel), avec leurs valeurs par défaut. */
@@ -54,8 +54,20 @@ export function reelCfg(cfg) {
 const f3 = (n) => Number(n).toFixed(3);
 const stopIfAborted = (signal) => { if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Annulé."); };
 const codeSize = (c) => (c ? String(c.html || "").length + String(c.css || "").length + String(c.js || "").length : 0);
-/** Les appels extérieurs de produce() (moteur, HyperFrames, Claude) : remplaçables dans les tests de la chaîne. */
-export const io = { stagePage, lint: HF.lint, check: HF.check, snapshot: HF.snapshot, render: HF.render, askStream, claudeFlags };
+
+/**
+ * Les outils locaux d'une vidéo, vérifiés en quelques millisecondes avant tout appel à Claude (un Mac où --setup-reel
+ * n'a pas tourné, ou un worker lancé avec un PATH court, payait l'écriture puis échouait) : GSAP, npx et, pour un
+ * passage qui appelle Claude, son binaire (claudeFlags, gardé en cache). Erreur claire, en français, sinon.
+ */
+export async function toolchain(cfg, { claude = true, env = process.env } = {}) {
+  if (!gsapCore(cfg)) throw new Error(GSAP_MISSING);
+  if (!HF.npxFound(env)) throw HF.npxMissing(Object.assign(new Error("npx"), { syscall: "spawn npx", code: "ENOENT" }));
+  if (claude && (await claudeFlags(cfg)).gone) throw claudeMissing(cfg);
+}
+
+/** Les appels extérieurs de produce() (moteur, HyperFrames, Claude) et la vérification des outils (handleVideo) : remplaçables dans les tests de la chaîne. */
+export const io = { stagePage, lint: HF.lint, check: HF.check, snapshot: HF.snapshot, render: HF.render, askStream, claudeFlags, toolchain };
 
 /**
  * Les raisons écrites pour Antoine dans les notes de la version (sans jargon) ; le détail technique va au journal et
@@ -219,7 +231,8 @@ export async function produce(cfg, ctx) {
     const l = await io.lint(cfg, dir, { signal });
     if (l.blocking.length) return { ...base, blocking: { engine: l.blocking, moments: {} }, advice: l.advice, lintFailed: true };
     const c = await io.check(cfg, dir, { signal });
-    return { ...base, blocking: HF.blame(c.blocking, stage.momentIds), advice: [...l.advice, ...c.advice], timedOut: !!c.timedOut };
+    const held = HF.heldOnly(c.advice, stage.marks, stage.settle, (RHYTHM[plan.pace] || RHYTHM.normal).bridge);
+    return { ...base, blocking: HF.blame(c.blocking, stage.momentIds), advice: [...l.advice, ...held], timedOut: !!c.timedOut };
   }
 
   const clean = (st) => !st.blocking.engine.length && !Object.keys(st.blocking.moments).length;
@@ -279,7 +292,8 @@ export async function produce(cfg, ctx) {
       const frames = st.stage.marks.slice(0, 12).map((m, i) => ({ id: m.id, t: Math.round((times[i] ?? m.start) * 1000) / 1000 }));
       // ctx.board (index.mjs) ajoute run et change un 409 en annulation ; sinon le client seul (tests, outils).
       if (image.length <= 800_000 && !api.dryRun) await (ctx.board ? ctx.board(image, frames) : api.board(job.id, image, frames, { signal }));
-      return { files, frames, sheet: existsSync(HF.contactSheet(st.dir)) ? HF.contactSheet(st.dir) : null, key: keyOf(st) };
+      // Une planche jusqu'à 9 images, plusieurs au-delà (HyperFrames pagine) : sans elles, la relecture est sautée.
+      return { files, frames, sheets: HF.contactSheets(st.dir), key: keyOf(st) };
     } catch (e) {
       if (signal?.aborted) throw e;
       log("planche non faite :", e.message);
@@ -307,7 +321,7 @@ export async function produce(cfg, ctx) {
   const worth = st.plan.video.moments.length > 0 || refused.length > 0 || faulty.length > 0 || findings.length > 0;
   const within = Date.now() - (ctx.startedAt || t0) < R.reviewWithinMin * 60_000;
   let reviewed = false;
-  if (canReview && worth && within && shots?.sheet) {
+  if (canReview && worth && within && shots?.sheets?.length) {
     const flags = await io.claudeFlags(cfg);
     if (!flags.ok) note(flagsNote(flags.why));
     else {
@@ -407,6 +421,8 @@ export async function produce(cfg, ctx) {
     } catch (e) {
       if (signal?.aborted) throw e;
       if (e.code === "TIMEOUT") throw new Error(`Le rendu a dépassé ${fmtDelay(timeoutMs)} et a été arrêté (${frames} images). Le Mac est peut-être trop chargé : réessaie.`);
+      // npx absent : une panne du Mac, pas de la page (aucun moment retiré pour ça).
+      if (e.code === "NPX") throw e;
       // Chrome qui ne démarre pas n'est pas la faute de la page : même page relancée une fois, sinon erreur claire.
       if (HF.LAUNCH_FAILURE.test(String(e.message))) {
         if (relaunched) throw Object.assign(new Error(HF.chromeDown(e.message)), { code: "CHROME" });
@@ -504,11 +520,13 @@ async function reviewVideo(cfg, ctx, { st, shots, findings, refused, note }) {
   const dir = join(ctx.dir, "review");
   rmSync(dir, { recursive: true, force: true });
   ensureDir(dir);
-  copyFileSync(shots.sheet, join(dir, "contact-sheet.jpg"));
+  // contact-sheet.jpg seule, ou contact-sheet-1.jpg, -2.jpg… quand HyperFrames a paginé (plus de 9 temps forts).
+  const sheets = shots.sheets.length === 1 ? ["contact-sheet.jpg"] : shots.sheets.map((_, i) => `contact-sheet-${i + 1}.jpg`);
+  shots.sheets.forEach((f, i) => copyFileSync(f, join(dir, sheets[i])));
   shots.files.forEach((f, i) => copyFileSync(f, join(dir, `frame-${String(i).padStart(2, "0")}.png`)));
   const lines = [...findings.map((f) => `${f.target} : ${f.message}`), ...refused.map((r) => `moment ${r.id} refusé : ${r.why.join(" ; ")}`)];
   writeFileSync(join(dir, "constats.txt"), lines.join("\n") || "aucun constat");
-  const prompt = reviewPrompt({ video: st.plan.video, marks: st.stage.marks, duration: st.stage.duration, frames: shots.frames, findings, refused, look: st.plan.look });
+  const prompt = reviewPrompt({ video: st.plan.video, marks: st.stage.marks, duration: st.stage.duration, frames: shots.frames, sheets, findings, refused, look: st.plan.look });
   try {
     return await io.askStream(cfg, prompt, REVIEW_SCHEMA, dir, { tools: "Read", timeoutMs: R.claudeReviewMin * 60_000, signal: ctx.signal, what: "review" });
   } catch (e) {

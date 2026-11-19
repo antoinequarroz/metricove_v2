@@ -15,7 +15,7 @@ import { writeReelMarks } from "../motion-revise.mjs";
 import { cleanScore, timeScore, openBeats, mergeRevision } from "./score.mjs";
 import { SCORE_SCHEMA, REVISE_SCHEMA, writePrompt, revisePrompt, countLayouts } from "./prompt.mjs";
 import { Progress, STEP, reviseStep } from "./progress.mjs";
-import { produce, reelCfg, withMeta } from "./render.mjs";
+import { io, produce, reelCfg, withMeta } from "./render.mjs";
 import { ENGINE, FPS, seedOf } from "./vocab.mjs";
 
 const ALIVE_MS = 10_000;
@@ -36,7 +36,7 @@ export const cancelled = (why) => Object.assign(new Error(why), { cancelled: tru
 export const isVideoJob = (job) => job?.kind === "motion" && (job.motion?.mode === "video" || (job.versions || []).some((v) => !!v?.reel?.video));
 
 /**
- * Point d'entrée appelé par jobs.mjs pour un job vidéo. `dir` = <workDir>/taches/<id> (supprimé à la fin).
+ * Point d'entrée appelé par jobs.mjs pour un job vidéo. `dir` = <workDir>/taches/<id>-r<passage>, propre à ce passage (supprimé à la fin).
  * action "preview" → renderVideo ; action "motion" → makeVideo (régénération ou aucune version vidéo) ou reviseVideo.
  */
 export async function handleVideo(api, cfg, job, action, dir) {
@@ -84,6 +84,8 @@ export async function handleVideo(api, cfg, job, action, dir) {
   };
   const ctx = { api, cfg, job, dir, signal, startedAt, R, steps, writes };
   const work = (async () => {
+    // Les outils du Mac d'abord : sans eux la vidéo échouerait plus tard, après l'écriture payée de Claude.
+    await io.toolchain(cfg, { claude: action === "motion" });
     if (action === "preview") {
       const v = versions[versions.length - 1];
       if (!v?.reel?.video) throw new Error("Version du reel introuvable.");
@@ -96,9 +98,14 @@ export async function handleVideo(api, cfg, job, action, dir) {
     return await reviseVideo(ctx, from);
   })();
   // Le travail laissé en route après un arrêt finit seul (ses écritures sont coupées par le signal, chaque étape
-  // commence par regarder le signal) : son échec éventuel ne doit pas faire tomber le worker. Son dossier n'est pas
-  // retiré à sa fin : la même tâche, relancée entre-temps, peut déjà l'utiliser.
+  // commence par regarder le signal) : son échec éventuel ne doit pas faire tomber le worker. Son dossier est à lui seul
+  // (un par passage, jobs.mjs) : il est retiré à la fin de handleVideo, puis encore une fois quand ce travail s'arrête,
+  // pour ce qu'il aurait écrit entre-temps. La même tâche relancée travaille ailleurs.
   work.catch(() => {});
+  const clean = () => {
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); }
+    catch (e) { log(`[${short(job.id)}] dossier de travail non supprimé (${e.code || e.message}) : ${dir}`); }
+  };
   let onAbort;
   const aborted = new Promise((_, rej) => {
     onAbort = () => rej(signal.reason instanceof Error ? signal.reason : cancelled("reel arrêté"));
@@ -115,7 +122,8 @@ export async function handleVideo(api, cfg, job, action, dir) {
     clearTimeout(cap);
     if (watch) clearInterval(watch);
     signal.removeEventListener("abort", onAbort);
-    rmSync(dir, { recursive: true, force: true });
+    clean();
+    if (signal.aborted) work.then(clean, clean);
   }
 }
 

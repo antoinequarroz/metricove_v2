@@ -1,6 +1,7 @@
 // Outils communs : configuration, commandes, disque, journal.
 import { spawn, execFileSync } from "node:child_process";
 import { isatty } from "node:tty";
+import { StringDecoder } from "node:string_decoder";
 import { readFileSync, existsSync, mkdirSync, statfsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -167,6 +168,9 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[()][A-Za-z0-9]|\x1b[=>]/g;
  * - `onLine(line, stream)` : chaque ligne de stdout et stderr (découpée sur \r et \n, sans codes ANSI) ;
  * - `codes` : codes de sortie acceptés en plus de 0 (lint et check sortent 1 quand ils trouvent des erreurs) ;
  * - `keep` : octets de stdout gardés au plus (les derniers), pour les longues sorties suivies ligne à ligne.
+ * stderr est gardé en entier quand on le demande (`stderr: true` : silencedetect écrit une ligne par pause, toutes
+ * comptent) ; sinon seuls ses derniers 100 à 200 Ko (le message d'erreur est à la fin). Chaque flux est décodé par un
+ * seul StringDecoder : une lettre accentuée coupée entre deux morceaux du tube reste entière (pas de « � »).
  */
 export function run(cmd, args, { cwd, input, quiet = true, env, binary = false, stderr = false, timeoutMs, signal, onLine, codes = [], keep } = {}) {
   return new Promise((res, rej) => {
@@ -190,9 +194,10 @@ export function run(cmd, args, { cwd, input, quiet = true, env, binary = false, 
     const onAbort = () => stop("abort");
     signal?.addEventListener("abort", onAbort, { once: true });
     const lines = { stdout: "", stderr: "" };
-    const feed = (d, which) => {
-      if (!onLine) return;
-      const parts = (lines[which] + d.toString("utf8")).split(/[\r\n]+/);
+    const dec = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
+    const feed = (text, which) => {
+      if (!onLine || !text) return;
+      const parts = (lines[which] + text).split(/[\r\n]+/);
       lines[which] = parts.pop();
       for (const l of parts) { const t = l.replace(ANSI, ""); if (t.trim()) { try { onLine(t, which); } catch { /* un lecteur de lignes ne fait pas tomber la commande */ } } }
     };
@@ -200,15 +205,23 @@ export function run(cmd, args, { cwd, input, quiet = true, env, binary = false, 
       chunks.push(d); size += d.length;
       if (keep && size > keep * 2) { const b = Buffer.concat(chunks).subarray(-keep); chunks.length = 0; chunks.push(b); size = b.length; }
       if (!quiet) process.stdout.write(d);
-      feed(d, "stdout");
+      if (onLine) feed(dec.stdout.write(d), "stdout");
     });
-    p.stderr.on("data", (d) => { err += d; if (err.length > 200_000) err = err.slice(-100_000); if (!quiet) process.stderr.write(d); feed(d, "stderr"); });
+    p.stderr.on("data", (d) => {
+      const text = dec.stderr.write(d);
+      err += text;
+      if (!stderr && err.length > 200_000) err = err.slice(-100_000);
+      if (!quiet) process.stderr.write(d);
+      feed(text, "stderr");
+    });
     p.on("error", (e) => { clearTimeout(timer); groups.delete(p.pid); rej(e); });
     p.on("close", (code) => {
       clearTimeout(timer); clearTimeout(killTimer);
       signal?.removeEventListener("abort", onAbort);
       groups.delete(p.pid);
-      if (onLine) for (const w of ["stdout", "stderr"]) { const t = lines[w].replace(ANSI, ""); if (t.trim()) { try { onLine(t, w); } catch { /* idem */ } } }
+      const tail = { stdout: dec.stdout.end(), stderr: dec.stderr.end() };
+      err += tail.stderr;
+      if (onLine) for (const w of ["stdout", "stderr"]) { const t = (lines[w] + tail[w]).replace(ANSI, ""); if (t.trim()) { try { onLine(t, w); } catch { /* idem */ } } }
       const out = binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8");
       if (stopped === "timeout") {
         const sub = args.find((a) => /^[a-z][\w-]{0,20}$/.test(a));

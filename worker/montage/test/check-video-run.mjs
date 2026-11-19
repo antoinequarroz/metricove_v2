@@ -790,7 +790,12 @@ async function serverRun(args) {
     ok(ms.length > 0 && ms.every((m) => m.custom === true && !m.code), `la page apprend seulement qu'un moment a du code (${ms.length} moment(s), custom: true)`);
     const range = await req("GET", `/api/montage/jobs/${J.id}/versions/1/preview`, undefined, { Range: "bytes=0-99" });
     ok(range.s === 206 && /^bytes 0-99\//.test(range.headers.get("content-range") || ""), "aperçu en Range → 206", `${range.s} ${range.headers.get("content-range")}`);
-    ok((await patch(J.id, { stop: true })).s === 400, "arrêter sans génération en cours → 400");
+    {
+      // Le Mac a fini entre le clic (après confirm) et la requête : rien à arrêter, la vidéo est là (pas de 400 « annule plutôt »).
+      const before = (await req("GET", `/api/montage/jobs/${J.id}`)).b?.job;
+      const st = await patch(J.id, { stop: true });
+      ok(st.s === 200 && st.b?.job?.status === before?.status && st.b?.job?.versions?.length === before?.versions?.length && !st.text.includes('"html"'), "arrêter quand plus rien ne tourne (le Mac a fini) → 200, rien ne change", `${st.s} ${st.text.slice(0, 160)}`);
+    }
 
     // C. Arrêt pendant une régénération, nouvelle demande, puis les écritures tardives de l'ancien passage.
     r = await patch(J.id, { regenerate: true });

@@ -11,6 +11,7 @@ import { lookOf, sameLook } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
+import { atLeast } from "@/lib/worker-version";
 import {
   appFonts,
   type Deck,
@@ -36,20 +37,15 @@ import { MediaHeader, Progress, StudioTabs } from "./parts";
 import { montageApi, useMontage } from "./use-montage";
 
 /** Oldest Mac program that knows how to write a whole post, and the one that animates a reel. */
-const POST_WORKER = [0, 2, 0];
-const MOTION_WORKER = [0, 6, 0];
+const POST_WORKER = "0.2.0";
+const MOTION_WORKER = "0.6.0";
 /** Oldest Mac program that lets Claude write a scene's animation (free motion design). */
-const ANIM_WORKER = [0, 7, 0];
+const ANIM_WORKER = "0.7.0";
 /** First worker that follows a direction for the whole reel and a pace. */
-const DIRECT_WORKER = [0, 8, 0];
+const DIRECT_WORKER = "0.8.0";
 const PACES = { calm: 1.25, normal: 1, fast: 0.8 } as const;
 type Pace = keyof typeof PACES;
 const DIRECTION_KEY = "metricove-reel-direction-v1";
-const atLeast = (version: string | undefined, min: number[]) => {
-  const v = (version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
-  for (let i = 0; i < 3; i++) if ((v[i] ?? 0) !== min[i]) return (v[i] ?? 0) > min[i];
-  return true;
-};
 
 /** Seconds a scene stays on screen. Same rule as the Mac (worker/montage/lib/motion.mjs). */
 const sceneSeconds = (s: Slide, last: boolean) =>
@@ -300,7 +296,7 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   const reel = data?.jobs.find((j) => j.id === reelId);
   const motionOld = motion && !!data?.worker.version && !atLeast(data.worker.version, MOTION_WORKER);
   // An older Mac program sends the reel straight to the library, without the editing screen.
-  const reviewOld = motion && !!data?.worker.version && !atLeast(data.worker.version, [0, 9, 0]);
+  const reviewOld = motion && !!data?.worker.version && !atLeast(data.worker.version, "0.9.0");
   const animOld = motion && !motionOld && !!data?.worker.version && !atLeast(data.worker.version, ANIM_WORKER) && deck.slides.some((s) => s.anim?.trim());
   const baseSeconds = deck.slides.filter((s) => s.title.trim() || s.body.trim()).reduce((t, s, i, all) => t + sceneSeconds(s, i === all.length - 1), 0);
   // With a direction and no pace, Claude chooses the pace: the length is only known as a range. An old Mac ignores both.
@@ -320,7 +316,8 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   useEffect(() => {
     if (!motion || !data) return;
     // A reel with a version lives in the editing screen: this page only waits for the first one.
-    const reels = data.jobs.filter((j) => j.kind === "motion" && !j.versions.length && !taken.includes(j.id));
+    // A continuous video (mode "video") belongs to the Studio "Reel animé": this older editor neither follows nor deletes it.
+    const reels = data.jobs.filter((j) => j.kind === "motion" && j.motion?.mode !== "video" && !j.versions.length && !taken.includes(j.id));
     const arrived = reelId ? data.jobs.find((j) => j.id === reelId && j.kind === "motion" && j.versions.length > 0) : undefined;
     if (arrived) {
       setReelId(null);

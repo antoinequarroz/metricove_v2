@@ -153,14 +153,14 @@ test("notes pour Antoine : virgule décimale, la vraie raison, une vidéo trop c
   const r = cleanScore(copy(raw), { target: 45 });
   assert.equal(total(r.video), 15);
   for (const f of r.fixes) assert.ok(!/\d\.\d/.test(f), `point décimal : ${f}`);
-  assert.ok(r.fixes.some((f) => /^Durée visée 45 s : \d+(,\d)? s seulement \(étirement plafonné à ×1,35\)\.$/.test(f)), r.fixes.join(" | "));
+  assert.ok(r.fixes.some((f) => /^Durée visée 45 s : \d+(,\d)? s seulement \(plus long, le rythme deviendrait lent : ajoute de la matière à la demande\)\.$/.test(f)), r.fixes.join(" | "));
   assert.ok(r.fixes.some((f) => /^Vidéo trop courte \(\d+(,\d)? s\) : allongée à 15 s\.$/.test(f)), r.fixes.join(" | "));
   assert.ok(!r.fixes.some((f) => /pour garder le temps de lire/.test(f)), "mauvaise raison");
   // Trop long pour la cible à cause du temps de lecture : la raison est la lecture.
   const long = { beats: Array.from({ length: 8 }, (_, i) => beat(`b${i}`, "Une phrase assez longue pour demander du temps de lecture ici", { seconds: 6 })) };
   const l = cleanScore(copy(long), { target: 15 });
   // Plus longue que la cible : jamais « seulement » (revue 2), la vidéo « garde » sa durée.
-  assert.ok(l.fixes.some((f) => /^Durée visée 15 s : la vidéo garde \d+(,\d)? s \((pour garder le temps de lire|réduction plafonnée à ×0,85)\)\.$/.test(f)), l.fixes.join(" | "));
+  assert.ok(l.fixes.some((f) => /^Durée visée 15 s : la vidéo garde \d+(,\d)? s \(pour garder le temps de lire tous les textes\)\.$/.test(f)), l.fixes.join(" | "));
   assert.ok(!l.fixes.some((f) => /seulement/.test(f)), l.fixes.join(" | "));
 });
 

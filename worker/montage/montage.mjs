@@ -15,7 +15,7 @@ import { pipeline } from "node:stream/promises";
 import { loadConfig, log, sleep, run, freeGb, ensureDir, home, HERE } from "./lib/util.mjs";
 import { Api } from "./lib/api.mjs";
 import { scan } from "./lib/rushes.mjs";
-import { handle } from "./lib/jobs.mjs";
+import { handle, sweepRuns } from "./lib/jobs.mjs";
 import { listTracks } from "./lib/audio.mjs";
 import { macBrollList, setBrollApi } from "./lib/broll.mjs";
 import { claudeFlags } from "./lib/claude.mjs";
@@ -34,7 +34,8 @@ async function check() {
   const ok = (b, m) => console.log(`${b ? "✔" : "✘"} ${m}`);
   const warn = (m) => console.log(`! ${m}`);
   for (const [bin, args] of [["ffmpeg", ["-version"]], ["ffprobe", ["-version"]], [cfg.whisper.bin, ["--help"]], ["swift", ["--version"]], [cfg.claude.bin, ["--version"]], ["npx", ["--version"]]]) {
-    ok(await run(bin, args).then(() => true, () => false), bin);
+    // npx comme le worker le lance (hf-cli : le dossier du Node du worker en tête du PATH).
+    ok(await run(bin, args, bin === "npx" ? { env: { PATH: HF.toolPath() } } : {}).then(() => true, () => false), bin);
   }
   ok(existsSync(cfg.whisper.model), `modèle Whisper ${cfg.whisper.model}`);
   ok(freeGb(cfg.workDir) >= cfg.minFreeGb, `disque : ${freeGb(cfg.workDir).toFixed(1)} Go libres (minimum ${cfg.minFreeGb})`);
@@ -267,6 +268,8 @@ function isWorker(pid) {
 
 async function loop() {
   takeLock();
+  // Verrou pris : aucun autre worker ne tourne, les dossiers de passages vidéo qui restent sont des restes d'un arrêt.
+  sweepRuns(cfg);
   const api = new Api(cfg, { dryRun: argv.has("--dry-run") });
   log(`worker de montage ${VERSION} → ${cfg.metricoveUrl}${api.dryRun ? " (essai à blanc)" : ""}`);
   let lastScan = 0;

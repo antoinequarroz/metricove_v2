@@ -6,12 +6,12 @@
 //   node --test test/reel-progress.test.mjs
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { Progress, PLANS, DEFAULTS, readStats, speedOf, reviseStep } from "../lib/reel/progress.mjs";
-import { RENDER_PROGRESS, parseSummary, checkFindings, blame, renderTimeout, targetOf } from "../lib/reel/hf-cli.mjs";
+import { RENDER_PROGRESS, parseSummary, checkFindings, blame, renderTimeout, targetOf, heldOnly } from "../lib/reel/hf-cli.mjs";
 import { run } from "../lib/util.mjs";
 
 /** Horloge à la main et faux client : chaque PATCH est gardé avec l'instant où il part. */
@@ -353,6 +353,29 @@ describe("constats de check", () => {
     assert.equal(b.engine.length, 3);
     assert.equal(targetOf({ message: "moment Bad: x" }), "engine");
   });
+
+  test("heldOnly : un texte hors zone pendant une liaison (plongée, sortie) ne compte pas ; posé, il compte", () => {
+    const marks = [{ id: "accroche", start: 0, end: 2.6 }, { id: "plan", start: 2.6, end: 5.4 }];
+    const settle = [1.2, 3.8];
+    const out = (id, time) => ({ code: "hors_zone", severity: "review", target: `beat:${id}`, message: `x ${time}`, time });
+    const kept = heldOnly([out("accroche", 2.5), out("accroche", 0.6), out("accroche", 1.6), out("plan", 4.5), { code: "texte_trop_long", target: "beat:plan" }, { code: "text_box_overflow", target: "beat:plan", time: 5.2 }], marks, settle, 0.7);
+    assert.deepEqual(kept.map((a) => [a.code, a.target, a.time]), [["hors_zone", "beat:accroche", 1.6], ["hors_zone", "beat:plan", 4.5], ["texte_trop_long", "beat:plan", undefined]]);
+  });
+});
+
+describe("bigNumber : le grand chiffre d'un temps fort « number »", async () => {
+  const { tokens, bigNumber } = await import("../lib/reel/stage.mjs");
+  const big = (text, em = "") => { const r = bigNumber(tokens(text, em), true); return [r.number?.text, r.number?.suffix, r.main.map((w) => w.t)]; };
+
+  test("une unité courte monte avec le nombre (« 3 h », « 15 min ») ; un mot plein reste dessous ; un nombre au milieu reste dans la phrase", () => {
+    assert.deepEqual(big("3 h"), ["3\u00a0h", "\u00a0h", []]);
+    assert.deepEqual(big("15 min par semaine"), ["15\u00a0min", "\u00a0min", ["par", "semaine"]]);
+    assert.deepEqual(big("2 heures"), ["2", "", ["heures"]]);
+    assert.deepEqual(big("40 % de clics"), ["40\u202f%", "\u202f%", ["de", "clics"]]);
+    assert.deepEqual(big("3h perdues"), ["3h", "h", ["perdues"]]);
+    assert.deepEqual(big("Maintenant : 20 minutes"), ["20", "", ["Maintenant\u202f:", "20", "minutes"]]);
+    assert.equal(bigNumber(tokens("3 h", "h"), true).number.em, true, "l'emphase sur l'unité met le chiffre en valeur");
+  });
 });
 
 describe("run() : délais et arrêt du groupe", () => {
@@ -464,7 +487,7 @@ describe("produce : échelle de qualité (moteur, HyperFrames et Claude simulés
   /** Monte les faux : `o.check(page)` → constats ; `o.review` → la relecture ; `o.renderFails(page)` → erreur du rendu. */
   function rigProduce(o = {}) {
     const checked = new Map(); // dossier → contenu de la page au moment du check
-    const log = { checks: [], rendered: [], reviews: 0 };
+    const log = { checks: [], rendered: [], reviews: 0, prompts: [], seen: [] };
     io.stagePage = async (cfg, plan, dir, { safe }) => {
       const kept = plan.video.beats.filter((b) => !b.cut);
       const marks = kept.map((b, i) => ({ id: b.id, title: b.title, start: i * 0.5, end: (i + 1) * 0.5 }));
@@ -472,6 +495,7 @@ describe("produce : échelle de qualité (moteur, HyperFrames et Claude simulés
       writeFileSync(join(dir, "index.html"), JSON.stringify({ safe, texts: kept.map((b) => b.text), moments }));
       return { duration: kept.length * 0.5, settle: marks.map((m) => m.start + 0.25), marks, momentIds: moments.map((m) => m.id) };
     };
+    io.toolchain = async () => {};
     io.lint = async () => ({ blocking: [], advice: [] });
     io.check = async (cfg, dir) => {
       const raw = readFileSync(join(dir, "index.html"), "utf8");
@@ -483,7 +507,9 @@ describe("produce : échelle de qualité (moteur, HyperFrames et Claude simulés
     };
     io.snapshot = async (cfg, dir, times) => {
       mkdirSync(join(dir, "snapshots"), { recursive: true });
-      copyFileSync(png, join(dir, "snapshots", "contact-sheet.jpg"));
+      // Comme HyperFrames 0.8 : une planche par page de 9 images (o.pageSize), contact-sheet-1.jpg, -2.jpg… dès 2 pages.
+      const pages = Math.ceil(times.length / (o.pageSize || 9));
+      for (let i = 1; i <= pages; i++) copyFileSync(png, join(dir, "snapshots", pages === 1 ? "contact-sheet.jpg" : `contact-sheet-${i}.jpg`));
       return times.map((_, i) => { const f = join(dir, "snapshots", `frame-${i}.png`); copyFileSync(png, f); return f; });
     };
     io.render = async (cfg, dir, out) => {
@@ -497,7 +523,7 @@ describe("produce : échelle de qualité (moteur, HyperFrames et Claude simulés
       return { summary: "" };
     };
     io.claudeFlags = async () => ({ ok: true });
-    io.askStream = async () => { log.reviews++; return o.review ?? null; };
+    io.askStream = async (cfg, prompt, schema, dir) => { log.reviews++; log.prompts.push(prompt); log.seen.push(readdirSync(dir).filter((f) => f.startsWith("contact-sheet")).sort()); return o.review ?? null; };
     return log;
   }
 
@@ -531,6 +557,17 @@ describe("produce : échelle de qualité (moteur, HyperFrames et Claude simulés
     assert.equal(r.stats.checks, 2);
     assert.deepEqual(P.beatsList.map((b) => b.id), r.plan.video.beats.filter((b) => !b.cut).map((b) => b.id));
     assert.ok(r.stats.copy, "vidéo de HyperFrames déjà conforme : finition sans réencodage");
+  });
+
+  test("plus de 9 temps forts : HyperFrames pagine les planches, la relecture a bien lieu et les lit toutes", async () => {
+    const { log, notes } = await run(base, { pageSize: 2, review: { ok: true, notes: "Rien à corriger.", beats: [], moments: [] } });
+    const n = base.video.beats.filter((b) => !b.cut).length;
+    const pages = Math.ceil(Math.min(12, n) / 2);
+    assert.ok(pages >= 2, `${n} temps forts`);
+    assert.equal(log.reviews, 1, "la relecture n'est pas sautée faute de contact-sheet.jpg");
+    assert.deepEqual(log.seen[0], Array.from({ length: pages }, (_, i) => `contact-sheet-${i + 1}.jpg`).sort());
+    assert.match(log.prompts[0], /Lis d'abord contact-sheet-1\.jpg, .*et contact-sheet-\d\.jpg avec l'outil Read/);
+    assert.ok(notes.includes("Relecture : Rien à corriger."), notes.join(" | "));
   });
 
   test("relecture qui casse le moteur au nouveau check : la page d'avant est rendue, telle qu'elle a été vérifiée", async () => {
@@ -612,7 +649,7 @@ describe("produce : échelle de qualité (moteur, HyperFrames et Claude simulés
     assert.ok(aborted - t0 < 25_000, `arrêté en ${Math.round((aborted - t0) / 1000)} s`);
     assert.equal(sent.fail, 0, "aucun PATCH failed après une annulation");
     assert.ok(sent.gets >= 1);
-    assert.ok(!existsSync(join(work, "taches", job.id)), "dossier de la tâche retiré");
+    assert.deepEqual(readdirSync(join(work, "taches")).filter((n) => n.startsWith(job.id)), [], "dossier du passage retiré");
   });
 
   /** Un faux client pour handle() : chaque écriture est gardée ; `o.patch(n)` / `o.preview()` peuvent lever une erreur. */
@@ -665,7 +702,40 @@ describe("produce : échelle de qualité (moteur, HyperFrames et Claude simulés
     await done;
     assert.ok(Date.now() - t0 < 25_000, `rendu la main en ${Math.round((Date.now() - t0) / 1000)} s`);
     assert.equal(sent.fail, 0);
-    assert.ok(!existsSync(join(work, "taches", job.id)), "dossier de la tâche retiré");
+    assert.deepEqual(readdirSync(join(work, "taches")).filter((n) => n.startsWith(job.id)), [], "dossier du passage retiré");
+  });
+
+  test("chaque passage d'un job vidéo a son propre dossier : un passage abandonné ne touche pas le suivant", async () => {
+    const { handle } = await import("../lib/jobs.mjs");
+    rigProduce();
+    const work = mkdtempSync(join(scratch, "work-"));
+    const plan = { ...base, video: { ...base.video, moments: [] } };
+    const job = { id: "job-passages", kind: "motion", title: "t", motion: { mode: "video", look: plan.look }, versions: [{ n: 1, reel: plan }], run: { startedAt: "a" } };
+    // Passage 1 : abandonné pendant le rendu (409), son rendu ne finit qu'après coup et écrit encore dans SON dossier.
+    const dirs = [];
+    let release;
+    const late = new Promise((r) => (release = r));
+    io.render = (cfg, dir, out) => { dirs.push(dir); return late.then(() => { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "tard.txt"), "x"); throw new Error("fin tardive"); }); };
+    let rendering = false;
+    const one = fakeApi(job, { patch: () => (rendering ? e409() : null) });
+    const first = handle(one.api, { workDir: work, minFreeGb: 0, reel: { review: true } }, { job, action: "preview" });
+    for (let k = 0; k < 100 && !one.sent.patches.some((b) => b.phase === "render"); k++) await new Promise((r) => setTimeout(r, 50));
+    rendering = true;
+    await first;
+    // Passage 2 : la même tâche, reprise ; il rend normalement pendant que le passage 1 se termine.
+    rigProduce();
+    const real2 = io.render;
+    io.render = async (cfg, dir, out, o) => { dirs.push(dir); release(); await new Promise((r) => setTimeout(r, 50)); return real2(cfg, dir, out, o); };
+    const two = fakeApi(job);
+    await handle(two.api, { workDir: work, minFreeGb: 0, reel: { review: true } }, { job, action: "preview" });
+    assert.equal(dirs.length, 2);
+    const runOf = (d) => d.slice(join(work, "taches").length + 1).split("/")[0];
+    assert.match(runOf(dirs[0]), /^job-passages-r[0-9a-z]+$/);
+    assert.notEqual(runOf(dirs[0]), runOf(dirs[1]), "deux dossiers distincts");
+    assert.equal(two.sent.previews.length, 1, "le passage 2 a envoyé son aperçu");
+    assert.equal(one.sent.fail + two.sent.fail, 0);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(readdirSync(join(work, "taches")).filter((n) => n.startsWith(job.id)), [], "les deux dossiers sont retirés, celui du passage abandonné après sa fin tardive");
   });
 
   test("nettoyage", () => {
@@ -1008,5 +1078,75 @@ describe("réglages, pannes de Chrome, images d'inspiration, notes", async () =>
     for (const so of sockets) so.destroy();
     server.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("revue 3 : stderr, UTF-8, outils absents, dossiers laissés, Chrome au rendu", async () => {
+  const HF = await import("../lib/reel/hf-cli.mjs");
+
+  test("run : stderr demandé (silencedetect) gardé en entier, sinon seulement sa fin", async () => {
+    // 3 000 lignes de 120 octets (360 Ko) : au-delà du plafond de 200 Ko des commandes suivies.
+    const script = "for(let i=0;i<3000;i++)process.stderr.write('silence_start: '+i+' '.padEnd(100,'x')+'\\n')";
+    // process.exitCode (pas process.exit) : la sortie d'erreur part en entier avant la fin.
+    const all = await run(process.execPath, ["-e", script], { stderr: true });
+    assert.equal(all.match(/silence_start/g).length, 3000, "toutes les pauses gardées");
+    assert.match(all, /^silence_start: 0 /);
+    await assert.rejects(run(process.execPath, ["-e", script + ";process.exitCode=2"], { timeoutMs: 20_000 }), (e) => e.stderr.length <= 200_000 && /silence_start: 2999/.test(e.stderr));
+  });
+
+  test("run : une lettre accentuée coupée entre deux morceaux du tube reste entière (onLine et stderr)", async () => {
+    const script = "const b=Buffer.from('Été : « prêt »\\n','utf8');process.stdout.write(b.subarray(0,1));setTimeout(()=>{process.stdout.write(b.subarray(1));const e=Buffer.from('déjà\\n');process.stderr.write(e.subarray(0,2));setTimeout(()=>process.stderr.write(e.subarray(2)),50)},50)";
+    const lines = [];
+    const err = await run(process.execPath, ["-e", script], { stderr: true, timeoutMs: 10_000, onLine: (l, w) => lines.push([w, l]) });
+    assert.deepEqual(lines, [["stdout", "Été : « prêt »"], ["stderr", "déjà"]]);
+    assert.equal(err, "déjà\n");
+  });
+
+  test("Chrome au rendu : le message de HyperFrames 0.8.137 (« Chrome cannot start … --version ») est une panne du Mac", () => {
+    // Relevé avec un script hors ligne qui pointe vers un Chrome absent (scripts/nochrome.mjs de la revue).
+    const msg = "npx a échoué (1) : ✗  Chrome cannot start\n  Failed to run \"/Users/antoine/Movies/Metricove/travail/chrome-offline.sh\" --version (exit code 127)\n  Run: npx hyperframes browser ensure";
+    assert.ok(HF.LAUNCH_FAILURE.test(msg));
+    assert.match(HF.chromeDown(msg), /^Chrome ne démarre pas sur le Mac \(Chrome cannot start Failed to run .*chrome-offline\.sh" --version \(exit code 127\)/);
+    assert.ok(!HF.LAUNCH_FAILURE.test("moment bulles: TypeError: x is not a function"), "une erreur de la page reste une erreur de la page");
+  });
+
+  test("npx : cherché d'abord à côté du Node du worker, panne en clair (jamais « spawn npx ENOENT »)", () => {
+    const { dirname } = { dirname: (p) => p.slice(0, p.lastIndexOf("/")) };
+    assert.ok(HF.toolPath({ PATH: "/usr/bin" }).startsWith(dirname(process.execPath)));
+    assert.equal(HF.hfEnv({ workDir: tmpdir() }).npm_config_prefer_offline, "true", "le cache de npx sert sans attendre le registre");
+    const e = HF.npxMissing(Object.assign(new Error("spawn npx ENOENT"), { syscall: "spawn npx", code: "ENOENT" }));
+    assert.equal(e.code, "NPX");
+    assert.match(e.message, /^npx introuvable pour le worker \(ENOENT/);
+    assert.ok(!HF.LAUNCH_FAILURE.test(e.message), "npx absent n'est pas pris pour Chrome");
+    assert.equal(HF.npxMissing(Object.assign(new Error("x"), { code: "ENOENT", syscall: "open" })), null);
+  });
+
+  test("Claude absent : message clair avant tout appel payé ; outils vérifiés avant Claude (GSAP, npx, claude)", async () => {
+    const { askStream, claudeFlags } = await import("../lib/claude.mjs");
+    const { toolchain } = await import("../lib/reel/render.mjs");
+    const work = mkdtempSync(join(tmpdir(), "reel-tools-"));
+    const cfg = { workDir: work, claude: { bin: join(work, "pas-de-claude"), model: "" }, reel: {} };
+    const f = await claudeFlags(cfg, { refresh: true, retryMs: 10 });
+    assert.equal(f.gone, true);
+    await assert.rejects(askStream(cfg, "x", { type: "object" }, work, { timeoutMs: 5000 }), (e) => e.code === "CLAUDE_MISSING" && /^Claude Code est introuvable sur le Mac \(claude\.bin = .*pas-de-claude, ENOENT\) : corrige « claude\.bin » dans config\.json/.test(e.message));
+    await assert.rejects(toolchain(cfg), /^Error: GSAP introuvable sur ce Mac/);
+    mkdirSync(join(work, "gsap"));
+    writeFileSync(join(work, "gsap", "gsap.min.js"), "/* gsap */");
+    const ok = { ...cfg, gsapDir: join(work, "gsap") };
+    await assert.rejects(toolchain(ok), (e) => e.code === "CLAUDE_MISSING");
+    await toolchain(ok, { claude: false }); // édition à la main : Claude n'est pas appelé
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  test("dossiers de passages vidéo laissés par un arrêt : supprimés au démarrage, les autres gardés", async () => {
+    const { sweepRuns } = await import("../lib/jobs.mjs");
+    const work = mkdtempSync(join(tmpdir(), "reel-sweep-"));
+    const id = "4412f43b-6c1e-4d7a-9a51-0c5e1f2b3a4d";
+    for (const d of [`${id}-rmwn9flb11`, `${id}-rmx0abc2`, id, "autre"]) mkdirSync(join(work, "taches", d, "hf-1"), { recursive: true });
+    writeFileSync(join(work, "taches", `${id}-rmwn9flb11`, "hf-1", "video-only.mp4"), "x".repeat(1000));
+    assert.equal(sweepRuns({ workDir: work }), 2);
+    assert.deepEqual(readdirSync(join(work, "taches")).sort(), [id, "autre"].sort());
+    assert.equal(sweepRuns({ workDir: join(work, "absent") }), 0);
+    rmSync(work, { recursive: true, force: true });
   });
 });

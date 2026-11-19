@@ -5,7 +5,8 @@ Un moment est un visuel sur mesure, posé dans une zone fixe, qui vit pendant 1 
 ## Ce qui fait un bon moment
 
 - Une seule idée visuelle, lisible en une seconde sur un téléphone : formes pleines, traits épais (12 px et plus), peu d'éléments.
-- Il vit tout le temps : il entre, change d'état à chaque temps fort couvert (`beats[i].t`), respire, puis se pose. Jamais 1,5 s sans mouvement.
+- Il occupe sa zone : le visuel remplit 70 à 90 % de la largeur et de la hauteur de `zone`, comme une illustration d'affiche, jamais une vignette perdue au milieu.
+- Il vit tout le temps : il entre, change d'état à chaque temps fort couvert (`beats[i].t`), respire, puis se pose. Jamais 1,5 s sans mouvement : entre deux changements d'état, une respiration lente (`sine.inOut`, `yoyo: true`, `repeat` en chiffres) garde l'image en vie.
 - Il prolonge la marque : l'accent (`var(--accent)`, `pal.accent`) pour ce qui compte, `var(--ink)` pour la structure, `var(--sub)` pour le secondaire, `rgba(var(--accent-rgb),.2)` pour un fond doux.
 - Calme et précis : des courbes franches, des pauses, pas de rebonds exagérés ni d'elastic.
 

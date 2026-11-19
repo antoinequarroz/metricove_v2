@@ -199,7 +199,7 @@ export function savoirFaire() {
 
 const SOURCE_RULE = {
   idea: "C'est une idée : tu écris les textes.",
-  script: "C'est un script : garde les mots d'Antoine et découpe-les seulement en temps forts (tu peux couper, pas reformuler).",
+  script: "C'est un script : garde les mots d'Antoine et découpe-les seulement en temps forts (tu peux couper des mots ou une phrase secondaire, pas reformuler). Un temps fort par phrase courte ou par moitié de phrase longue.",
   post: "C'est un post publié : adapte-le pour qu'il se regarde (phrases plus courtes, une idée par temps fort).",
 };
 const SOURCE_LABEL = { idea: "idée", script: "script", post: "post" };
@@ -214,12 +214,13 @@ function durationLine(seconds, source) {
 }
 
 function storyRules() {
-  return `- Accroche de ${RULES.hookWords} mots au plus, lisible avant ${n(RULES.hookReadable)} s : le premier temps fort.
-- Une idée par temps fort ; ${VIDEO.beats[0]} à 8 temps forts (${VIDEO.beats[1]} au plus) de ${n(VIDEO.seconds[0])} à 8 s.
+  return `- Accroche de ${RULES.hookWords} mots au plus, lisible avant ${n(RULES.hookReadable)} s : le premier temps fort (hero de préférence, 2 à 5 mots).
+- Une vidéo se regarde, elle ne se lit pas : peu de mots à l'écran. text de 2 à 8 mots ; sub seulement pour une vraie précision, 12 mots au plus, et pas sur deux temps forts de suite ; items de 2 à 5 mots. Les budgets de caractères de la grammaire sont des plafonds, pas des cibles : plus le texte est court, plus le moteur l'écrit grand.
+- Une idée par temps fort, au rythme d'un reel : seconds de 2 à 4 en général (jusqu'à 6 pour une liste, le dernier temps fort ou une vidéo de 45 à 60 s ; le moteur allonge un texte qui demande plus de lecture). Compte un temps fort toutes les 3 s environ : 5 ou 6 pour 15 s, 8 à 11 pour 30 s, ${VIDEO.beats[1]} pour 45 à 60 s (${VIDEO.beats[0]} au moins, ${VIDEO.beats[1]} au plus). Une phrase longue devient deux temps forts, jamais une sub plus longue.
 - Le dernier est l'appel à l'action (layout cta, sub = le texte de la pastille) avec la signature, et dure au moins ${n(VIDEO.last)} s.
 - Pas trois fois de suite la même liaison ; ${RULES.cutsMax} coupes (cut) au plus. Varie les mises en page.
 - La forme de marque reste visible pendant au moins ${RULES.shapeMinBeats} temps forts (hidden sur un temps fort sur deux au plus).
-- Un chiffre → layout number avec count: true (le nombre est écrit dans text) ; une liste → layout list avec items.
+- Un chiffre → layout number avec count: true : text COMMENCE par le nombre et son unité courte, puis 1 à 4 mots (« 3 h perdues », « 20 min par reel », « 40 % de clics ») ; le contexte va dans sub. Une liste → layout list avec items.
 - emphasis est recopiée mot pour mot depuis text ; carry demande un mot commun avec le temps fort précédent ; zoom demande une emphase sur le précédent.
 - Ni emoji ni hashtag à l'écran.
 - Typographie française : espace fine insécable avant ; : ! ?, guillemets « ».
@@ -227,7 +228,7 @@ function storyRules() {
 }
 
 function momentsSection() {
-  return `Seulement si la demande appelle un visuel précis (un objet, une donnée, une métaphore). ${MOMENT.max} au plus ; aucun moment est une bonne réponse.
+  return `Un moment montre ce que le texte ne dit pas. Quand la demande parle d'objets (des livres, un outil, un écran), de chiffres, d'étapes ou d'un avant/après, propose 1 ou 2 moments qui traversent plusieurs temps forts et changent d'état à chaque temps fort : c'est ce qui fait passer la vidéo d'une suite de phrases à un vrai motion design. Sans matière visuelle, aucun moment est une bonne réponse. ${MOMENT.max} au plus.
 - from et to : ids de temps forts consécutifs, ${MOMENT.span} temps forts au plus (sans limite pour behind). brief : une phrase pour Antoine.
 - Zones fixes, en px dans la scène ${W}×${H} :
 ${ZONES.map(zoneLine).join("\n")}
@@ -306,14 +307,15 @@ const findingLine = (f) => `- ${f.target} : ${f.message}${f.fixHint ? ` (piste :
 
 /**
  * Prompt de la relecture en images. `frames` : [{ file, id, t }] (fichiers du dossier de l'appel) ; `findings` :
- * constats automatiques (lintScore « review », conseils et blocages de check) ; `refused` : [{ id, brief, why }].
+ * constats automatiques (lintScore « review », conseils et blocages de check) ; `refused` : [{ id, brief, why }] ;
+ * `sheets` : les noms des planches dans le dossier de l'appel (plusieurs au-delà de 9 images).
  */
-export function reviewPrompt({ video, marks, duration, frames = [], findings = [], refused = [], look = {} }) {
+export function reviewPrompt({ video, marks, duration, frames = [], sheets = ["contact-sheet.jpg"], findings = [], refused = [], look = {} }) {
   const shots = frames.map((f, i) => `frame-${String(i).padStart(2, "0")}.png = temps fort « ${f.id} » à ${n(Number(f.t).toFixed(2))} s`).join("\n");
   const live = (video.moments || []).filter((m) => m.code);
   return `Tu es réalisateur motion design. Tu as écrit la partition de cette vidéo verticale continue (${W}×${H}, ${n(Number(duration || 0).toFixed(1))} s). Le moteur l'a mise en scène et vérifiée dans Chrome. Voici les images, une par temps fort, à l'instant où il est posé.
 
-Lis d'abord contact-sheet.jpg avec l'outil Read (toutes les images en grille), puis au besoin les images seules :
+Lis d'abord ${sheets.length > 1 ? `${sheets.slice(0, -1).join(", ")} et ${sheets.at(-1)} avec l'outil Read (toutes les images en grilles de 9, dans l'ordre)` : `${sheets[0] || "contact-sheet.jpg"} avec l'outil Read (toutes les images en grille)`}, puis au besoin les images seules :
 ${shots}
 
 VÉRIFIE :

@@ -105,6 +105,25 @@ export function numberIn(list) {
   return { index: i, prefix: m[1], digits: m[2], suffix: m[3], value, decimals: Math.min(3, decimals) };
 }
 
+/** Une unité courte qui suit le nombre (« 3 h », « 15 min », « 2 ans ») : elle monte avec lui dans le grand chiffre. */
+const UNIT = /^(?:h|min|s|ms|j|k|M|Md|Mds|x|kg|km|Go|Mo|To|pts?|ans?|mois|fois)$/;
+
+/**
+ * Le grand chiffre d'un temps fort « number » : { number, main } (main : les mots qui restent dessous). Une unité courte
+ * collée au nombre le suit (seule sous le nombre, « h » avait l'air d'un reste : vu sur une vraie vidéo). Un nombre qui
+ * n'ouvre pas le texte reste aussi dans la phrase (« Maintenant : 20 minutes »), qui se lit sans lui.
+ */
+export function bigNumber(main, count) {
+  const n = numberIn(main);
+  if (!n) return { number: null, main };
+  const next = main[n.index + 1];
+  const unit = n.index === 0 && !n.suffix.trim() && next && UNIT.test(next.t) ? next : null;
+  // Espace insécable pleine : à la taille du grand chiffre, l'espace fine collait « 15min » (vu sur la vidéo).
+  const glue = unit ? "\u00a0" + unit.t : "";
+  const number = { text: main[n.index].t + glue, prefix: n.prefix, suffix: n.suffix + glue, value: n.value, decimals: n.decimals, count: count && n.value <= 1e9, em: !!main[n.index].em || !!unit?.em };
+  return { number, main: n.index === 0 ? main.slice(unit ? 2 : 1) : main };
+}
+
 // ─── Verbes effectifs ───────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Les verbes que le moteur joue vraiment (mode sûr, forme aucune, zoom, coupes) pour chaque temps fort gardé. */
@@ -166,12 +185,19 @@ function logoOf(look) {
   return null;
 }
 
+/** Le fichier de GSAP de ce Mac (cfg.gsapDir, sinon cfg.gsapFile), ou "" : écrit par --setup-reel. */
+export function gsapCore(cfg) {
+  const dir = home(cfg.gsapDir || "");
+  const file = home(cfg.gsapFile || "");
+  return dir && existsSync(join(dir, GSAP.core)) ? join(dir, GSAP.core) : file && existsSync(file) ? file : "";
+}
+export const GSAP_MISSING = "GSAP introuvable sur ce Mac (gsapDir) : lance « node montage.mjs --setup-reel ».";
+
 /** GSAP et ses plugins, copiés depuis cfg.gsapDir (ou cfg.gsapFile seul). Renvoie les noms de fichiers copiés, dans l'ordre. */
 function copyGsap(cfg, assets, notes) {
   const dir = home(cfg.gsapDir || "");
-  const file = home(cfg.gsapFile || "");
-  const core = dir && existsSync(join(dir, GSAP.core)) ? join(dir, GSAP.core) : file && existsSync(file) ? file : "";
-  if (!core) throw new Error("GSAP introuvable sur ce Mac (gsapDir) : lance « node montage.mjs --setup-reel ».");
+  const core = gsapCore(cfg);
+  if (!core) throw new Error(GSAP_MISSING);
   copyFileSync(core, join(assets, GSAP.core));
   const out = [GSAP.core];
   const missing = [];
@@ -351,13 +377,7 @@ export async function stagePage(cfg, plan, hfDir, { safe = false, notes = [] } =
     const box = { ...(ZONE_FRAMES[zone] || ZONE_FRAMES.none).text };
     let main = tokens(b.text, b.emphasis);
     let number = null;
-    if (b.layout === "number" && zone !== "full") {
-      const n = numberIn(main);
-      if (n) {
-        number = { text: main[n.index].t, prefix: n.prefix, suffix: n.suffix, value: n.value, decimals: n.decimals, count: b.count === true && n.value <= 1e9, em: !!main[n.index].em };
-        if (n.index === 0) main = main.slice(1);
-      }
-    }
+    if (b.layout === "number" && zone !== "full") ({ number, main } = bigNumber(main, b.count === true));
     const out = {
       id: b.id, layout: zone === "full" ? "over" : b.layout, start: b.start, end: b.end, box,
       bridge: v.bridge, actor: v.actor, camera: v.camera, words: main,

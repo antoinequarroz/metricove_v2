@@ -17,7 +17,7 @@ import { TextGhost, TextPanel } from "./free-texts";
 import { Toggle } from "./look-parts";
 import { MusicFields } from "./music-fields";
 import { fmtSec, JobStatus, WorkerBanner } from "./parts";
-import { CompactRun, nb } from "./reel-progress";
+import { Clamp, CompactRun, nb } from "./reel-progress";
 import { ReelTimeline } from "./reel-timeline";
 import { Compare, Preview, VersionChip } from "./review-page";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
@@ -637,15 +637,6 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       : nb(`Modifications pas encore rendues : la vidéo montre encore la version ${version.n}. Clique sur « Voir l'aperçu » pour que le Mac la refasse (${aboutText(previewEstimate(worker, total))}, sans Claude).`)}
                   </p>
                 )}
-                {version.notes && tab === "claude" && (
-                  <div className="rounded-xl border border-line bg-surface-2/60 px-3.5 py-2.5 text-[12.5px] leading-relaxed whitespace-pre-line text-ink-2">
-                    <p className="mb-0.5 flex items-center gap-1.5 font-medium text-ink">
-                      <Sparkles className="size-3.5 text-accent" /> {version.by === "claude" ? (version.n === versions[0]?.n ? "À savoir sur cette version" : "Ce que Claude a changé") : "Modifié à la main"}
-                    </p>
-                    {version.notes}
-                  </div>
-                )}
-
                 {tab === "claude" && (
                   <div className="rounded-xl border border-line bg-surface p-3">
                     <p className="mb-2 flex items-center gap-1.5 text-[12.5px] font-medium">
@@ -728,6 +719,15 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                     </div>
                   </div>
                 )}
+                {version.notes && tab === "claude" && (
+                  <div className="rounded-xl border border-line bg-surface-2/60 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-ink-2">
+                    <p className="mb-0.5 flex items-center gap-1.5 font-medium text-ink">
+                      <Sparkles className="size-3.5 text-accent" /> {version.by === "claude" ? (version.n === versions[0]?.n ? "À savoir sur cette version" : "Ce que Claude a changé") : "Modifié à la main"}
+                    </p>
+                    {/* Under the request to Claude (the main tool, in view at 1280×720 even after long notes): three lines, the rest on « Plus ». */}
+                    <Clamp key={version.n} text={version.notes} />
+                  </div>
+                )}
 
                 {tab === "beats" && (
                   <VideoBeats
@@ -790,6 +790,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
 
             {/* ---------- Timeline ---------- */}
             <ReelTimeline
+              rowLabel="Temps forts"
               hidden={sketching}
               src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
               placed={placed}

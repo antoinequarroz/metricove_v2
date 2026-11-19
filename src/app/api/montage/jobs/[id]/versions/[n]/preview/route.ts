@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isVideoJob } from "@/lib/montage";
-import { cleanBroll, cleanReel, dropUpload, getJob, moveInto, previewPath, release, staleWrite, takeUpload, UploadError } from "@/server/montage";
+import { cleanBroll, cleanReel, dropUpload, getJob, moveInto, pageJob, previewPath, release, staleWrite, takeUpload, UploadError } from "@/server/montage";
 import { streamFile } from "@/server/stream";
 
 type Ctx = { params: Promise<{ id: string; n: string }> };
@@ -46,7 +46,8 @@ export async function POST(req: Request, { params }: Ctx) {
     // What the Mac has to say: a reel's fallbacks, or the B-roll Claude placed on a passage.
     if (typeof b.notes === "string" && b.notes.trim()) v.notes = b.notes.trim().slice(0, 2000);
     job.brollAsk = undefined;
-    return NextResponse.json({ job: release(job, "review") });
+    // Like every answer, it carries no code (pageJob).
+    return NextResponse.json({ job: pageJob(release(job, "review")) });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: e instanceof UploadError ? e.status : 500 });
   }

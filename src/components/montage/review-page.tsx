@@ -4,7 +4,7 @@ import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Laptop, Loader2,
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { edlDuration, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { edlDuration, isVideoJob, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
@@ -18,6 +18,7 @@ import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
 import { montageApi, useMontage } from "./use-montage";
+import { VideoReview } from "./video-review";
 
 const ASPECT: Record<Edl["format"], string> = { "9:16": "9 / 16", "4:5": "4 / 5", "1:1": "1 / 1", "16:9": "16 / 9" };
 const RATIO: Record<Edl["format"], number> = { "9:16": 9 / 16, "4:5": 4 / 5, "1:1": 1, "16:9": 16 / 9 };
@@ -87,6 +88,8 @@ export function ReviewPage({ id }: { id: string }) {
         </Link>
       </div>
     );
+  // A continuous reel (video plan) has its own editing screen, over a timeline of beats; an older reel keeps its timeline of scenes.
+  if (isVideoJob(job)) return <VideoReview job={job} worker={data.worker} refresh={refresh} />;
   // An animated reel has its own editing screen: the same player, drawings and versions, over a timeline of scenes.
   if (job.kind === "motion") return <ReelReview job={job} worker={data.worker} refresh={refresh} />;
   return <Review job={job} worker={data.worker} rushes={data.rushes} refresh={refresh} />;

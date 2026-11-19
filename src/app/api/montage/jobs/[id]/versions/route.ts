@@ -25,19 +25,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     dropUpload(b.upload);
     return NextResponse.json({ error: stale }, { status: 409 });
   }
+  // A version refused (unknown engine, code too long, bad EDL…): its video is dropped now, not kept 24 h in the uploads.
+  // An older worker that falls back on /final sends its file again first (jobs.mjs).
+  const refuse = (error: string) => {
+    dropUpload(b.upload);
+    return NextResponse.json({ error }, { status: 400 });
+  };
   // An animated reel: the version is the plan the Mac rendered (texts, lengths, animations, Claude's code).
   let reel;
   if (job.kind === "motion") {
-    if (!job.motion) return NextResponse.json({ error: "Reel sans demande" }, { status: 400 });
+    if (!job.motion) return refuse("Reel sans demande");
     const look = cleanLook((b.reel as { look?: unknown } | undefined)?.look, job.motion.look);
-    if (typeof look === "string") return NextResponse.json({ error: look }, { status: 400 });
+    if (typeof look === "string") return refuse(look);
     const { logo: _logo, ...stored } = look;
     void _logo;
     reel = cleanReel(b.reel, stored);
-    if (typeof reel === "string") return NextResponse.json({ error: reel }, { status: 400 });
+    if (typeof reel === "string") return refuse(reel);
   }
   const edl = reel ? EMPTY_EDL : cleanEdl(b.edl, job.rushIds);
-  if (typeof edl === "string") return NextResponse.json({ error: edl }, { status: 400 });
+  if (typeof edl === "string") return refuse(edl);
   // Texts put by hand stay from one version to the next: a Mac older than 0.11.0 sends none back (no `texts` key).
   const from = job.versions.find((v) => v.n === job.base) ?? job.versions.at(-1);
   if (reel && !("texts" in ((b.reel as object) ?? {})) && from?.reel?.texts?.length) reel.texts = from.reel.texts;

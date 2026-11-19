@@ -3,7 +3,7 @@
 // et render seulement, jamais validate (déprécié), add ni skills update. Chaque appel a un délai et s'arrête avec son
 // groupe de processus (run de util.mjs).
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { run, log } from "../util.mjs";
 import { HF_PACKAGE, MOMENT_ID, SAFE } from "./vocab.mjs";
 
@@ -26,17 +26,39 @@ let warned = false;
 // HYPERFRAMES_RENDER_DETACHED=1 : sinon `render` surveille TOUS ses ancêtres et s'annule (render_cancelled_parent_exited)
 // dès que l'un d'eux sort, par exemple le terminal qui a lancé le worker avec nohup (vérifié dans le bac à sable).
 // L'arrêt reste assuré par run() : délai, annulation et arbre de processus tué ; SIGTERM et SIGINT sont toujours suivis.
-const QUIET_ENV = Object.freeze({ HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_NO_AUTO_INSTALL: "1", HYPERFRAMES_SKIP_SKILLS: "1", HYPERFRAMES_RENDER_DETACHED: "1", DO_NOT_TRACK: "1", GEMINI_API_KEY: "" });
+// npm_config_prefer_offline : npx revérifie le registre npm dès que son cache a plus de 5 min, même pour une version
+// épinglée ; registre injoignable (panne, DNS, réseau filtré) → environ 70 s d'essais avant le cache, et lint (60 s) était
+// arrêté avant : toutes les vidéos échouaient, après l'écriture payée de Claude. Avec prefer-offline, le paquet en cache
+// sert tout de suite (1 s) ; un paquet absent du cache est toujours téléchargé (premier --setup-reel).
+const QUIET_ENV = Object.freeze({ HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_NO_AUTO_INSTALL: "1", HYPERFRAMES_SKIP_SKILLS: "1", HYPERFRAMES_RENDER_DETACHED: "1", DO_NOT_TRACK: "1", GEMINI_API_KEY: "", npm_config_prefer_offline: "true", npm_config_update_notifier: "false" });
+
+/**
+ * Le PATH des commandes HyperFrames : le dossier du Node qui fait tourner le worker d'abord. Lancé par launchd ou Portly
+ * (PATH court) avec un Node de nvm ou de Homebrew, « npx » et le « node » de son « #!/usr/bin/env node » sont trouvés
+ * quand même (spawn cherche la commande dans le PATH de l'environnement donné).
+ */
+export const toolPath = (env = process.env) => [dirname(process.execPath), env.PATH].filter(Boolean).join(delimiter);
+
+/** npx est-il trouvable par le worker (dans toolPath) ? Vérifié avant d'appeler Claude : sans lui, aucune vidéo ne sort. */
+export function npxFound(env = process.env) {
+  return toolPath(env).split(delimiter).some((d) => { try { return !!d && statSync(join(d, "npx")).mode & 0o111; } catch { return false; } });
+}
+
+/** Le message clair quand npx manque (spawn ENOENT ou EACCES), sinon null. */
+export function npxMissing(e) {
+  if (!e || !/^spawn\b/.test(String(e.syscall || "")) || !["ENOENT", "EACCES"].includes(e.code)) return null;
+  return Object.assign(new Error(`npx introuvable pour le worker (${e.code}, PATH : ${toolPath().slice(0, 160)}) : installe Node.js avec npm, ou lance le worker depuis un Terminal où « npx --version » répond, puis node montage.mjs --check.`), { code: "NPX" });
+}
 
 export function hfEnv(cfg) {
-  const env = { ...QUIET_ENV };
+  const env = { ...QUIET_ENV, PATH: toolPath() };
   const b = offlineBrowser(cfg);
   if (b) { env.HYPERFRAMES_BROWSER_PATH = b; env.PRODUCER_HEADLESS_SHELL_PATH = b; }
   else if (!warned) { warned = true; log("Chrome hors ligne absent (lance node montage.mjs --setup-reel) : seule la CSP de la page bloque le réseau."); }
   return env;
 }
 
-const hf = (cfg, sub, args, dir, o = {}) => run("npx", ["--yes", HF_PACKAGE, sub, ...args], { cwd: dir, env: hfEnv(cfg), ...o });
+const hf = (cfg, sub, args, dir, o = {}) => run("npx", ["--yes", HF_PACKAGE, sub, ...args], { cwd: dir, env: hfEnv(cfg), ...o }).catch((e) => { throw npxMissing(e) || e; });
 
 /** Le JSON d'une sortie HyperFrames (du premier « { » au dernier « } » : une ligne d'avis peut précéder). */
 export function parseJson(out, what) {
@@ -109,15 +131,35 @@ export function checkFindings(j) {
   return { blocking: uniq(blocking), advice: uniq(advice) };
 }
 
-/** Chrome n'a pas démarré (lancement refusé, binaire ou script hors ligne absent) : une panne du Mac, jamais de la page. */
-export const LAUNCH_FAILURE = /Failed to launch the browser process|Could not find (?:Chrome|Chromium|expected browser)|Browser was not found|Tried to find the browser|browser executable|spawn \S+ E(?:NOENT|ACCES)/i;
+/**
+ * Les constats de place (hors_zone, text_box_overflow) d'un temps fort ne comptent que pendant qu'il est posé, de son
+ * instant posé à sa fin moins une liaison : pendant une liaison (plongée du zoom, sortie), le mouvement fait sortir le
+ * texte exprès. Vu sur une vraie vidéo : la plongée vers le temps fort suivant donnait « Accroche dépasse » à Antoine.
+ * `marks` : [{ id, start, end }] ; `settle` : l'instant posé de chacun ; `bridge` : la durée B d'une liaison.
+ */
+export function heldOnly(advice, marks = [], settle = [], bridge = 0.7) {
+  const at = new Map(marks.map((m, i) => [m.id, [settle[i] ?? m.start, m.end - bridge]]));
+  return advice.filter((a) => {
+    if (!["hors_zone", "text_box_overflow"].includes(a.code) || !Number.isFinite(a.time)) return true;
+    const w = at.get(String(a.target || "").replace(/^beat:/, ""));
+    return !w || (a.time >= w[0] - 0.05 && a.time <= w[1] + 0.05);
+  });
+}
+
+/**
+ * Chrome n'a pas démarré (lancement refusé, binaire ou script hors ligne absent) : une panne du Mac, jamais de la page.
+ * `render` de HyperFrames 0.8.137 le dit autrement que puppeteer : « ✗ Chrome cannot start … Failed to run
+ * "…/chrome-offline.sh" --version (exit code 127) ».
+ */
+export const LAUNCH_FAILURE = /Failed to launch the browser process|Could not find (?:Chrome|Chromium|expected browser)|Browser was not found|Tried to find the browser|browser executable|Chrome cannot start|Failed to run .{1,400}? --version|spawn \S+ E(?:NOENT|ACCES)/i;
 
 /** Le message clair d'une panne de Chrome (première ligne de l'erreur de puppeteer, sans le lien de dépannage). */
 export function chromeDown(message) {
   const lines = String(message || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !/TROUBLESHOOTING|pptr\.dev/.test(l));
   // La ligne de puppeteer qui dit l'échec (au milieu de la sortie de npx pour un rendu), et les deux suivantes.
   const at = Math.max(0, lines.findIndex((l) => LAUNCH_FAILURE.test(l)));
-  const why = lines.slice(at, at + 3).join(" ").replace(/\s+/g, " ").slice(0, 200);
+  // Sans l'en-tête de run() (« npx a échoué (1) : ») ni la croix de HyperFrames (« ✗ »).
+  const why = lines.slice(at, at + 3).join(" ").replace(/^.*?a échoué \(\d+\) :\s*/, "").replace(/^[✗✘×]\s*/, "").replace(/\s+/g, " ").slice(0, 200);
   return `Chrome ne démarre pas sur le Mac${why ? ` (${why})` : ""} : relance node montage.mjs --setup-reel, puis réessaie.`;
 }
 
@@ -168,10 +210,19 @@ export function blame(findings, momentIds = []) {
 /** Le dossier des images d'un projet, et sa planche (grille) écrite par snapshot. */
 export const snapDir = (dir) => join(dir, "snapshots");
 export const contactSheet = (dir) => join(dir, "snapshots", "contact-sheet.jpg");
+/**
+ * Toutes les planches de snapshot, dans l'ordre : HyperFrames 0.8 pagine par 9 images, donc au-delà de 9 temps forts
+ * il écrit contact-sheet-1.jpg, contact-sheet-2.jpg… et plus de contact-sheet.jpg (vu sur une vraie vidéo de 11 temps forts).
+ */
+export function contactSheets(dir) {
+  if (!existsSync(snapDir(dir))) return [];
+  const num = (f) => Number(/-(\d+)\.jpg$/.exec(f)?.[1] || 0);
+  return readdirSync(snapDir(dir)).filter((f) => /^contact-sheet(-\d+)?\.jpg$/.test(f)).sort((a, b) => num(a) - num(b)).map((f) => join(snapDir(dir), f));
+}
 
 /**
  * `hyperframes snapshot --at t1,t2… --describe false --no-end` (environ 1 s par image) → chemins des PNG dans l'ordre
- * des instants. La planche est à contactSheet(dir).
+ * des instants. Les planches sont à contactSheets(dir).
  */
 export async function snapshot(cfg, dir, times, { signal, timeoutMs = HF_TIMEOUTS.snapshot } = {}) {
   const at = times.map((t) => Math.max(0, Number(t) || 0).toFixed(3)).join(",");
@@ -221,9 +272,10 @@ export async function render(cfg, dir, out, { onFrame, signal, timeoutMs } = {})
 /** `hyperframes browser path` : le Chrome sans tête que HyperFrames utilise (après `browser ensure`). */
 export async function browserPath(cfg, { ensure = false, signal } = {}) {
   // Le Chrome de HyperFrames lui-même (jamais le script hors ligne, qui n'existe pas encore pendant --setup-reel).
-  const env = { ...QUIET_ENV, HYPERFRAMES_BROWSER_PATH: "", PRODUCER_HEADLESS_SHELL_PATH: "" };
-  if (ensure) await run("npx", ["--yes", HF_PACKAGE, "browser", "ensure"], { env, signal, timeoutMs: HF_TIMEOUTS.browser });
-  const out = await run("npx", ["--yes", HF_PACKAGE, "browser", "path"], { env, signal, timeoutMs: 60_000 });
+  const env = { ...QUIET_ENV, PATH: toolPath(), HYPERFRAMES_BROWSER_PATH: "", PRODUCER_HEADLESS_SHELL_PATH: "" };
+  const npx = (args, o) => run("npx", ["--yes", HF_PACKAGE, ...args], { env, signal, ...o }).catch((e) => { throw npxMissing(e) || e; });
+  if (ensure) await npx(["browser", "ensure"], { timeoutMs: HF_TIMEOUTS.browser });
+  const out = await npx(["browser", "path"], { timeoutMs: 60_000 });
   const p = out.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith("/") || /^[A-Z]:\\/.test(l)).pop();
   if (!p || !existsSync(p)) throw new Error(`Chrome de HyperFrames introuvable (${out.trim().slice(0, 200)}).`);
   return p;

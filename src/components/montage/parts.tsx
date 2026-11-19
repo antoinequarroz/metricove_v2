@@ -153,4 +153,6 @@ export function WorkerBanner({ worker }: { worker?: WorkerStatus }) {
 }
 
 export const fmtSec = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+/** A length in seconds, the French way: a comma, and a narrow no-break space before the unit (« 2,6 s »). */
+export const fmtLen = (s: number) => `${s.toFixed(1).replace(".", ",")}\u202fs`;
 export const fmtSize = (b: number) => (b > 1e9 ? `${(b / 1e9).toFixed(1)} Go` : `${Math.max(1, Math.round(b / 1e6))} Mo`);
