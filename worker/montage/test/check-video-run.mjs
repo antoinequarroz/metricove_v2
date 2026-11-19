@@ -760,10 +760,10 @@ async function serverRun(args) {
     const R1 = c1.b?.job?.run?.startedAt;
     ok(c1.s === 200 && c1.b.job.id === J.id && c1.b.action === "motion", `réclamation ${VIDEO_WORKER} → la vidéo`, `${c1.s}`);
     ok(!!R1 && c1.b.job.run.by === VIDEO_WORKER && c1.b.job.status === "working", "la vidéo arrive en cours, avec run { startedAt, by }", JSON.stringify(c1.b?.job?.run));
-    // `voice` vient du profil du projet (voiceOf) : absent quand le projet n'a ni ton, ni skill, ni modèles, ni images.
+    // `voice` vient du profil du projet (voiceOf) : absent quand le projet n'a ni ton, ni skill, ni modèles, ni images, ni stratégie.
     const voice = c1.b?.job?.voice;
-    if (voice === undefined) info(`pas de voice dans la réclamation : ${projectId ? "le projet n'a ni ton, ni skill, ni modèles, ni images" : "aucun projet sur ce serveur"}`);
-    else ok(typeof voice === "object" && Object.keys(voice).every((k) => ["tone", "skill", "examples", "images"].includes(k)), `la vidéo arrive avec voice { ${Object.keys(voice).join(", ")} }`, JSON.stringify(voice).slice(0, 200));
+    if (voice === undefined) info(`pas de voice dans la réclamation : ${projectId ? "le projet n'a ni ton, ni skill, ni modèles, ni images, ni stratégie" : "aucun projet sur ce serveur"}`);
+    else ok(typeof voice === "object" && Object.keys(voice).every((k) => ["tone", "skill", "examples", "images", "strategy"].includes(k)), `la vidéo arrive avec voice { ${Object.keys(voice).join(", ")} }`, JSON.stringify(voice).slice(0, 200));
 
     // B. Le passage en cours écrit ; un autre passage (run différent) est refusé.
     let r = await patch(J.id, { step: "Claude écrit la vidéo…", progress: 0.1, phase: "write", phases: ["write", "check", "review", "render", "finish", "upload"], eta: 240, run: R1 });

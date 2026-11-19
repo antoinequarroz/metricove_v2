@@ -43,6 +43,8 @@ const EMPTY: Draft = { request: "", source: "idea", seconds: null, pace: null, m
 const STARTER_LOOK: Look = PRESETS[0].look;
 /** The old editor of reels made of scenes, kept for a Mac that cannot make videos yet. */
 const LEGACY = "/videos/studio/anime?editeur=scenes";
+/** The old editor, with the request written here as its idea (5 scenes, as Stratégie asks): nothing is lost on the way. */
+const legacyLink = (request: string) => (request.trim() ? `${LEGACY}&idee=${encodeURIComponent(request.trim().slice(0, 3000))}&n=5` : LEGACY);
 
 const SOURCES: { value: ReelSource; label: string; hint: string }[] = [
   { value: "idea", label: "Une idée", hint: nb("Ex. : 3 erreurs qui font décrocher sur un reel, avec un chiffre choc au début. Finir par « Abonne-toi ».") },
@@ -130,7 +132,8 @@ export function ReelStudio() {
   /** The video to follow is decided (from the address, this browser or the list): until then the one kept here stays kept. */
   const [settled, setSettled] = useState(false);
   const storedJob = useRef<string | null>(null);
-  const ideaSent = useRef(false);
+  /** An idea sent from the Stratégie page (?idee=…), read once: the dev double run of the effect must not lose it. */
+  const sentIdea = useRef<string | null | undefined>(undefined);
   const logoOn = useRef(true);
   useEffect(() => {
     const s = readStored();
@@ -144,12 +147,12 @@ export function ReelStudio() {
     }
     // An idea sent from the Stratégie page (?idee=…): it waits in the field, nothing is asked yet, and the screen opens
     // on the request rather than on the video kept here.
-    const sent = new URLSearchParams(window.location.search).get("idee")?.trim();
-    if (sent) {
-      setDraft((d) => ({ ...d, request: sent.slice(0, REEL_VIDEO.request), source: "idea" }));
-      ideaSent.current = true;
-      window.history.replaceState(null, "", window.location.pathname);
+    if (sentIdea.current === undefined) {
+      sentIdea.current = new URLSearchParams(window.location.search).get("idee")?.trim().slice(0, REEL_VIDEO.request) || null;
+      if (sentIdea.current) window.history.replaceState(null, "", window.location.pathname);
     }
+    const sent = sentIdea.current;
+    if (sent) setDraft((d) => ({ ...d, request: sent, source: "idea" }));
     setRestored(true);
   }, []);
   useEffect(() => {
@@ -246,7 +249,7 @@ export function ReelStudio() {
   // nothing: the screen is at rest.
   useEffect(() => {
     if (arrived.current || !restored) return;
-    if (ideaSent.current) return follow(null);
+    if (sentIdea.current) return follow(null);
     if (reel) return follow(reel);
     if (!data) return;
     const now = data.now ?? Date.now();
@@ -653,7 +656,7 @@ export function ReelStudio() {
 
                 {/* ---------- What happens if you click now ---------- */}
                 <div className="flex flex-col gap-2.5 border-t border-line px-4 py-3 xl:px-5">
-                  {mac && <MacStatus mac={mac} worker={worker} target={draft.seconds ?? undefined} legacy={LEGACY} />}
+                  {mac && <MacStatus mac={mac} worker={worker} target={draft.seconds ?? undefined} legacy={legacyLink(draft.request)} />}
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="flex min-w-0 flex-1 items-center gap-2 text-[12px] text-ink-3">
                       {running ? (

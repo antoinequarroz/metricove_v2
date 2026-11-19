@@ -304,7 +304,8 @@ export function claimJob(version?: string): MontageJob | undefined {
     if (!job.action) continue;
     // Claimed between 90 s and 15 min ago: only given again when it reports every 15 s (it would have reported).
     if (row.claimed_at !== null && row.claimed_at >= now - CLAIM_STALE && !fastBeat(job)) continue;
-    if (!atLeast(version, job.minWorker)) continue;
+    // A video job also needs today's VIDEO_WORKER: one asked before a version bump keeps an older minWorker.
+    if (!atLeast(version, job.minWorker) || (isVideoJob(job) && !atLeast(version, VIDEO_WORKER))) continue;
     // A video job starts its run from nothing: what an earlier run left (taken back, or a late report) means nothing here.
     if (job.minWorker) job.step = job.progress = undefined;
     if (job.status !== "rendering") job.status = "working";

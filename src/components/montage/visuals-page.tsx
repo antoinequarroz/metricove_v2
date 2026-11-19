@@ -187,7 +187,9 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
     setIdea(sent.slice(0, 3000));
     const n = parseInt(q.get("n") ?? "", 10);
     if (n >= 1) setCount(Math.min(n, max));
-    window.history.replaceState(null, "", window.location.pathname);
+    // The old scene editor lives at ?editeur=scenes: a reload must stay on it.
+    const editor = q.get("editeur");
+    window.history.replaceState(null, "", window.location.pathname + (editor ? `?editeur=${encodeURIComponent(editor)}` : ""));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [jobId, setJobId] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);

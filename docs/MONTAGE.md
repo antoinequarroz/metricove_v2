@@ -419,7 +419,7 @@ Page → serveur :
 - `GET /api/montage/jobs/:id/board?v=<run.board.v>` → l'image de la planche (`image/jpeg`, `private, no-store`), 404 s'il n'y en a pas. Elle reste dans `DATA_DIR/montage/<id>/` jusqu'à la validation (`dropPreviews`) ou la suppression du job.
 
 Mac → serveur :
-- `POST /api/montage/worker/claim` `{ worker, version, tracks?, brolls?, speed?: { frameMs, writeS } }`. `claimJob(version)` saute les jobs où `!atLeast(version, job.minWorker)` et pose `run = { startedAt, by: version, beatAt }` (pour tout job, quel que soit le worker : le Studio connaît toujours le temps écoulé). Pour une vidéo, la réponse ajoute `job.voice = { tone, skill, examples, images }` (`voiceOf` ; `images` = adresses `/api/profiles/:id/images/:img` que le Mac télécharge avec son jeton) et le logo dans `motion.look.logo`. `speed` est gardé (bornes : `frameMs` 1–10 000, `writeS` 1–3600) pour l'estimation « prête dans environ N min » de la page.
+- `POST /api/montage/worker/claim` `{ worker, version, tracks?, brolls?, speed?: { frameMs, writeS } }`. `claimJob(version)` saute les jobs où `!atLeast(version, job.minWorker)` et pose `run = { startedAt, by: version, beatAt }` (pour tout job, quel que soit le worker : le Studio connaît toujours le temps écoulé). Pour une vidéo, la réponse ajoute `job.voice = { tone, skill, examples, images, strategy }` (`voiceOf` ; `strategy` = la stratégie digitale du projet, donnée à Claude avec les modèles ; `images` = adresses `/api/profiles/:id/images/:img` que le Mac télécharge avec son jeton) et le logo dans `motion.look.logo`. `speed` est gardé (bornes : `frameMs` 1–10 000, `writeS` 1–3600) pour l'estimation « prête dans environ N min » de la page.
 - Identité du passage : chaque écriture du worker (`PATCH`, `POST /board`, `POST /versions`, `POST /versions/:n/preview`) peut porter `run` = le `run.startedAt` reçu à la réclamation (facultatif, worker ≥ 0.15.0). `staleWrite(job, run)` répond 409 sans rien enregistrer (l'envoi d'une version refusée est effacé aussitôt) quand :
   - `run` est donné et diffère de `job.run?.startedAt` (passage arrêté, annulé, ou repris par une autre réclamation : `queue()` et `release()` effacent `run`, une réclamation en pose un nouveau) ;
   - `run` est absent et le job est une vidéo sans action (arrêtée, annulée, finie) ou de nouveau en file (une nouvelle demande faite après un arrêt, que personne n'a encore réclamée). Ainsi la version, la planche, le PATCH ou l'échec tardif d'un passage arrêté n'efface plus la demande qui suit et ne remet plus l'ancien passage à l'écran.
@@ -596,7 +596,7 @@ Deux tâches sans vidéo, demandées depuis la page **Stratégie** et **Réglage
    (un document jamais utilisé est effacé après deux jours).
 
 La stratégie retenue est gardée dans le profil du projet (`strategy`, 12 000 caractères au plus) et part avec `job.voice.strategy`
-pour les posts, descriptions et textes de prompteur.
+pour les posts, descriptions et textes de prompteur, et pour l'écriture des reels vidéo continus (worker 0.15.0).
 
 ### `kind: "plan"` — proposer du contenu
 
