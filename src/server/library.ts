@@ -114,7 +114,8 @@ export function swapStylesInLibrary(projectId: string, a: string, b: string) {
   save(listLibrary().map((i) => ({ ...i, styles: i.styles.map((s) => (s === ra ? rb : s === rb ? ra : s)) })));
 }
 
-export type JobAssets = { illustrations: { name: string; tags: string[]; url: string; type: string }[]; sfx: { name: string; tags: string[]; url: string; type: string }[] };
+export type JobAsset = { id: string; name: string; tags: string[]; url: string; type: string };
+export type JobAssets = { illustrations: JobAsset[]; sfx: JobAsset[] };
 
 /** What the Mac may use for a job: the items of its style, else the items that belong to no style. At most 60 of each. */
 export function assetsFor(projectId: string, styleId?: string): JobAssets | undefined {
@@ -122,7 +123,7 @@ export function assetsFor(projectId: string, styleId?: string): JobAssets | unde
   const pick = (kind: AssetKind) => {
     const all = listLibrary(kind);
     const mine = all.filter((i) => i.styles.includes(ref));
-    return (mine.length ? mine : all.filter((i) => !i.styles.length)).slice(0, 60).map((i) => ({ name: i.name, tags: i.tags, url: `/api/library/${i.id}/file`, type: i.type }));
+    return (mine.length ? mine : all.filter((i) => !i.styles.length)).slice(0, 60).map((i) => ({ id: i.id, name: i.name, tags: i.tags, url: `/api/library/${i.id}/file`, type: i.type }));
   };
   const out = { illustrations: pick("illustration"), sfx: pick("sfx") };
   return out.illustrations.length || out.sfx.length ? out : undefined;

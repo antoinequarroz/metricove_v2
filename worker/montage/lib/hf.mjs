@@ -8,6 +8,7 @@ import { join, basename } from "node:path";
 import { run, ensureDir, home } from "./util.mjs";
 import { fontFaceCss, fontPaths } from "./fonts.mjs";
 import { textLayer } from "./texts.mjs";
+import { stageLayer } from "./stage.mjs";
 
 const E = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const f = (x) => Number(x).toFixed(3);
@@ -51,7 +52,7 @@ const SIZE = { s: 0.8, m: 1, l: 1.2 };
  * words : [{ w, s, e, seg, hl?, emoji? }] en secondes de la vidéo rendue ; speechEnd : fin de la parole ; dur : durée totale.
  * captions : { on, position, look, size, highlight, emoji } ; faces : { [seg]: { y0, y1 } } visage dans l'image (0..1), pour « auto ».
  */
-export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, theme, format, captions = {}, faces = {}, texts = [] }) {
+export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, theme, format, captions = {}, faces = {}, texts = [], stages = [] }) {
   const k = Math.min(W, H) / 1080;
   const px = (v) => `${Math.round(v * k)}px`;
   const maxc = Math.round((theme.captionsMaxChars?.[format] || 18) / (SIZE[captions.size] || 1));
@@ -80,11 +81,28 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
     return P.bottom;
   };
 
-  const chunks = captions.on === false ? [] : chunksOf(words, maxc);
+  // Pendant un temps fort en écran coupé (portrait), les sous-titres se posent sur la jointure des deux moitiés.
+  const stageAt = (t) => stages.find((s) => t >= s.a - 0.05 && t < s.b);
+  const placeOf = (c) => {
+    const st = stageAt(c[0].s);
+    if (st?.kind === "split" && H >= W) return { top: 0.5 - bh / 2, shade: "none" };
+    if (st) return { ...P.bottom, shade: "none" };
+    return posOf(c[0].seg);
+  };
+
+  // Un bloc de sous-titres ne chevauche pas l'entrée ou la sortie d'un temps fort : il change de place avec lui.
+  const chunks = (captions.on === false ? [] : chunksOf(words, maxc)).flatMap((c) => {
+    const out = [[c[0]]];
+    for (let m = 1; m < c.length; m++) {
+      if (stageAt(c[m].s) !== stageAt(c[m - 1].s)) out.push([]);
+      out[out.length - 1].push(c[m]);
+    }
+    return out;
+  });
   // Ombre douce derrière les sous-titres pendant la parole (côté où ils sont)
   const blocks = [];
   for (const c of chunks) {
-    const a = c[0].s, b = c[c.length - 1].e, shade = posOf(c[0].seg).shade;
+    const a = c[0].s, b = c[c.length - 1].e, shade = placeOf(c).shade;
     const last = blocks[blocks.length - 1];
     if (last && a - last[1] < 1.6 && last[2] === shade) last[1] = b; else blocks.push([a, b, shade]);
   }
@@ -99,7 +117,7 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
     const nxt = i + 1 < chunks.length ? chunks[i + 1][0].s - 0.04 : speechEnd;
     const b = Math.min(nxt, c[c.length - 1].e + 0.5);
     if (b - a < 0.1) return;
-    const pos = posOf(c[0].seg);
+    const pos = placeOf(c);
     let n = 0;
     const html = linesOf(c, maxc).map((line) => line.map((w) => `<span id="w${i}_${n++}" class="w"${w.hl ? ` style="color:${HL}"` : ""}>${E(w.w)}</span>`).join(" ")).join("<br>");
     const em = captions.emoji !== false ? c.findIndex((w) => w.emoji) : -1;
@@ -120,7 +138,7 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
   });
 
   // Accroche en ouverture (bandeau couleur d'accent, texte révélé par masque), sous les sous-titres s'ils sont en haut.
-  const clash = title?.text && chunks.map((c) => posOf(c[0].seg)).find((p, i) => chunks[i][0].s < (title.until || 2.5) && p.shade === "top");
+  const clash = title?.text && chunks.map((c) => placeOf(c)).find((p, i) => chunks[i][0].s < (title.until || 2.5) && p.shade === "top");
   const ttlTop = clash ? Math.min(0.6, clash.top + bh + 0.02) : 0.16;
   if (title?.text) {
     const until = Math.max(1.2, Math.min(title.until || 2.5, speechEnd));
@@ -138,12 +156,17 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
     js.push(`tl.to("#end .eb",{scaleX:1,duration:0.45,ease:"expo.out"},${f(s + 0.15)}); tl.to("#end .m>span",{yPercent:0,duration:0.5,ease:"expo.out"},${f(s + 0.3)});`);
   }
 
+  // Cartes des temps forts : sous les sous-titres (posées en premier dans la page), au-dessus de l'image.
+  const stg = stageLayer(stages, { W, H, theme, k });
+  els.unshift(...stg.els); js.unshift(...stg.js.filter((x) => x.startsWith("gsap.set"))); js.push(...stg.js.filter((x) => !x.startsWith("gsap.set")));
+
   // Textes libres posés à la main (au-dessus du reste, sauf du carton de fin qui est opaque).
   const free = textLayer(texts, { W, H, total: endCard?.text ? speechEnd : dur, accent: A, onAccent: INK });
   els.push(...free.els); js.unshift(...free.js.filter((x) => x.startsWith("gsap.set"))); js.push(...free.js.filter((x) => !x.startsWith("gsap.set")));
 
   const css = `${fontFaces}
 ${free.css}
+${stg.css}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent}
 #root{position:relative;width:${W}px;height:${H}px;font-family:"${theme.font}",${theme.fallbackFonts};${STRETCH}color:${T}}

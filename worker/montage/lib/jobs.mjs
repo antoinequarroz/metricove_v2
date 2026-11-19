@@ -7,6 +7,7 @@ import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
 import { proposeEdit, proposeBroll, writeScript } from "./claude.mjs";
 import { renderEdl } from "./render.mjs";
+import { STAGE_KINDS, STAGE_ANIMS, BUILTIN_SFX } from "./stage.mjs";
 import { timeline, toRush, toTimeline, FILLER, captionsOf, audioOf } from "./edl.mjs";
 import { listTracks } from "./audio.mjs";
 import { listBroll, resolveBroll } from "./broll.mjs";
@@ -180,14 +181,15 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
         title: last.edl.title?.text, endCard: last.edl.endCard?.text,
       };
       // Réglages choisis par Antoine sur la dernière version : on les garde.
-      const settings = last ? { captions: last.edl.captions, audio: last.edl.audio, exports: last.edl.exports, crop: last.edl.crop, brollAuto: last.edl.brollAuto } : {};
+      const settings = last ? { captions: last.edl.captions, audio: last.edl.audio, exports: last.edl.exports, crop: last.edl.crop, brollAuto: last.edl.brollAuto, stageAuto: last.edl.stageAuto } : {};
       const captions = captionsOf(settings, job.style);
       const audio = audioOf(settings);
       const tracks = audio.music.on && !audio.music.track ? listTracks(cfg) : [];
       const marks = writeMarks(job, cands, dir);
       const brollAuto = settings.brollAuto !== false;
-      const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, broll: brollAuto ? listBroll(cfg) : null, cwd: dir });
-      const edl = buildEdl(job, cands, p, { settings, captions, tracks });
+      const stage = settings.stageAuto !== false ? stageChoices(job) : null;
+      const p = await proposeEdit(cfg, { job, cands, previous, marks, captions, tracks, broll: brollAuto ? listBroll(cfg) : null, stage, cwd: dir });
+      const edl = buildEdl(job, cands, p, { settings, captions, tracks, stage });
       // Les textes posés à la main restent d'une proposition à l'autre.
       if (last?.edl.texts?.length) edl.texts = last.edl.texts;
       const bnotes = [];
@@ -338,7 +340,14 @@ function writeMarks(job, cands, dir) {
 }
 
 /** Transforme la réponse de Claude en EDL du contrat (temps des segments et des mots dans le rush). */
-export function buildEdl(job, cands, p, { settings = {}, captions = {}, tracks = [] } = {}) {
+/** Ce que Claude peut poser dans les temps forts : illustrations et bruitages du style (id de la bibliothèque), sinon les sons du Mac. */
+export function stageChoices(job) {
+  const idOf = (x) => x.id || /\/api\/library\/([\w-]+)\/file/.exec(x.url || "")?.[1];
+  const list = (l) => (l || []).map((x) => ({ id: idOf(x), name: String(x.name || "").slice(0, 80), tags: (x.tags || []).slice(0, 6) })).filter((x) => x.id && x.name);
+  return { illustrations: list(job.assets?.illustrations).slice(0, 40), sfx: list(job.assets?.sfx).slice(0, 40), builtin: BUILTIN_SFX };
+}
+
+export function buildEdl(job, cands, p, { settings = {}, captions = {}, tracks = [], stage = null } = {}) {
   const byId = Object.fromEntries(cands.map((c) => [c.id, c]));
   const refs = (list) => {
     const m = {};
@@ -404,7 +413,57 @@ export function buildEdl(job, cands, p, { settings = {}, captions = {}, tracks =
     if (s && s.dur > 0.4 && !edl.zooms.some((y) => y.at === s.start)) edl.zooms.push({ at: s.start, dur: s.dur, scale: round(Math.min(1.2, Math.max(1.04, z.scale || 1.1)), 2) });
   }
   edl.zooms.sort((a, b) => a.at - b.at);
+  if (settings.stageAuto === false) edl.stageAuto = false;
+  if (stage) Object.assign(edl, stagesOf(p, tl, edl, stage));
   return edl;
+}
+
+/**
+ * Temps forts et bruitages de Claude : du mot choisi au temps de la timeline. Pas sur l'accroche, pas sur un B-roll,
+ * jamais deux fois la même mise en page de suite ; bruitages à 2 s l'un de l'autre au moins.
+ */
+export function stagesOf(p, tl, edl, stage) {
+  const total = tl.length ? tl[tl.length - 1].start + tl[tl.length - 1].dur : 0;
+  const first = tl[0]?.id;
+  const ill = Object.fromEntries(stage.illustrations.map((x) => [x.name.toLowerCase(), x.id]));
+  const stages = [];
+  for (const x of p.stages || []) {
+    const s = tl.find((y) => y.id === x.id);
+    const w = s?.words?.[x.word];
+    if (!s || !w || s.id === first || !STAGE_KINDS.includes(x.kind) || !String(x.title || "").trim()) continue;
+    const at = round(toTimeline(s, w.t0));
+    const dur = round(Math.min(5, Math.max(2, Number(x.dur) || 3), total - 2 - at));
+    if (dur < 1.5) continue;
+    if (stages.some((o) => at < o.at + o.dur + 1 && o.at < at + dur + 1)) continue;
+    if ((edl.broll || []).some((o) => at < o.at + o.dur && o.at < at + dur)) continue;
+    const prev = stages[stages.length - 1];
+    const kind = prev?.kind === x.kind ? STAGE_KINDS.find((k) => k !== x.kind && k !== stages[stages.length - 2]?.kind) : x.kind;
+    const id = ill[String(x.illustration || "").trim().toLowerCase()];
+    stages.push({
+      at, dur, kind, title: String(x.title).trim().slice(0, 80),
+      ...(String(x.body || "").trim() ? { body: String(x.body).trim().slice(0, 140) } : {}),
+      ...(id ? { illustration: id } : {}),
+      ...(STAGE_ANIMS.includes(x.anim) ? { anim: x.anim } : {}),
+    });
+    if (stages.length >= 6) break;
+  }
+  stages.sort((a, b) => a.at - b.at);
+  stages.forEach((s, i) => { if (i && s.anim && s.anim === stages[i - 1].anim) delete s.anim; });
+  const lib = Object.fromEntries(stage.sfx.map((x) => [x.name.toLowerCase(), x]));
+  const sfx = [];
+  for (const x of p.sfx || []) {
+    const s = tl.find((y) => y.id === x.id);
+    const w = s?.words?.[x.word];
+    if (!s || !w) continue;
+    const name = String(x.name || "").trim().toLowerCase();
+    const hit = lib[name] || (!stage.sfx.length && stage.builtin.includes(name) ? { id: `builtin:${name}`, name } : null);
+    if (!hit) continue;
+    const at = round(Math.max(0, toTimeline(s, w.t0) - 0.08));
+    if (sfx.some((o) => Math.abs(o.at - at) < 2)) continue;
+    sfx.push({ at, sound: hit.id, name: hit.name, volume: 0.6 });
+    if (sfx.length >= 6) break;
+  }
+  return { stages, sfx: sfx.sort((a, b) => a.at - b.at) };
 }
 
 const slug = (s) => (s || "video").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 60) || "video";

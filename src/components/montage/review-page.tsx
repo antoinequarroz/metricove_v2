@@ -193,6 +193,12 @@ function Review({
     } else if (selection.kind === "zoom") {
       if (!next.zooms?.[selection.i]) return;
       next.zooms.splice(selection.i, 1);
+    } else if (selection.kind === "stage") {
+      if (!next.stages?.[selection.i]) return;
+      next.stages.splice(selection.i, 1);
+    } else if (selection.kind === "sfx") {
+      if (!next.sfx?.[selection.i]) return;
+      next.sfx.splice(selection.i, 1);
     } else {
       if (!next.broll?.[selection.i]) return;
       next.broll.splice(selection.i, 1);

@@ -9,18 +9,19 @@ import { Button } from "../ui";
 import { BrollPicker } from "./broll-picker";
 import { CaptionBlocks, CaptionInspector, type CaptionPick } from "./caption-track";
 import { TextBlocks } from "./free-texts";
+import { SfxBlocks, SfxInspector, StageBlocks, StageInspector } from "./stage-track";
 import { fmtSec } from "./parts";
 import { Filmstrip, SHORTCUTS, snap, useFilmstrip, useFollowPlayhead, useTimelineZoom, useWaveform, Waveform } from "./timeline-kit";
 
-export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "title" } | ({ kind: "cap" } & CaptionPick) | { kind: "brange"; a: number; b: number } | null;
+export type Selection = { kind: "seg"; id: string } | { kind: "zoom"; i: number } | { kind: "broll"; i: number } | { kind: "stage"; i: number } | { kind: "sfx"; i: number } | { kind: "title" } | ({ kind: "cap" } & CaptionPick) | { kind: "brange"; a: number; b: number } | null;
 
 const LABEL_W = 64;
 /** The tools above the tracks: a little narrower on a small timeline, so they hold on one line. */
 const TOOL = "@max-[600px]:px-2";
 /** Heights of the tracks (px). The pictures and the sound take more room than the spans; on a short window all are thinner. */
 const TRACKS = {
-  tall: { video: 40, shots: 36, zooms: 28, broll: 36, captions: 32, title: 28, texts: 32, sound: 36, notes: 28 },
-  short: { video: 30, shots: 30, zooms: 24, broll: 28, captions: 28, title: 24, texts: 28, sound: 30, notes: 26 },
+  tall: { video: 40, shots: 36, zooms: 28, broll: 36, stages: 32, sfx: 26, captions: 32, title: 28, texts: 32, sound: 36, notes: 28 },
+  short: { video: 30, shots: 30, zooms: 24, broll: 28, stages: 28, sfx: 24, captions: 28, title: 24, texts: 28, sound: 30, notes: 26 },
 };
 
 /** True on a short window (a laptop): the timeline gets thinner so the editing panels above it keep some room. */
@@ -228,10 +229,10 @@ export function Timeline({
   /* ---- Zooms ---- */
   const zooms = edl.zooms ?? [];
   /** Moves or resizes a zoom or a B-roll shot (both are timeline spans). */
-  const moveSpan = (e: React.PointerEvent, key: "zooms" | "broll", i: number, mode: "move" | "start" | "end") => {
+  const moveSpan = (e: React.PointerEvent, key: "zooms" | "broll" | "stages", i: number, mode: "move" | "start" | "end") => {
     const base = edl;
     const z0 = base[key]![i];
-    onSelect({ kind: key === "zooms" ? "zoom" : "broll", i });
+    onSelect({ kind: key === "zooms" ? "zoom" : key === "stages" ? "stage" : "broll", i });
     drag(e, (dx) => {
       const next = structuredClone(base);
       const z = next[key]![i];
@@ -289,6 +290,38 @@ export function Timeline({
   const [picking, setPicking] = useState(false);
   const [askNote, setAskNote] = useState("");
 
+  /* ---- Key moments and sound effects ---- */
+  const stages = edl.stages ?? [];
+  const sfx = edl.sfx ?? [];
+  const addStage = (e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    const at = clamp(secAt(e.clientX), 0, Math.max(0, dur - 1));
+    const len = Math.min(3, dur - at);
+    if (len < 0.8 || stages.some((s) => at < s.at + s.dur && s.at < at + len)) return;
+    const next = structuredClone(edl);
+    next.stages = [...stages, { at, dur: len, kind: "split" as const, title: "Ton idée clé" }].sort((a, b) => a.at - b.at);
+    onChange(next);
+    onSelect({ kind: "stage", i: next.stages.findIndex((s) => s.at === at) });
+  };
+  const addSfx = (e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    const at = clamp(secAt(e.clientX), 0, dur);
+    const next = structuredClone(edl);
+    next.sfx = [...sfx, { at, sound: "builtin:whoosh", name: "Whoosh", volume: 0.6 }].sort((a, b) => a.at - b.at);
+    onChange(next);
+    onSelect({ kind: "sfx", i: next.sfx.findIndex((x) => x.at === at) });
+  };
+  const moveSfx = (e: React.PointerEvent, i: number) => {
+    const base = edl;
+    const a0 = base.sfx![i].at;
+    onSelect({ kind: "sfx", i });
+    drag(e, (dx) => {
+      const next = structuredClone(base);
+      next.sfx![i].at = clamp(near(a0 + dx / pps), 0, dur);
+      onChange(next);
+    });
+  };
+
   const addZoom = (e: React.MouseEvent) => {
     if (e.target !== e.currentTarget) return;
     const at = clamp(secAt(e.clientX), 0, Math.max(0, dur - 1));
@@ -328,12 +361,16 @@ export function Timeline({
   const oldCaptions = !!workerVersion && (wv[0] ?? 0) === 0 && (wv[1] ?? 0) < 13;
   /** Picking a shot, its sound and its start, and asking Claude for B-roll need the Mac 0.13.0. */
   const oldBroll = oldCaptions;
+  /** Key moments and sound effects need the Mac 0.17.0. */
+  const oldStage = !!workerVersion && (wv[0] ?? 0) === 0 && (wv[1] ?? 0) < 17;
   const brange = selection?.kind === "brange" ? selection : undefined;
   const selSeg = selection?.kind === "seg" ? edl.segments.find((s) => s.id === selection.id) : undefined;
   const selZoom = selection?.kind === "zoom" ? zooms[selection.i] : undefined;
   const selBroll = selection?.kind === "broll" ? broll[selection.i] : undefined;
   /** Nothing chosen: the inspector only shows a hint (on a short computer window it gives its line to the panels above). */
-  const idle = !selSeg && !selZoom && selection?.kind !== "cap" && !selBroll && !brange && !(selection?.kind === "title" && edl.title);
+  const selStage = selection?.kind === "stage" && stages[selection.i] ? selection.i : null;
+  const selSfx = selection?.kind === "sfx" && sfx[selection.i] ? selection.i : null;
+  const idle = !selSeg && !selZoom && selection?.kind !== "cap" && !selBroll && !brange && selStage === null && selSfx === null && !(selection?.kind === "title" && edl.title);
   const HINT = "Glisse un plan pour le déplacer, tire ses bords pour le raccourcir.";
 
   return (
@@ -533,6 +570,14 @@ export function Timeline({
                 </div>
               );
             })}
+          </Track>
+
+          <Track label="Mise en scène" h={H.stages} onClick={addStage} empty={stages.length ? undefined : "Clique pour un temps fort : écran coupé, carte plein écran ou carte avec ton visage en pastille"}>
+            <StageBlocks stages={stages} pps={pps} selected={selStage} onPointerDown={(e, i, mode) => moveSpan(e, "stages", i, mode)} Handle={Handle} />
+          </Track>
+
+          <Track label="Bruitages" h={H.sfx} onClick={addSfx} empty={sfx.length ? undefined : "Clique pour poser un bruitage"}>
+            <SfxBlocks sfx={sfx} pps={pps} selected={selSfx} onPointerDown={moveSfx} />
           </Track>
 
           {(edl.captions ?? captionStyle)?.on !== false && edl.segments.some((s) => s.words?.length) && (
@@ -837,6 +882,10 @@ export function Timeline({
               <Trash2 className="size-3.5" /> Retirer
             </Button>
           </>
+        ) : selStage !== null ? (
+          <StageInspector edl={edl} i={selStage} onChange={onChange} onDone={() => onSelect(null)} oldMac={oldStage} />
+        ) : selSfx !== null ? (
+          <SfxInspector edl={edl} i={selSfx} onChange={onChange} onDone={() => onSelect(null)} oldMac={oldStage} />
         ) : brange ? (
           <>
             <span className="tabular font-mono text-ink-3">

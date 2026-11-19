@@ -92,6 +92,15 @@ Médias → Ressources → Illustrations ou Bruitages → « Créer avec Claude 
 
 Les fichiers arrivent dans la bibliothèque, rangés dans le style choisi.
 
+## Mise en scène des temps forts (worker 0.17.0)
+
+Dans un face cam, Claude choisit 2 à 4 temps forts où la mise en page change : écran coupé (carte en haut, visage en
+bas), carte plein écran, ou carte avec le visage en pastille ronde. Chaque carte entre avec une animation différente de
+la précédente, avec une illustration de la bibliothèque du style quand une colle. Il pose aussi 2 à 5 bruitages : ceux
+de la bibliothèque, sinon des sons faits ici avec FFmpeg. Les fichiers de la bibliothèque sont gardés dans
+`"libraryCache"` (par défaut `~/Movies/Metricove/bibliotheque-cache`, ~300 Mo au plus). Tout se retouche dans les
+pistes « Mise en scène » et « Bruitages » de la timeline ; Réglages → Mise en scène coupe la proposition automatique.
+
 ## Disque
 
 `workDir` et `rushesDir` sont configurables. Le worker refuse de travailler sous `minFreeGb` Go libres et efface ses fichiers intermédiaires après chaque rendu. HyperFrames rend avec `--workers 1` (sinon il stocke toutes les images sur le disque).

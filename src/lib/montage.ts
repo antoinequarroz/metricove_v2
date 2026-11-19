@@ -126,7 +126,33 @@ export type Edl = {
   texts?: FreeText[];
   /** Claude adds B-roll where it helps (your shots first, then Pexels). */
   brollAuto?: boolean;
+  /** Key moments where the layout changes (seconds of the editor timeline). Worker 0.17.0. */
+  stages?: Stage[];
+  /** Sound effects (seconds of the editor timeline). Worker 0.17.0. */
+  sfx?: Sfx[];
+  /** Claude stages key moments and adds sound effects (default on). */
+  stageAuto?: boolean;
 };
+
+/**
+ * A key moment staged differently: `split` = a card on one half, the face cropped on the other; `card` = a full-screen
+ * card while the voice goes on; `pip` = a full-screen card with the face in a round badge.
+ */
+export type StageKind = "split" | "card" | "pip";
+export const STAGE_KINDS: StageKind[] = ["split", "card", "pip"];
+export const STAGE_LABEL: Record<StageKind, string> = { split: "Écran coupé", card: "Carte plein écran", pip: "Carte + pastille" };
+export type StageAnim = "rise" | "slide" | "pop" | "wipe";
+export const STAGE_ANIMS: StageAnim[] = ["rise", "slide", "pop", "wipe"];
+export const ANIM_LABEL: Record<StageAnim, string> = { rise: "Monte", slide: "Glisse", pop: "Surgit", wipe: "Rideau" };
+/** `illustration`: id of a library illustration. `anim` absent: the Mac picks one that differs from the previous card. */
+export type Stage = { at: number; dur: number; kind: StageKind; title: string; body?: string; illustration?: string; anim?: StageAnim };
+/** `sound`: id of a library sound effect, or `builtin:<name>` (made by the Mac with FFmpeg). */
+export type Sfx = { at: number; sound: string; name: string; volume?: number };
+export const BUILTIN_SFX = ["whoosh", "swoosh", "pop", "click", "ding", "impact", "riser", "thud"];
+export const MAX_STAGES = 12;
+export const MAX_SFX = 20;
+/** The Mac version that renders key moments and sound effects. */
+export const STAGE_WORKER = "0.17.0";
 
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };
 /** A text put on the video by hand: when, where (centre of the text, 0 to 1 of the picture), how big. */

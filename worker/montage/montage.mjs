@@ -18,13 +18,14 @@ import { scan } from "./lib/rushes.mjs";
 import { handle, sweepRuns } from "./lib/jobs.mjs";
 import { listTracks } from "./lib/audio.mjs";
 import { macBrollList, setBrollApi } from "./lib/broll.mjs";
+import { setStageApi } from "./lib/stage.mjs";
 import { claudeFlags } from "./lib/claude.mjs";
 import * as HF from "./lib/reel/hf-cli.mjs";
 import { stagePage } from "./lib/reel/stage.mjs";
 import { speedOf, learnStats, readStats, statsFile } from "./lib/reel/progress.mjs";
 import { FPS, GSAP } from "./lib/reel/vocab.mjs";
 
-const VERSION = "0.16.0";
+const VERSION = "0.17.0";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 const CONFIG_FILE = process.env.MONTAGE_CONFIG || join(HERE, "config.json");
@@ -276,6 +277,7 @@ async function loop() {
   let sentTracks = null, sentAt = 0;
   let sentBroll = null, brollAt = 0;
   setBrollApi(api);
+  setStageApi(api);
   for (;;) {
     try {
       if (Date.now() - lastScan > cfg.scanSeconds * 1000) {

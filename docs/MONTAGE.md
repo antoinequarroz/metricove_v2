@@ -614,8 +614,26 @@ La page met chaque proposition en brouillon au calendrier, l'ouvre dans le Studi
   style (une règle par ligne) sont ajoutées à la fin de `voice.tone`.
 - Bibliothèques (`/api/library`) : illustrations (PNG, JPEG, WebP, SVG) et bruitages (MP3, WAV, OGG, M4A), chacun
   rangé dans des styles `"<projet>:<style>"`. À la réclamation, une tâche montage, couverture ou reel reçoit
-  `job.assets = { illustrations: [{ name, tags, url, type }], sfx: [...] }` : ceux de son style, sinon ceux sans style.
+  `job.assets = { illustrations: [{ id, name, tags, url, type }], sfx: [...] }` : ceux de son style, sinon ceux sans style.
 - `POST /api/montage/jobs` `{ kind: "asset", assetKind: "illustration" | "sfx", prompt, count: 1..4, projectId?, styleId? }`
   → `job.asset = { kind, prompt, count, styles, palette?, style? }`, `minWorker` 0.16.0. Le Mac envoie chaque fichier
   à `POST /api/library?kind=…&name=…&tags=…&styles=…&source=claude` (corps = le fichier), puis
   `PATCH { status: "done", asset: { result: [ids] } }`.
+
+## Mise en scène des temps forts (worker 0.17.0)
+
+L'EDL d'un face cam peut porter, en secondes de la timeline de l'éditeur :
+
+- `stages: [{ at, dur, kind: "split" | "card" | "pip", title, body?, illustration?, anim?: "rise" | "slide" | "pop" | "wipe" }]`
+  (12 au plus). `split` : carte en haut (à gauche en 16:9), visage recadré dans l'autre moitié, sous-titres sur la
+  jointure. `card` : carte plein écran, la voix continue. `pip` : carte plein écran, visage dans une pastille ronde.
+  `illustration` = id d'une illustration de la bibliothèque. Sans `anim`, le Mac en prend une différente de la carte
+  d'avant. Deux temps forts qui se chevauchent : le Mac garde le premier.
+- `sfx: [{ at, sound, name, volume? }]` (20 au plus) : `sound` = id d'un bruitage de la bibliothèque, ou
+  `builtin:whoosh|swoosh|pop|click|ding|impact|riser|thud` (fait par le Mac avec FFmpeg). Volume 0,05 à 1,5 (0,6 par défaut).
+- `stageAuto: false` : Claude ne propose ni temps forts ni bruitages à la prochaine version.
+
+Claude (proposition de montage) reçoit les illustrations et bruitages de `job.assets` par leur nom et leurs mots clés,
+et pose 2 à 4 temps forts pour 45 s (jamais sur l'accroche, ni sur un B-roll, ni deux fois la même mise en page de suite)
+et 2 à 5 bruitages. Rendu : cartes dans la surcouche HyperFrames (sous les sous-titres), visage recadré ou en pastille
+par FFmpeg, bruitages mélangés sous la voix. Un Mac plus ancien ignore ces champs.

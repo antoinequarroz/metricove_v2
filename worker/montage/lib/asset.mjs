@@ -98,7 +98,7 @@ const RECIPES = {
   glitch: (f, d) => ({ src: `aevalsrc=0.5*sgn(sin(2*PI*${f}*t))*mod(floor(t*${Math.round(f / 20) || 30})\\,2)+0.2*(random(0)*2-1):d=${d}`, af: "aecho=0.6:0.4:20:0.3" }),
   typing: (f, d) => ({ src: `aevalsrc=(random(0)*2-1)*exp(-mod(t\\,0.11)*350)*lt(mod(t\\,0.11)\\,0.03):d=${d}`, af: `highpass=f=${Math.max(800, Math.round(f))}` }),
 };
-const RANGE = { whoosh: [400, 0.6], swoosh: [700, 0.5], pop: [700, 0.18], click: [3000, 0.06], thud: [70, 0.5], impact: [55, 0.9], ding: [1300, 1.2], riser: [900, 1.5], glitch: [600, 0.4], typing: [1500, 1.0] };
+export const RANGE = { whoosh: [400, 0.6], swoosh: [700, 0.5], pop: [700, 0.18], click: [3000, 0.06], thud: [70, 0.5], impact: [55, 0.9], ding: [1300, 1.2], riser: [900, 1.5], glitch: [600, 0.4], typing: [1500, 1.0] };
 
 async function makeSounds(cfg, a, count, step, dir) {
   await step("Claude prépare les bruitages…", 0.2);
