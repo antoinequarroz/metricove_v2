@@ -30,7 +30,13 @@ let warned = false;
 // épinglée ; registre injoignable (panne, DNS, réseau filtré) → environ 70 s d'essais avant le cache, et lint (60 s) était
 // arrêté avant : toutes les vidéos échouaient, après l'écriture payée de Claude. Avec prefer-offline, le paquet en cache
 // sert tout de suite (1 s) ; un paquet absent du cache est toujours téléchargé (premier --setup-reel).
-const QUIET_ENV = Object.freeze({ HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_NO_AUTO_INSTALL: "1", HYPERFRAMES_SKIP_SKILLS: "1", HYPERFRAMES_RENDER_DETACHED: "1", DO_NOT_TRACK: "1", GEMINI_API_KEY: "", npm_config_prefer_offline: "true", npm_config_update_notifier: "false" });
+// PRODUCER_EXPERIMENTAL_FAST_CAPTURE=false : sur macOS (et Windows), HyperFrames 0.8 capture par défaut avec
+// canvas.drawElementImage et encode chaque image dans un Worker créé depuis une URL blob:. La CSP de nos pages
+// (script-src 'self' 'unsafe-inline', sans worker-src) bloque ce Worker : « drawElement worker encode timed out (frame 1) »
+// et aucun rendu ne sort (vu sur le Mac d'Antoine, 19 novembre 2026 ; Linux capture par beginframe ou screenshot et ne
+// passe jamais par là). On garde la CSP telle quelle (un moment de Claude ne doit pas pouvoir lancer de Worker) et on
+// capture par screenshot, le chemin que les tests du bac à sable couvrent.
+const QUIET_ENV = Object.freeze({ PRODUCER_EXPERIMENTAL_FAST_CAPTURE: "false", HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_NO_AUTO_INSTALL: "1", HYPERFRAMES_SKIP_SKILLS: "1", HYPERFRAMES_RENDER_DETACHED: "1", DO_NOT_TRACK: "1", GEMINI_API_KEY: "", npm_config_prefer_offline: "true", npm_config_update_notifier: "false" });
 
 /**
  * Le PATH des commandes HyperFrames : le dossier du Node qui fait tourner le worker d'abord. Lancé par launchd ou Portly

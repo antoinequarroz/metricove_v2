@@ -494,7 +494,7 @@ Paquet B (chaîne du worker) :
 - `lib/reel/prompt.mjs` : `SCORE_SCHEMA`, `REVIEW_SCHEMA`, `REVISE_SCHEMA`, `writePrompt`, `reviewPrompt`, `revisePrompt`.
 - `lib/reel/render.mjs` : `produce(cfg, ctx)` (échelle de qualité : checkMoment, stagePage, lint, check, planche, relecture, rendu, repli), `reelCfg(cfg)` (valeurs par défaut `REEL_DEFAULTS`), `withMeta`, `vet`, `renderedPlan`, `applyPatch`, finition ffmpeg copiée de `motion.mjs`, contrôle `probe` (ffprobe).
 - `lib/reel/index.mjs` : `handleVideo(api, cfg, job, action, dir)` → `makeVideo`, `reviseVideo`, `renderVideo`.
-- `prompts/reel-video.md` (savoir-faire), `montage.mjs` (`VERSION = "0.15.0"`, `--setup-reel`, lignes de `--check`, verrou, `speed` dans la réclamation), `config.example.json`, `README.md`.
+- `prompts/reel-video.md` (savoir-faire), `montage.mjs` (`VERSION = "0.15.1"` (porte vidéo du serveur : 0.15.0), `--setup-reel`, lignes de `--check`, verrou, `speed` dans la réclamation), `config.example.json`, `README.md`.
 
 Paquet C : `src/lib/montage.ts`, `src/lib/worker-version.ts`, `src/server/montage.ts`, les routes `api/montage` (dont `jobs/[id]/board`, et le 409 d'un passage terminé dans `jobs/[id]/versions/[n]/preview`), cette section, et les outils de test `worker/montage/test/mock-server.mjs` (`MOCK=video`), `check-video-run.mjs`, `claude-spy.sh`, `config.sandbox.json`.
 
