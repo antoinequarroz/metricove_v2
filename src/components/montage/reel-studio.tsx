@@ -11,6 +11,9 @@ import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
+import { CLAUDE_MODELS, cleanModel, GEN_TRACK } from "@/lib/audio-ai";
+import { useAudioSettings } from "../resources/music-maker";
+import { ModelSelect, TrackSelect, type VoiceChoice, VoiceOverFields, voiceOfChoice } from "./audio-fields";
 import { Switch } from "./controls";
 import { captureFrame, putCover } from "./cover-capture";
 import { inputClass, LookControls } from "./look-parts";
@@ -30,16 +33,20 @@ type Draft = {
   /** null: Claude chooses. */
   pace: Pace | null;
   music: boolean;
-  /** A file of the Mac's music folder, "" = the Mac picks. */
+  /** A file of the Mac's music folder, a library music ("lib:<id>"), "gen" (composed for the video), "" = the Mac picks. */
   track: string;
   direction: string;
+  /** Voice-over: on, and the voice (the default one of Réglages when left out). */
+  voice: VoiceChoice;
+  /** The Claude model of this video ("" = the one of Réglages). */
+  model: string;
 };
 /** What the Studio keeps between visits: the draft (and the look adjusted for it), and the video it follows. */
 type Stored = { draft: Draft & { look?: Look; logo?: boolean; profileId?: string; autoProject?: string }; jobId?: string | null };
 
 const KEY = "metricove-reel-video-v1";
 const DAY = 24 * 3600_000;
-const EMPTY: Draft = { request: "", source: "idea", seconds: null, pace: null, music: true, track: "", direction: "" };
+const EMPTY: Draft = { request: "", source: "idea", seconds: null, pace: null, music: true, track: "", direction: "", voice: { on: false }, model: "" };
 const STARTER_LOOK: Look = PRESETS[0].look;
 /** The old editor of reels made of scenes, kept for a Mac that cannot make videos yet. */
 const LEGACY = "/videos/studio/anime?editeur=scenes";
@@ -90,6 +97,8 @@ function cleanDraft(d: Partial<Draft> | undefined): Draft {
     music: d?.music !== false,
     track: typeof d?.track === "string" ? d.track.slice(0, 200) : "",
     direction: typeof d?.direction === "string" ? d.direction.slice(0, MAX_DIRECTION) : "",
+    voice: d?.voice && typeof d.voice === "object" ? { on: d.voice.on === true, ...(d.voice.provider === "elevenlabs" || d.voice.provider === "google" ? { provider: d.voice.provider } : {}), ...(typeof d.voice.voiceId === "string" ? { voiceId: d.voice.voiceId.slice(0, 100) } : {}), ...(typeof d.voice.name === "string" ? { name: d.voice.name.slice(0, 100) } : {}) } : { on: false },
+    model: cleanModel(d?.model),
   };
 }
 
@@ -121,6 +130,9 @@ export function ReelStudio() {
   const projects = useStore((s) => s.projects);
   const accounts = useStore((s) => s.accounts);
   const posts = useStore((s) => s.posts);
+
+  // Réglages → Voix et musique (keys set, default voice, music provider, Claude model).
+  const audio = useAudioSettings();
 
   // ---- Draft and look, kept in this browser ----
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -364,6 +376,8 @@ export function ReelStudio() {
           direction: draft.direction.trim() || undefined,
           music: draft.music,
           track: draft.music && draft.track ? draft.track : undefined,
+          voice: voiceOfChoice(draft.voice, audio),
+          model: draft.model || undefined,
           // Whether a logo shows; the image itself is the one of the project's profile, which the Mac gets.
           logo: !!look.logo,
           look: { ...lookOf(look), logo: undefined },
@@ -396,7 +410,7 @@ export function ReelStudio() {
     const m = j.motion;
     if (!m?.request) return null;
     const before = draftNow.current;
-    setDraft(cleanDraft({ request: m.request, source: m.source, seconds: m.seconds ?? null, pace: m.pace ?? null, direction: m.direction ?? "", music: m.music, track: m.track ?? "" }));
+    setDraft(cleanDraft({ request: m.request, source: m.source, seconds: m.seconds ?? null, pace: m.pace ?? null, direction: m.direction ?? "", music: m.music, track: m.track ?? "", voice: m.voice ? { on: true, ...m.voice } : { on: false }, model: j.model ?? "" }));
     return before.request.trim() && before.request.trim() !== m.request.trim() ? before : null;
   };
   const draftBack = (before: Draft | null) => (before ? { action: { label: "Reprendre mon brouillon", onClick: () => setDraft(before) } } : {});
@@ -613,27 +627,26 @@ export function ReelStudio() {
                     <Setting label="Rythme" hint={draft.pace ? undefined : "Claude choisit"}>
                       <Seg label="Rythme" value={draft.pace ?? "auto"} onChange={(v) => patch({ pace: v === "auto" ? null : (v as Pace) })} options={PACES} />
                     </Setting>
-                    <Setting label="Musique" className="@min-[520px]:col-span-2">
+                    <Setting label="Musique" className="@min-[520px]:col-span-2" hint={draft.music && draft.track === GEN_TRACK ? "Claude écrit l'ambiance, la musique est composée à la durée exacte de la vidéo" : undefined}>
                       <div className="flex flex-wrap items-center gap-2.5">
                         <span className="flex items-center gap-2 text-[12.5px] text-ink-2">
-                          <Switch on={draft.music} onChange={(music) => patch({ music })} label="Musique de ton dossier" />
-                          Musique de ton dossier
+                          <Switch on={draft.music} onChange={(music) => patch({ music })} label="Musique" />
+                          Musique
                         </span>
-                        <select
-                          aria-label="Morceau"
-                          value={draft.track}
-                          disabled={!draft.music}
-                          onChange={(e) => patch({ track: e.target.value })}
-                          className="h-8 min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-2 text-[12.5px] outline-none focus:border-accent/60 disabled:opacity-50"
-                        >
-                          <option value="">Au choix</option>
-                          {[...new Set([...(worker?.tracks ?? []), ...(draft.track ? [draft.track] : [])])].map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
+                        <TrackSelect value={draft.track} onChange={(track) => patch({ track })} tracks={worker?.tracks} audio={audio} disabled={!draft.music} className="flex-1" />
                       </div>
+                    </Setting>
+                    <Setting label="Voix off" className="@min-[520px]:col-span-2" hint={draft.voice.on ? "Claude écrit une phrase par temps fort, la voix la lit" : undefined}>
+                      <div className="flex flex-col gap-2.5">
+                        <span className="flex items-center gap-2 text-[12.5px] text-ink-2">
+                          <Switch on={draft.voice.on} onChange={(on) => patch({ voice: { ...draft.voice, on } })} label="Voix off" />
+                          {draft.voice.on ? "Une voix lit la vidéo" : "Sans voix"}
+                        </span>
+                        <VoiceOverFields value={draft.voice} onChange={(voice) => patch({ voice })} audio={audio} />
+                      </div>
+                    </Setting>
+                    <Setting label="Modèle Claude" className="@min-[520px]:col-span-2" hint={draft.model ? CLAUDE_MODELS.find((m) => m.id === draft.model)?.detail : "Celui choisi dans Réglages"}>
+                      <ModelSelect value={draft.model} onChange={(model) => patch({ model })} audio={audio} className="w-full" />
                     </Setting>
                   </div>
 

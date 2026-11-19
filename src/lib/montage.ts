@@ -175,6 +175,8 @@ export const MAX_STAGES = 12;
 export const MAX_SFX = 20;
 /** The Mac version that renders key moments and sound effects. */
 export const STAGE_WORKER = "0.17.0";
+/** Oldest Mac that reads `model`, the voice-over, library music and music composed for a video. */
+export const AUDIO_WORKER = "0.19.0";
 
 export const DEFAULT_CAPTIONS: CaptionStyle = { on: true, position: "auto", look: "karaoke", size: "m", emoji: true };
 /** A text put on the video by hand: when, where (centre of the text, 0 to 1 of the picture), how big. */
@@ -374,7 +376,7 @@ export type ReelVideo = {
   /** METRI-18. */
   captions?: { on: boolean; look?: "karaoke" | "pop" | "simple" };
   /** METRI-18. */
-  voiceOver?: { provider: "elevenlabs"; voiceId: string };
+  voiceOver?: { provider: "elevenlabs" | "google"; voiceId: string };
   /** METRI-27/28. */
   motionStyle?: string;
 };
@@ -552,8 +554,10 @@ export type MotionRequest = {
   source?: ReelSource;
   /** Video only: wanted length (REEL_TARGETS); left out = Auto. */
   seconds?: number;
-  /** Video only: a file of the Mac's music folder; left out, the Mac picks. */
+  /** Video only: a file of the Mac's music folder, a library music ("lib:<id>") or "gen" (composed for the video); left out, the Mac picks. */
   track?: string;
+  /** Video only: a voice-over read by ElevenLabs or Google; Claude writes the line said on each beat. */
+  voice?: { provider: "elevenlabs" | "google"; voiceId: string; name?: string };
 };
 
 /** Phases of a video job, in order. "review" is left out of `phases` when Claude does not need to look at the frames. */
@@ -643,6 +647,8 @@ export type MontageJob = {
   updatedAt: string;
   /** Oldest worker that may claim the job (VIDEO_WORKER for video jobs); left out = any worker. */
   minWorker?: string;
+  /** The Claude model the Mac uses for this job (`claude --model`); left out, the one of Réglages, else the Mac's. */
+  model?: string;
   /** Video: the next "motion" action writes a new video from the request instead of retouching a version. */
   regen?: boolean;
   run?: JobRun;

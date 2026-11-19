@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { ASSET_WORKER, MAX_STYLE_REFS, STYLE_WORKER, type StyleTask, MAX_ASSET_COUNT, MAX_ASSET_PROMPT, MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
+import { cleanModel, GEN_TRACK, libTrackId } from "@/lib/audio-ai";
+import { ASSET_WORKER, MAX_STYLE_REFS, STYLE_WORKER, type StyleTask, MAX_ASSET_COUNT, MAX_ASSET_PROMPT, MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, AUDIO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
@@ -30,6 +31,10 @@ export function GET() {
 
 type Body = {
   kind?: MontageJob["kind"];
+  /** The Claude model of the job (montage, reel); left out, the one of Réglages. */
+  model?: unknown;
+  /** Video reel: the voice-over. */
+  voice?: unknown;
   title?: string;
   projectId?: string;
   /** One of the project's other styles; left out = its default style. */
@@ -120,6 +125,7 @@ export async function POST(req: Request) {
       cta: clip(b.brief?.cta, 300),
     },
     script: clip(b.script, 10_000),
+    ...(cleanModel(b.model) ? { model: cleanModel(b.model) } : {}),
     rushIds,
     versions: [],
     createdAt: now,
@@ -224,6 +230,16 @@ function postJob(b: Body) {
   return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
 }
 
+/** The voice-over a page asks for: a known provider and a voice id or name. */
+function voiceOfBody(raw: unknown): NonNullable<MontageJob["motion"]>["voice"] | undefined {
+  const v = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
+  if (!v || (v.provider !== "elevenlabs" && v.provider !== "google")) return undefined;
+  const voiceId = typeof v.voiceId === "string" ? v.voiceId.trim() : "";
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(voiceId)) return undefined;
+  const name = typeof v.name === "string" ? v.name.replace(/[\0-\x1f]/g, "").trim().slice(0, 100) : "";
+  return { provider: v.provider, voiceId, ...(name ? { name } : {}) };
+}
+
 /** Asks the Mac for an animated reel: text scenes in the look of the project, no rush. */
 function motionJob(b: Body) {
   const scenes = (Array.isArray(b.scenes) ? (b.scenes as Record<string, unknown>[]) : [])
@@ -255,6 +271,7 @@ function motionJob(b: Body) {
     action: "motion",
     brief: { format: "9:16" },
     motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, ...(direction ? { direction } : {}), ...(pace ? { pace } : {}), project: project?.name },
+    ...(cleanModel(b.model) ? { model: cleanModel(b.model) } : {}),
     rushIds: [],
     versions: [],
     createdAt: now,
@@ -285,6 +302,9 @@ function videoJob(b: Body) {
   // The logo stays out of the job (the list of jobs is read every few seconds): the Mac gets it when it takes the job.
   const { logo: _logo, ...stored } = look;
   void _logo;
+  const voice = voiceOfBody(b.voice);
+  // What a Mac before 0.19.0 cannot do (voice-over, library or composed music): only a newer one takes the job.
+  const needsAudio = !!voice || track === GEN_TRACK || !!libTrackId(track);
   const first = request.split("\n").find((l) => l.trim()) ?? request;
   const now = new Date().toISOString();
   const job: MontageJob = {
@@ -307,11 +327,13 @@ function videoJob(b: Body) {
       ...(direction ? { direction } : {}),
       music: b.music !== false,
       ...(track ? { track } : {}),
+      ...(voice ? { voice } : {}),
       logo: b.logo !== false,
       look: stored,
       project: project?.name,
     },
-    minWorker: VIDEO_WORKER,
+    minWorker: needsAudio ? AUDIO_WORKER : VIDEO_WORKER,
+    ...(cleanModel(b.model) ? { model: cleanModel(b.model) } : {}),
     rushIds: [],
     versions: [],
     createdAt: now,

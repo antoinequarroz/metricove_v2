@@ -1,7 +1,7 @@
 "use client";
 
 import { Clapperboard, Crop, LayoutPanelTop, Megaphone, Music, MonitorSmartphone } from "lucide-react";
-import { DEFAULT_AUDIO, FORMATS, type AudioSettings, type Edl } from "@/lib/montage";
+import { DEFAULT_AUDIO, edlDuration, FORMATS, type AudioSettings, type Edl } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Row, Section, Segmented, Switch } from "./controls";
 import { MusicFields } from "./music-fields";
@@ -68,7 +68,7 @@ export function SettingsPanel({ edl, onChange, tracks }: { edl: Edl; onChange: (
         {audio.music.on && (
           <>
             <div className="py-2">
-              <MusicFields value={audio.music} onChange={setMusic} tracks={tracks} auto="Claude choisit" />
+              <MusicFields value={audio.music} onChange={setMusic} tracks={tracks} auto="Claude choisit" duration={edlDuration(edl)} />
             </div>
             <Row label="Volume de la musique">
               <input

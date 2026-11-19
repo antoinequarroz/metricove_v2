@@ -3,7 +3,7 @@
 import { Loader2, Pause, Play, Search, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ASSET_ACCEPT, type AssetKind, ILLUSTRATION_TAGS, type LibraryItem, MAX_ASSET_BYTES, MAX_ASSET_NAME, MAX_TAGS, nameFromFile, SFX_TAGS, styleRef } from "@/lib/library";
+import { ASSET_ACCEPT, type AssetKind, ILLUSTRATION_TAGS, type LibraryItem, MAX_ASSET_BYTES, MAX_ASSET_NAME, MAX_TAGS, MUSIC_TAGS, nameFromFile, SFX_TAGS, styleRef } from "@/lib/library";
 import { useStore } from "@/lib/store";
 import { fileUrl, useLibrary } from "@/lib/use-library";
 import { useProfiles } from "@/lib/use-profiles";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { inputClass } from "../montage/look-parts";
 import { Button } from "../ui";
 import { AssetMaker } from "./asset-maker";
+import { MusicMaker } from "./music-maker";
 import { ResourceShell } from "./shell";
 
 const TEXT = {
@@ -24,6 +25,12 @@ const TEXT = {
     one: "bruitage",
     intro: "Les sons courts que Claude place sur 2 ou 3 moments clés : whoosh, pop, click, thud… MP3 ou WAV. Range-les dans un style pour que Claude prenne ceux qui vont avec.",
     empty: "Aucun bruitage pour l'instant. Glisse tes MP3 ou WAV ici.",
+  },
+  music: {
+    one: "musique",
+    intro:
+      "Les musiques de fond de tes vidéos : composées par ElevenLabs ou Google Lyria, ou ajoutées à la main. Choisis-en une dans le Reel animé ou le montage face cam, ou laisse Metricove en composer une à la bonne durée pour chaque vidéo.",
+    empty: "Aucune musique pour l'instant. Compose-en une ci-dessus, ou glisse tes MP3 ici.",
   },
 } as const;
 
@@ -70,7 +77,7 @@ export function LibraryPage({ kind }: { kind: AssetKind }) {
       try {
         if (file.size > MAX_ASSET_BYTES[kind]) throw new Error(`trop lourd (${Math.round(MAX_ASSET_BYTES[kind] / 1e6)} Mo au plus)`);
         // The tags a file name suggests ("whoosh_fast.wav" → whoosh).
-        const known = (kind === "sfx" ? SFX_TAGS : ILLUSTRATION_TAGS).filter((x) => file.name.toLowerCase().includes(x));
+        const known = (kind === "sfx" ? SFX_TAGS : kind === "music" ? MUSIC_TAGS : ILLUSTRATION_TAGS).filter((x) => file.name.toLowerCase().includes(x));
         await add(kind, file, { name: nameFromFile(file.name), tags: known, styles: filter !== "all" && filter !== "none" ? [filter] : [] });
         ok++;
       } catch (e) {
@@ -95,7 +102,11 @@ export function LibraryPage({ kind }: { kind: AssetKind }) {
         </>
       }
     >
-      <AssetMaker kind={kind} styles={styleOptions} styleRef={filter !== "all" && filter !== "none" ? filter : undefined} onDone={reload} />
+      {kind === "music" ? (
+        <MusicMaker styleRef={filter !== "all" && filter !== "none" ? filter : undefined} onDone={reload} />
+      ) : (
+        <AssetMaker kind={kind} styles={styleOptions} styleRef={filter !== "all" && filter !== "none" ? filter : undefined} onDone={reload} />
+      )}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <label className="relative min-w-0 max-sm:w-full">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-3" />
@@ -173,7 +184,7 @@ export function LibraryPage({ kind }: { kind: AssetKind }) {
             key={current.id}
             item={current}
             options={styleOptions}
-            suggestions={kind === "sfx" ? SFX_TAGS : ILLUSTRATION_TAGS}
+            suggestions={kind === "sfx" ? SFX_TAGS : kind === "music" ? MUSIC_TAGS : ILLUSTRATION_TAGS}
             onClose={() => setPicked(null)}
             onSave={(change) => update(current.id, change)}
             onRemove={async () => {
@@ -209,7 +220,10 @@ function SoundRow({ item, first, on, label, onPick }: { item: LibraryItem; first
       </button>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium">{item.name}</span>
-        <span className="block truncate text-[11.5px] text-ink-3">{item.styles.length ? item.styles.map(label).filter(Boolean).join(", ") : "Aucun style"}</span>
+        <span className="block truncate text-[11.5px] text-ink-3">
+          {item.source === "elevenlabs" ? "ElevenLabs · " : item.source === "google" ? "Google Lyria · " : ""}
+          {item.styles.length ? item.styles.map(label).filter(Boolean).join(", ") : "Aucun style"}
+        </span>
       </span>
       <span className="flex shrink-0 gap-1 max-sm:hidden">
         {item.tags.slice(0, 3).map((tag) => (

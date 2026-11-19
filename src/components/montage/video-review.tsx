@@ -16,6 +16,8 @@ import { captureFrame, putCover } from "./cover-capture";
 import { TextGhost, TextPanel } from "./free-texts";
 import { Toggle } from "./look-parts";
 import { MusicFields } from "./music-fields";
+import { useAudioSettings } from "../resources/music-maker";
+import { ModelSelect } from "./audio-fields";
 import { fmtSec, JobStatus, WorkerBanner } from "./parts";
 import { Clamp, CompactRun, nb } from "./reel-progress";
 import { ReelTimeline } from "./reel-timeline";
@@ -202,6 +204,9 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
     setSelected(null);
   };
 
+  // The Claude model of the next requests (the job's, else the one of Réglages).
+  const [model, setModel] = useState(job.model ?? "");
+  const audioSettings = useAudioSettings();
   const call = async (body: object, ok: string, ask?: ReelAsk) => {
     setBusy(true);
     try {
@@ -235,7 +240,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
   const revise = async () => {
     if (!version) return;
     const what = range ? `Demande envoyée à Claude pour le passage ${fmtT(range[0])} – ${fmtT(range[1])}` : filled.length ? `Demande et ${filled.length} note${filled.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude";
-    if (await call({ revise: feedback, marks: filled.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n }, what, "retouch")) {
+    if (await call({ revise: feedback, marks: filled.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n, model }, what, "retouch")) {
       setFeedback("");
       setMarks([]);
       setRange(null);
@@ -250,7 +255,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
       setMarks([]);
     }
   };
-  const regenerate = () => call({ regenerate: true }, "Nouvelle version demandée : Claude repart de ta demande", "regen");
+  const regenerate = () => call({ regenerate: true, model }, "Nouvelle version demandée : Claude repart de ta demande", "regen");
   const stop = () => {
     if (!confirm("Arrêter cette génération ? La version d'avant reste.")) return;
     call({ stop: true }, "Génération arrêtée");
@@ -709,6 +714,10 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       placeholder={nb(range ? "Que faut-il changer dans ce passage ? Par ex. « plus lent », « une autre image pour ce chiffre », « enlève ce mot »" : "Par ex. « le chiffre passe trop vite », ou choisis un passage sur la timeline")}
                       className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60 disabled:opacity-60"
                     />
+                    <label className="mt-2 flex min-w-0 items-center gap-2 text-[12px] text-ink-2">
+                      <span className="shrink-0">Modèle Claude</span>
+                      <ModelSelect value={model} onChange={setModel} audio={audioSettings} className="flex-1" />
+                    </label>
                     <div className="mt-2 flex items-center gap-2">
                       <span className="min-w-0 flex-1 text-[11.5px] text-ink-3">
                         {dirty ? "Applique ou annule d'abord tes modifications à la main." : range || marks.length ? "Le reste de la vidéo ne bouge pas, sauf les enchaînements autour du passage." : "Sans passage choisi, Claude modifie les temps forts dont tu parles."}
@@ -767,8 +776,9 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       tracks={worker.tracks}
                       disabled={!draft.music}
                       auto="Le premier du dossier"
+                      duration={total}
                     />
-                    <p className="text-[12px] text-ink-3">{"Les morceaux sont ceux du dossier Musique de ton Mac. S'il est vide, la vidéo sort sans son."}</p>
+                    <p className="text-[12px] text-ink-3">{"Une musique de Ressources → Musique, un morceau du dossier Musique de ton Mac, ou une musique composée pour cette vidéo."}</p>
                     <div className="flex flex-col gap-1.5 border-t border-line pt-3">
                       <span className="text-[12px] text-ink-2">Rythme</span>
                       <Segmented

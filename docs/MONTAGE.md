@@ -671,3 +671,35 @@ Une tâche `kind: "style"` (action `style`, `minWorker` 0.18.0) porte `job.style
 
 Réglages du Mac (`config.json`) : `ytDlp` (chemin de yt-dlp, `brew install yt-dlp`) et `ytDlpCookies` (navigateur dont
 yt-dlp prend les cookies, par ex. `"chrome"` : Instagram demande souvent d'être connecté).
+
+## Voix, musique et modèle Claude (worker 0.19.0, METRI-38 à 41)
+
+**Clés et choix (Réglages → Voix et musique, Modèle Claude des vidéos).** Réglage `audioKeys` `{ elevenlabs?, google? }`
+(sinon `ELEVENLABS_API_KEY`, `GEMINI_API_KEY` ou `GOOGLE_API_KEY` du `.env`), jamais renvoyé à la page ni au Mac ;
+réglage `audioPrefs` `{ voiceProvider, voiceId?, voiceName?, musicProvider, claudeModel }`. Routes :
+`GET|PUT /api/settings/audio` (une clé est vérifiée auprès du fournisseur avant d'être gardée),
+`GET /api/audio/voices?provider=elevenlabs|google`, `POST /api/audio/tts { text, provider?, voiceId? }` → le son
+(MP3 ElevenLabs `eleven_multilingual_v2`, ou WAV 24 kHz Gemini TTS ; en-tête `X-Audio-Ext`),
+`POST /api/audio/music { prompt, seconds, provider?, name?, tags?, styles? }` → `{ item }` (ElevenLabs Music
+`/v1/music` instrumental à la durée exacte, ou Lyria par `generateContent`, la durée dans la consigne ; rangée dans la
+bibliothèque `kind: "music"`, Ressources → Musique). Modèles Google essayés dans l'ordre : `GEMINI_TTS_MODELS`,
+`LYRIA_MODELS` (variables du `.env`, listes séparées par des virgules) ; ElevenLabs : `ELEVENLABS_TTS_MODEL`,
+`ELEVENLABS_MUSIC_MODEL`.
+
+**Modèle Claude.** `job.model` (montage face cam, reel ; posé à la création ou par un PATCH de la page `{ model }`) ;
+la réclamation ajoute sinon `audioPrefs.claudeModel`. Le Mac lance tout le travail de la tâche dans `withModel()`
+(lib/claude.mjs) : chaque `claude -p` reçoit `--model <job.model>`, sinon `claude.model` de config.json. Un modèle
+inconnu donne une erreur claire (`code: "MODEL"`).
+
+**Pistes de musique.** `track` (EDL face cam, plan du reel) accepte aussi `lib:<id>` (une musique de la bibliothèque,
+téléchargée une fois dans `libraryCache`) et, pour un reel vidéo, `gen` : Claude écrit la consigne (`music`, en
+anglais, dans la partition) et, une fois la durée connue, le Mac demande `POST /api/audio/music` ; le plan rendu garde
+`lib:<id>` (une retouche ou une édition réutilise la même musique). Un Mac avant 0.19.0 ne reçoit jamais un reel avec
+voix off, `gen` ou `lib:` (`minWorker: AUDIO_WORKER`).
+
+**Voix off du reel.** `motion.voice { provider, voiceId, name? }` → `video.voiceOver`. Chaque temps fort porte `say`
+(300 caractères, exigé par le schéma quand la voix est demandée, à l'écriture et à la retouche). Avant la
+vérification, le Mac fait lire chaque phrase (`POST /api/audio/tts`, cache `voiceCache`
+~/Movies/Metricove/voix-cache), allonge le temps fort à phrase + 0,6 s au moins (`fixed`), puis au mixage
+(lib/reel/narration.mjs) pose chaque phrase 0,15 s après le début de son temps fort, baisse la musique dessous
+(sidechaincompress, musique à la moitié du volume choisi) et normalise à −14 LUFS.

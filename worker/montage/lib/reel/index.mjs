@@ -11,9 +11,10 @@ import { ensureDir, log } from "../util.mjs";
 import { askStream } from "../claude.mjs";
 import { cleanMotion } from "../motion.mjs";
 import { referenceImages } from "../voice.mjs";
+import { voiceOfJob } from "./narration.mjs";
 import { writeReelMarks } from "../motion-revise.mjs";
 import { cleanScore, timeScore, openBeats, mergeRevision } from "./score.mjs";
-import { SCORE_SCHEMA, REVISE_SCHEMA, writePrompt, revisePrompt, countLayouts } from "./prompt.mjs";
+import { scoreSchema, reviseSchema, writePrompt, revisePrompt, countLayouts } from "./prompt.mjs";
 import { Progress, STEP, reviseStep } from "./progress.mjs";
 import { io, produce, reelCfg, withMeta } from "./render.mjs";
 import { ENGINE, FPS, seedOf } from "./vocab.mjs";
@@ -277,9 +278,12 @@ async function makeVideo(ctx, last) {
     const motion = cleanMotion(job.motion || {});
     const m = job.motion || {};
     const t0 = Date.now();
+    // Voix off (une phrase dite par temps fort) et musique à composer (une consigne) : demandées dans la partition.
+    const voice = voiceOfJob(job);
+    const gen = motion.music && motion.track === "gen";
     const result = await askTwice(ctx, P, {
       prompt: (why) => writePrompt(job, { cfg, images: ref.files, regen, retry: why }),
-      schema: SCORE_SCHEMA,
+      schema: scoreSchema({ voice: !!voice, music: gen }),
       cwd: writeDir,
       tools: ref.files.length ? "Read" : "",
       timeoutMs: R.claudeWriteMin * 60_000,
@@ -298,7 +302,8 @@ async function makeVideo(ctx, last) {
       ...(motion.cue ? { cue: motion.cue } : {}),
       texts: [],
       pace: c.pace,
-      video: withMeta(c.video, null),
+      video: { ...withMeta(c.video, null), ...(voice ? { voiceOver: voice } : {}) },
+      ...(gen && typeof raw.music === "string" && raw.music.trim() ? { musicPrompt: raw.music.trim().slice(0, 500) } : {}),
     };
     if (!plan.logo) plan.look = { ...plan.look, logo: "" };
     announce(P, plan.video, plan.pace);
@@ -334,7 +339,7 @@ async function reviseVideo(ctx, from) {
     log(`[${short(job.id)}] retouche : temps forts ouverts ${open.join(", ") || "aucun"}`);
     const result = await askTwice(ctx, P, {
       prompt: (why) => revisePrompt(job, { video, marks, open, range, notes: drawn, feedback: [job.feedback, why && `(Ta réponse précédente était inexploitable : ${why}. Renvoie le JSON complet du schéma.)`].filter(Boolean).join("\n"), look: base.look }),
-      schema: REVISE_SCHEMA,
+      schema: reviseSchema({ voice: !!video.voiceOver }),
       cwd: reviseDir,
       tools: drawn.some((d) => d.file) ? "Read" : "",
       timeoutMs: R.claudeReviseMin * 60_000,

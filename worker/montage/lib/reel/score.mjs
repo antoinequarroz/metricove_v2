@@ -117,6 +117,9 @@ function cleanBeat(b, i, fix) {
   out.seconds = Number.isFinite(s) ? clamp(s, VIDEO.seconds[0], VIDEO.seconds[1]) : 0;
   if (b.fixed === true && Number.isFinite(s)) out.fixed = true;
   if (b.cut === true) out.cut = true;
+  // La phrase dite par la voix off (worker 0.19.0) : du texte simple, sans saut de ligne ni emoji, 300 caractères au plus.
+  const say = typeof b.say === "string" ? b.say.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\p{Extended_Pictographic}/gu, "").replace(/\s+/g, " ").trim().slice(0, 300) : "";
+  if (say) out.say = say;
   if (emoji) fix(`Temps fort « ${label} » : emoji retirés (jamais à l'écran).`);
   return out;
 }

@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FORMATS, type MontageFormat, type MontageJob, type Rush } from "@/lib/montage";
+import { useAudioSettings } from "../resources/music-maker";
+import { ModelSelect } from "./audio-fields";
 import { DEFAULT_STYLE } from "@/lib/profiles";
 import { useStore } from "@/lib/store";
 import { useProfiles } from "@/lib/use-profiles";
@@ -150,6 +152,8 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
   useEffect(() => setStyleId(DEFAULT_STYLE), [projectId]);
   const [scriptText, setScriptText] = useState(script ?? "");
   const [busy, setBusy] = useState(false);
+  const [model, setModel] = useState("");
+  const audio = useAudioSettings();
 
   // Takes filmed in the Studio arrive selected.
   useEffect(() => setSelected((s) => [...new Set([...s, ...preset])]), [preset.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -170,6 +174,7 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
           rushIds: selected,
           script: scriptText || undefined,
           brief: { format, seconds: Number(seconds) || undefined, instructions, hook, cta },
+          model: model || undefined,
         }),
       });
       toast.success("Montage demandé", { description: "Ton Mac s'en occupe dès qu'il est connecté." });
@@ -281,7 +286,11 @@ function NewMontage({ rushes, preset, script, onCancel, onCreated }: { rushes: R
           <textarea value={scriptText} onChange={(e) => setScriptText(e.target.value)} rows={5} className={cn(field, "mt-2 h-auto py-2")} aria-label="Texte du prompteur" />
         </details>
       )}
-      <div className="mt-5 flex items-center justify-end gap-2">
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+        <label className="mr-auto flex min-w-0 items-center gap-2 text-[12.5px] text-ink-2">
+          Modèle Claude
+          <ModelSelect value={model} onChange={setModel} audio={audio} className="h-9 max-w-56" />
+        </label>
         <Button type="button" variant="ghost" onClick={onCancel}>
           Annuler
         </Button>

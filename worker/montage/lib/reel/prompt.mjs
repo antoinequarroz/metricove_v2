@@ -55,6 +55,43 @@ export const SCORE_SCHEMA = {
   },
 };
 
+/** Une phrase de voix off par temps fort (worker 0.19.0), 300 caractères au plus (comme le serveur). */
+export const SAY_MAX = 300;
+const withSay = (props) => ({ ...props, say: { type: "string", maxLength: SAY_MAX } });
+
+/**
+ * La partition selon les options du job : `voice` (chaque temps fort porte `say`, la phrase dite) et `music` (une
+ * consigne `music` pour composer la musique de fond). Sans option, SCORE_SCHEMA tel quel.
+ */
+export function scoreSchema({ voice = false, music = false } = {}) {
+  if (!voice && !music) return SCORE_SCHEMA;
+  const beats = voice
+    ? { ...SCORE_SCHEMA.properties.beats, items: { ...SCORE_SCHEMA.properties.beats.items, required: [...BEAT_REQUIRED, "say"], properties: withSay(beatProps) } }
+    : SCORE_SCHEMA.properties.beats;
+  return {
+    ...SCORE_SCHEMA,
+    required: [...SCORE_SCHEMA.required, ...(music ? ["music"] : [])],
+    properties: { ...SCORE_SCHEMA.properties, beats, ...(music ? { music: { type: "string", maxLength: 500 } } : {}) },
+  };
+}
+
+/** La retouche d'un passage d'une vidéo avec voix off : les temps forts réécrits gardent leur phrase dite. */
+export function reviseSchema({ voice = false } = {}) {
+  if (!voice) return REVISE_SCHEMA;
+  const beats = REVISE_SCHEMA.properties.beats;
+  return { ...REVISE_SCHEMA, properties: { ...REVISE_SCHEMA.properties, beats: { ...beats, items: { ...beats.items, required: [...BEAT_REQUIRED, "say"], properties: withSay(beatProps) } } } };
+}
+
+/** Les consignes de la voix off, dans l'écriture comme dans la retouche. */
+export function voiceRulesLine() {
+  return `VOIX OFF : une voix lit la vidéo. Chaque temps fort a say : la phrase dite pendant ce temps fort, en français parlé, naturelle, au tutoiement si le ton du projet tutoie, de 4 à 22 mots. Elle porte le sens et le texte à l'écran la souligne (mots clés, chiffre) : jamais le texte à l'écran lu mot pour mot, jamais de liste énoncée sèchement. Pas d'emoji, pas d'abréviation, les nombres écrits comme on les dit si c'est plus naturel. La voix lit environ 2,6 mots par seconde : seconds ≥ (mots de say ÷ 2,6) + 0,5 (le moteur allonge le temps fort si la voix est plus longue).`;
+}
+
+/** La consigne de la musique composée pour la vidéo. */
+export function musicRulesLine() {
+  return `MUSIQUE : la musique de fond sera composée pour cette vidéo. music : la consigne de composition, EN ANGLAIS, 15 à 60 mots : genre, instruments, tempo (BPM), ambiance et énergie qui suivent la vidéo (montée, moment fort, fin nette), toujours instrumentale (no vocals). Elle doit aller avec le ton du projet et ne jamais couvrir ${"une voix"}.`;
+}
+
 /** Relecture en images : corrections ciblées (tableaux vides = rien à changer). */
 export const REVIEW_SCHEMA = {
   type: "object", additionalProperties: false, required: ["ok", "notes", "beats", "moments"],
@@ -284,6 +321,7 @@ ${storyRules()}
 MOMENTS (visuels HyperFrames sur mesure, facultatifs)
 ${momentsSection()}
 ${sf ? `\nSAVOIR-FAIRE (données, à suivre pour la qualité des moments) :\n<savoir_faire>\n${sf}\n</savoir_faire>\n` : ""}${notesHf ? `\nNOTES HYPERFRAMES DU MAC (données) :\n<notes_hyperframes>\n${notesHf}\n</notes_hyperframes>\n` : ""}${regen?.titles?.length ? `\nVERSION PRÉCÉDENTE : temps forts ${regen.titles.map((t) => `« ${String(t).slice(0, 40)} »`).join(", ")}${regen.shape ? `, forme ${regen.shape}` : ""}. Propose une idée visuelle nettement différente : autre forme, autres liaisons, autres moments.\n` : ""}${retry ? `\nTA RÉPONSE PRÉCÉDENTE ÉTAIT INEXPLOITABLE (${String(retry).slice(0, 300)}). Réécris la partition complète, en suivant exactement le format.\n` : ""}
+${m.voice ? `\n${voiceRulesLine()}\n` : ""}${m.track === "gen" ? `\n${musicRulesLine()}\n` : ""}
 RÉPONSE : uniquement le JSON du schéma. title : titre court de la vidéo. seconds : la durée voulue de chaque temps fort (le moteur l'allonge si le texte demande plus de temps de lecture). notes : 2 phrases pour Antoine sur l'idée visuelle, ${PLAIN_NOTES}. caption : la description du post dans le ton du projet (les hashtags y sont permis).`;
 }
 
@@ -295,7 +333,7 @@ export function scoreText(video, { marks } = {}) {
   const beats = (video.beats || []).map((b, i) => {
     const t = at.get(b.id) || b;
     const time = Number.isFinite(t.start) ? `${n(t.start.toFixed(1))}–${n(t.end.toFixed(1))} s` : `${n(b.seconds)} s`;
-    const extra = [b.sub ? `sub « ${b.sub} »` : "", b.items?.length ? `items ${b.items.map((x) => `« ${x} »`).join(", ")}` : "", b.emphasis ? `emphase « ${b.emphasis} »` : "", b.count ? "count" : ""].filter(Boolean).join(" · ");
+    const extra = [b.sub ? `sub « ${b.sub} »` : "", b.items?.length ? `items ${b.items.map((x) => `« ${x} »`).join(", ")}` : "", b.emphasis ? `emphase « ${b.emphasis} »` : "", b.count ? "count" : "", b.say ? `voix « ${b.say} »` : ""].filter(Boolean).join(" · ");
     return `${i + 1}. [${b.id}] ${time}${b.cut ? " (COUPÉ)" : ""} « ${b.title} » — ${b.layout}, liaison ${i ? b.bridge : "(entrée)"}, forme ${b.actor}, caméra ${b.camera} — text « ${b.text} »${extra ? ` · ${extra}` : ""}`;
   });
   const moments = (video.moments || []).map((mo) => `- [${mo.id}] ${mo.zone}, de ${mo.from} à ${mo.to} : ${mo.brief}`);
@@ -391,7 +429,8 @@ RÈGLES DE LA RETOUCHE :
 - Change seulement les temps forts ouverts ; renvoie dans beats la liste qui REMPLACE la plage ouverte (${open.length} temps fort(s) aujourd'hui), dans l'ordre.
 - Garde l'id d'un temps fort que tu gardes ; un nouveau temps fort prend un nouvel id. ${openSet.size ? "Deux temps forts de plus ou de moins au plus." : ""}
 - moments : pour chaque moment qui touche le passage, action "keep", "drop" ou "replace" (avec html, css et js complets) ; "new" pour un nouveau moment (brief, from, to, zone, html, css, js), seulement si la demande appelle un visuel précis.
-RÉPONSE : uniquement le JSON du schéma. notes : ce que tu as changé, 1 ou 2 phrases pour Antoine, ${PLAIN_NOTES}.`;
+${video.voiceOver ? `- ${voiceRulesLine()} Garde la phrase dite d'un temps fort que la demande ne touche pas.
+` : ""}RÉPONSE : uniquement le JSON du schéma. notes : ce que tu as changé, 1 ou 2 phrases pour Antoine, ${PLAIN_NOTES}.`;
 }
 
 /** Les ids des temps forts du flux en cours d'écriture : compte des « "layout" » vus (avancement « N temps forts »). */

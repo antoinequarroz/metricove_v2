@@ -3,6 +3,7 @@ import { listMedia, listProjects } from "@/server/db";
 import { isVideoJob } from "@/lib/montage";
 import { claimJob, cleanSpeed, listRushes, saveMacBroll, workerSeen, type MacBroll } from "@/server/montage";
 import { assetsFor } from "@/server/library";
+import { audioPrefs } from "@/server/audio-ai";
 import { profileOf, themeOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +48,9 @@ export async function POST(req: Request) {
   if (claimed.motion && logo) claimed.motion = { ...claimed.motion, look: { ...claimed.motion.look, logo } };
   // The illustrations and sound effects of the job's style (worker 0.16.0 uses them; older ones ignore them).
   const assets = (styled || claimed.kind === "motion") && claimed.projectId ? assetsFor(claimed.projectId, claimed.styleId) : undefined;
-  const job = { ...claimed, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
+  // The Claude model: the job's own, else the one of Réglages (worker 0.19.0 passes it to `claude --model`).
+  const model = claimed.model || audioPrefs().claudeModel || undefined;
+  const job = { ...claimed, ...(model ? { model } : {}), ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { ensureDir, home, run, log } from "./util.mjs";
 import { googleFaces } from "./fonts.mjs";
-import { pickTrack, musicCue } from "./audio.mjs";
+import { resolveTrack, musicCue } from "./audio.mjs";
 import { cleanTexts, textLayer } from "./texts.mjs";
 import { writeArts, checkArt } from "./motion-art.mjs";
 
@@ -552,7 +552,7 @@ export async function renderPlan(cfg, plan, dir, step = async () => {}, notes = 
 
   await step("Son et finition…", 0.85);
   const out = join(dir, "reel.mp4");
-  const track = plan.music ? pickTrack(cfg, plan.track || "", notes) : null;
+  const track = plan.music ? await resolveTrack(cfg, plan.track || "", notes) : null;
   const cue = musicCue(plan.cue, duration);
   const audio = track
     ? ["-stream_loop", "-1", ...cue.seek, "-i", track, "-filter_complex", `[1:a]atrim=0:${f(duration)},asetpts=N/SR/TB,volume=${f(plan.volume ?? 0.7)}${cue.fades ? `,${cue.fades}` : ""}[a]`, "-map", "0:v", "-map", "[a]"]

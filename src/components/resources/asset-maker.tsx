@@ -14,6 +14,7 @@ import { Button } from "../ui";
 
 const IDEAS: Record<AssetKind, string[]> = {
   illustration: ["un robot sympa, style tech", "une ampoule qui s'allume", "une flèche dessinée à la main", "un écran de code", "une pile de livres", "un cerveau avec des circuits"],
+  music: [],
   sfx: ["un whoosh court pour une transition", "un pop léger quand un mot apparaît", "un click de souris", "un thud grave pour un chiffre", "un ding de notification", "une montée (riser) d'une seconde"],
 };
 const WORKER_MIN = ASSET_WORKER.split(".").map(Number);

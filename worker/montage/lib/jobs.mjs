@@ -5,7 +5,7 @@ import { join, basename } from "node:path";
 import { ensureDir, assertSpace, themeFor, log, round } from "./util.mjs";
 import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
-import { proposeEdit, proposeBroll, writeScript } from "./claude.mjs";
+import { proposeEdit, proposeBroll, writeScript, withModel } from "./claude.mjs";
 import { renderEdl } from "./render.mjs";
 import { makeStyle } from "./style.mjs";
 import { STAGE_KINDS, STAGE_ANIMS, BUILTIN_SFX } from "./stage.mjs";
@@ -49,7 +49,13 @@ export function sweepRuns(cfg) {
   return n;
 }
 
-export async function handle(api, cfg, { job, action, rushes = [], media }) {
+/** Une tâche, avec le modèle Claude qu'elle demande (job.model, posé par Metricove depuis la vidéo ou Réglages). */
+export async function handle(api, cfg, claimed) {
+  if (claimed?.job?.model) log(`[${claimed.job.id.slice(0, 8)}] modèle Claude : ${claimed.job.model}`);
+  return withModel(claimed?.job?.model, () => handleJob(api, cfg, claimed));
+}
+
+async function handleJob(api, cfg, { job, action, rushes = [], media }) {
   // Un reel vidéo travaille dans un dossier à lui par passage (<id>-r<suffixe>) : un passage abandonné (arrêté, repris
   // ailleurs, plafond atteint) qui finit seul ne peut ni écrire dans le dossier du passage suivant ni le supprimer.
   const video = job.kind === "motion" && isVideoJob(job);

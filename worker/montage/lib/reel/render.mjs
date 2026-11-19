@@ -10,7 +10,7 @@
 import { copyFileSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run, log, ensureDir, fmtDelay } from "../util.mjs";
-import { pickTrack, musicCue } from "../audio.mjs";
+import { resolveTrack, musicCue } from "../audio.mjs";
 import { askStream, claudeFlags, claudeMissing, flagsNote } from "../claude.mjs";
 import { checkMoment } from "./sandbox.mjs";
 import { stagePage, gsapCore, GSAP_MISSING } from "./stage.mjs";
@@ -19,6 +19,7 @@ import * as HF from "./hf-cli.mjs";
 import { REVIEW_SCHEMA, reviewPrompt } from "./prompt.mjs";
 import { FPS, W, H, TOOLS, CODE, RHYTHM } from "./vocab.mjs";
 import { STEP } from "./progress.mjs";
+import { speakBeats, fitVoice, narrationMix, composeForVideo } from "./narration.mjs";
 
 /** Réglages du reel (config.json → reel), avec leurs valeurs par défaut. */
 export const REEL_DEFAULTS = Object.freeze({ review: true, effort: "", restricted: true, claudeWriteMin: 6, claudeReviewMin: 4, claudeReviseMin: 5, maxFrameMs: 400, jobMaxMin: 30, reviewWithinMin: 6 });
@@ -157,16 +158,22 @@ export async function canCopy(file, signal) {
  * animé donne sinon près de 58 Mb/s). Mesuré sur 3 s : veryfast deux fois plus rapide que medium, SSIM 0,853 contre
  * 0,854. Délai proportionnel à la durée.
  */
-async function finish(cfg, plan, silent, out, duration, notes, signal) {
-  const track = plan.music ? pickTrack(cfg, plan.track || "", notes) : null;
+async function finish(cfg, plan, silent, out, duration, notes, signal, { clips, marks } = {}) {
+  const track = plan.music ? await resolveTrack(cfg, plan.track || "", notes) : null;
   const cue = musicCue(plan.cue, duration);
-  const audio = track
+  // Avec une voix off : la piste son est mixée à part (phrases posées sur les temps forts, musique baissée dessous).
+  const voiced = clips?.size && marks?.some((m) => clips.has(m.id));
+  const mixed = voiced ? await narrationMix({ clips, marks, track, cue, volume: plan.volume, duration, out: out.replace(/\.mp4$/, "-son.wav"), notes, signal }) : null;
+  const audio = mixed
+    ? ["-i", mixed, "-map", "0:v", "-map", "1:a"]
+    : track
     ? ["-stream_loop", "-1", ...cue.seek, "-i", track, "-filter_complex", `[1:a]atrim=0:${f3(duration)},asetpts=N/SR/TB,volume=${f3(plan.volume ?? 0.7)}${cue.fades ? `,${cue.fades}` : ""}[a]`, "-map", "0:v", "-map", "[a]"]
     : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v", "-map", "1:a"];
   const copy = await canCopy(silent, signal);
   const video = copy ? ["-c:v", "copy"] : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-maxrate", "10M", "-bufsize", "20M", "-pix_fmt", "yuv420p", "-r", String(FPS)];
   await run("ffmpeg", ["-v", "error", "-y", "-i", silent, ...audio, ...video,
     "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f3(duration), "-movflags", "+faststart", out], { timeoutMs: finishTimeout(duration), signal });
+  if (mixed) rmSync(mixed, { force: true });
   return { copy };
 }
 
@@ -302,9 +309,10 @@ export async function produce(cfg, ctx) {
   }
   const keyOf = (st) => JSON.stringify([st.safe, st.plan.video.beats, st.plan.video.moments.map((m) => [m.id, m.zone, m.from, m.to, codeSize(m.code)]), st.plan.pace]);
 
-  // a) Bac à sable.
+  // a) Bac à sable. Avec une voix off, les phrases sont lues d'abord : chaque temps fort dure au moins sa phrase.
   P.start("check", STEP.check);
-  const vetted = vet(ctx.plan);
+  const clips = ctx.plan.video?.voiceOver ? await speakBeats(cfg, api, ctx.plan.video, ctx.plan.video.voiceOver, { signal, notes }) : new Map();
+  const vetted = vet(fitVoice(ctx.plan, clips));
   let refused = vetted.refused;
   for (const r of refused) log(`moment « ${r.id} » refusé : ${r.why.join(" ; ")}`);
   let st = await verify(vetted.plan, false);
@@ -362,6 +370,7 @@ export async function produce(cfg, ctx) {
     const noted = (why) => { log(`relecture : ${why}`); return back("provoquait une erreur"); };
     try {
       const next = applyPatch(before.plan, patch, refused);
+      next.plan = fitVoice(next.plan, clips);
       const v2 = vet(next.plan);
       v2.refused.forEach((x) => log(`moment « ${x.id} » refusé après relecture : ${x.why.join(" ; ")}`));
       // Un moment qui bloquait au premier check et que la relecture n'a pas remplacé est retiré tout de suite :
@@ -458,7 +467,9 @@ export async function produce(cfg, ctx) {
   const D = st.stage.duration;
   P.start("finish", STEP.finish);
   const out = join(ctx.dir, "reel.mp4");
-  const fin = await finish(cfg, st.plan, silent, out, D, notes, signal);
+  // La musique composée pour cette vidéo, à sa durée exacte (le plan garde « lib:<id> » : une retouche la réutilise).
+  if (st.plan.track === "gen") st.plan = await composeForVideo(api, st.plan, D, { signal, notes });
+  const fin = await finish(cfg, st.plan, silent, out, D, notes, signal, { clips, marks: st.stage.marks });
   rmSync(silent, { force: true });
   await probe(out, D, signal);
   P.fraction(1);

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { NetworkBadge } from "@/lib/networks";
 import { cn } from "@/lib/utils";
+import { AudioSection, ModelSection } from "./audio-settings";
 import { StyleProfiles } from "./style-profiles";
 import { Button } from "./ui";
 
@@ -80,6 +81,8 @@ export function SettingsPage() {
               <StyleProfiles />
             </Section>
           </div>
+          <AudioSection delay={60} />
+          <ModelSection delay={80} />
           {overview && <PexelsSection on={!!overview.pexels} fromEnv={!!overview.pexelsFromEnv} onChanged={load} />}
           {overview?.publisher.name === "treg" && <FacebookSection />}
           <InfoSection overview={overview} />

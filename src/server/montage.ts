@@ -875,7 +875,7 @@ function reservedVideo(v: Record<string, unknown>): Pick<ReelVideo, "captions" |
   const style = line(v.motionStyle, 1000);
   return {
     ...(c && typeof c === "object" ? { captions: { on: c.on === true, ...(["karaoke", "pop", "simple"].includes(c.look as string) ? { look: c.look as "karaoke" | "pop" | "simple" } : {}) } } : {}),
-    ...(o && typeof o === "object" && o.provider === "elevenlabs" && line(o.voiceId, 100) ? { voiceOver: { provider: "elevenlabs" as const, voiceId: line(o.voiceId, 100) } } : {}),
+    ...(o && typeof o === "object" && (o.provider === "elevenlabs" || o.provider === "google") && /^[A-Za-z0-9_-]{1,100}$/.test(line(o.voiceId, 100)) ? { voiceOver: { provider: o.provider as "elevenlabs" | "google", voiceId: line(o.voiceId, 100) } } : {}),
     ...(style ? { motionStyle: style } : {}),
   };
 }

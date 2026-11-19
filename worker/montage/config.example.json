@@ -23,6 +23,7 @@
   "brollCache": "~/Movies/Metricove/broll-cache",
   "brollCacheGb": 1,
   "libraryCache": "~/Movies/Metricove/bibliotheque-cache",
+  "voiceCache": "~/Movies/Metricove/voix-cache",
   "pexelsKey": "",
   "elevenlabsKeyFile": "",
   "ytDlp": "yt-dlp",

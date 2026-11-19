@@ -56,13 +56,13 @@ export function addAsset(kind: AssetKind, bytes: Buffer, meta: { name?: unknown;
   const item: LibraryItem = {
     id,
     kind,
-    name: cleanName(meta.name) || (kind === "illustration" ? "Illustration" : "Bruitage"),
+    name: cleanName(meta.name) || (kind === "illustration" ? "Illustration" : kind === "music" ? "Musique" : "Bruitage"),
     tags: cleanTags(meta.tags),
     styles: cleanStyles(meta.styles),
     type: what.type,
     ext: what.ext,
     size: bytes.length,
-    source: meta.source === "claude" ? "claude" : "upload",
+    source: meta.source === "claude" || meta.source === "elevenlabs" || meta.source === "google" ? meta.source : "upload",
     createdAt: new Date().toISOString(),
   };
   fs.mkdirSync(dir(), { recursive: true });
