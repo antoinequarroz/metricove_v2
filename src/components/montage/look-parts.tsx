@@ -205,7 +205,7 @@ export function LookControls({ look, onChange, suggestedHandle }: { look: Look; 
   );
 }
 
-function Swatch({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+export function Swatch({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <label className="press relative size-7 shrink-0 cursor-pointer rounded-full shadow-[inset_0_0_0_1px_rgba(0,0,0,0.15)]" style={{ background: value }} title={`${label} : ${value}`}>
       <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" aria-label={label} />

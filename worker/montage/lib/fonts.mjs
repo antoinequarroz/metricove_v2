@@ -52,7 +52,9 @@ export async function withFont(cfg, theme) {
   if (!theme.googleFont) return theme;
   // Les fichiers de police de la config du Mac sont ceux d'une autre police : ils ne servent pas sous ce nom.
   theme = { ...theme, fontFiles: [] };
-  const faces = await googleFaces(cfg, theme.googleFont);
+  let faces = await googleFaces(cfg, theme.googleFont);
+  // Une graisse que la police n'a pas : la famille seule (sa graisse normale) plutôt que la police de secours.
+  if (!faces.length && theme.googleFont.includes(":")) faces = await googleFaces(cfg, theme.googleFont.split(":")[0]);
   return faces.length ? { ...theme, fontFaces: faces } : theme;
 }
 

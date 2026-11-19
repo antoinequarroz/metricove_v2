@@ -29,7 +29,47 @@ export type Look = {
   handle: string;
   /** Small logo next to the signature: a "data:image/…" address. */
   logo?: string;
+  /** How the edited videos of this style look (subtitles, opening hook, cards). Absent: the Mac's default look. */
+  video?: VideoLook;
 };
+
+/**
+ * The look of a style on video: what makes a creator's reels recognisable (font, case, outline or box behind the
+ * subtitles, where they sit, the opening hook). Copied from reels by « Copier un créateur », or set by hand.
+ */
+export type VideoLook = {
+  /** A Google Fonts family, e.g. "Montserrat" or "Bebas Neue". Empty: the font of the look. */
+  font?: string;
+  /** 400 to 900. */
+  weight?: number;
+  upper?: boolean;
+  /** Color of the subtitle words (hex). */
+  text?: string;
+  /** Outline around the letters, in px at 1080 wide (0 = none), and its color. */
+  stroke?: number;
+  strokeColor?: string;
+  /** A colored box behind the whole line, behind the spoken word only, or none. */
+  box?: "none" | "line" | "word";
+  boxColor?: string;
+  /** Soft shadow under the letters. */
+  shadow?: boolean;
+  /** Opening hook: colored band (Metricove's), big plain text, or a white box. */
+  hook?: "band" | "text" | "box";
+  /** Subtitles: where, how they appear, how big, color of the key words. */
+  position?: "auto" | "bottom" | "middle" | "top";
+  anim?: "karaoke" | "pop" | "simple";
+  size?: "s" | "m" | "l";
+  highlight?: string;
+  /** Background of the full-screen cards and the end card (hex). */
+  card?: string;
+};
+
+export const VIDEO_FONT = /^[A-Za-z0-9 ]{2,40}$/;
+export const VIDEO_HOOKS = [
+  { value: "band", label: "Bandeau couleur" },
+  { value: "text", label: "Gros texte" },
+  { value: "box", label: "Cadre blanc" },
+] as const;
 
 export type PresetId = "antoine" | "livrematch" | "carnadzons";
 
@@ -188,16 +228,17 @@ export const starterProfile = (preset: PresetId, handle = ""): StyleProfile => {
 };
 
 const LOOK_KEYS = ["theme", "accent", "font", "grid", "pill", "align", "valign", "grain", "numbers", "handle", "logo"] as const;
+const videoKey = (l: Look) => JSON.stringify(l.video ?? {});
 
 /** Only the look, from an object that holds more (a deck). */
 export function lookOf(from: Look): Look {
-  return { theme: from.theme, accent: from.accent, font: from.font, fields: from.fields ?? [], grid: !!from.grid, pill: !!from.pill, align: from.align, valign: from.valign, grain: from.grain, numbers: from.numbers, handle: from.handle, ...(from.logo ? { logo: from.logo } : {}) };
+  return { theme: from.theme, accent: from.accent, font: from.font, fields: from.fields ?? [], grid: !!from.grid, pill: !!from.pill, align: from.align, valign: from.valign, grain: from.grain, numbers: from.numbers, handle: from.handle, ...(from.logo ? { logo: from.logo } : {}), ...(from.video ? { video: from.video } : {}) };
 }
 
 const fieldsKey = (l: Look) => (l.fields ?? []).map((f) => `${f.bg}/${f.ink}`.toLowerCase()).join(" ");
 
 export const sameLook = (a: Look, b: Look) =>
-  LOOK_KEYS.every((k) => (a[k] ?? "") === (b[k] ?? "") || (k === "accent" && a.accent.toLowerCase() === b.accent.toLowerCase())) && fieldsKey(a) === fieldsKey(b);
+  LOOK_KEYS.every((k) => (a[k] ?? "") === (b[k] ?? "") || (k === "accent" && a.accent.toLowerCase() === b.accent.toLowerCase())) && fieldsKey(a) === fieldsKey(b) && videoKey(a) === videoKey(b);
 
 // An SVG logo is only ever shown as an image (never put in the page as markup), where it cannot run a script.
 const isLogo = (v: unknown): v is string => typeof v === "string" && v.length <= MAX_LOGO && /^data:image\/(png|jpeg|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(v);
@@ -232,5 +273,36 @@ export function cleanLook(raw: unknown, base: Look): Look | string {
     numbers: typeof r.numbers === "boolean" ? r.numbers : base.numbers,
     handle: typeof r.handle === "string" ? r.handle.replace(/\s+/g, " ").trim().slice(0, 40) : base.handle,
     ...(logo ? { logo } : {}),
+    ...(() => {
+      const video = r.video === undefined ? base.video : r.video === null ? undefined : cleanVideoLook(r.video);
+      return video ? { video } : {};
+    })(),
   };
+}
+
+/** A video look sent by a browser or by the Mac: what is not valid is dropped. `undefined` when nothing is left. */
+export function cleanVideoLook(raw: unknown): VideoLook | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const hex = (v: unknown) => (typeof v === "string" && HEX.test(v) ? v.toLowerCase() : undefined);
+  const among = <T extends string>(v: unknown, list: readonly T[]) => (list.includes(v as T) ? (v as T) : undefined);
+  const font = typeof r.font === "string" ? r.font.replace(/\s+/g, " ").trim() : "";
+  const v: VideoLook = {
+    ...(VIDEO_FONT.test(font) ? { font } : {}),
+    ...(typeof r.weight === "number" && r.weight >= 100 && r.weight <= 900 ? { weight: Math.round(r.weight / 100) * 100 } : {}),
+    ...(typeof r.upper === "boolean" ? { upper: r.upper } : {}),
+    ...(hex(r.text) ? { text: hex(r.text) } : {}),
+    ...(typeof r.stroke === "number" && r.stroke >= 0 && r.stroke <= 16 ? { stroke: Math.round(r.stroke) } : {}),
+    ...(hex(r.strokeColor) ? { strokeColor: hex(r.strokeColor) } : {}),
+    ...(among(r.box, ["none", "line", "word"] as const) ? { box: r.box as VideoLook["box"] } : {}),
+    ...(hex(r.boxColor) ? { boxColor: hex(r.boxColor) } : {}),
+    ...(typeof r.shadow === "boolean" ? { shadow: r.shadow } : {}),
+    ...(among(r.hook, ["band", "text", "box"] as const) ? { hook: r.hook as VideoLook["hook"] } : {}),
+    ...(among(r.position, ["auto", "bottom", "middle", "top"] as const) ? { position: r.position as VideoLook["position"] } : {}),
+    ...(among(r.anim, ["karaoke", "pop", "simple"] as const) ? { anim: r.anim as VideoLook["anim"] } : {}),
+    ...(among(r.size, ["s", "m", "l"] as const) ? { size: r.size as VideoLook["size"] } : {}),
+    ...(hex(r.highlight) ? { highlight: hex(r.highlight) } : {}),
+    ...(hex(r.card) ? { card: hex(r.card) } : {}),
+  };
+  return Object.keys(v).length ? v : undefined;
 }

@@ -25,7 +25,7 @@ import { stagePage } from "./lib/reel/stage.mjs";
 import { speedOf, learnStats, readStats, statsFile } from "./lib/reel/progress.mjs";
 import { FPS, GSAP } from "./lib/reel/vocab.mjs";
 
-const VERSION = "0.18.1";
+const VERSION = "0.19.0";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 const CONFIG_FILE = process.env.MONTAGE_CONFIG || join(HERE, "config.json");

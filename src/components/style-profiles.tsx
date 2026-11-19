@@ -14,6 +14,7 @@ import { Field, inputClass, LookControls, SlideCanvas } from "./montage/look-par
 import { CHARTE_ACCEPT, type CharteResult } from "@/lib/strategy";
 import { JobProgress, OldWorkerNote, SourcePicker, startReading, useProjectJob, workerTooOld } from "./brand-reading";
 import { Button } from "./ui";
+import { VideoLookControls } from "./video-look";
 
 /** Réglages → Styles: the styles now have their own page, with several styles per project. */
 export function StyleProfiles() {
@@ -75,7 +76,7 @@ export function StyleEditor({ project, profile, fonts, hooks, actions }: { proje
     try {
       const saved = await save(
         project.id,
-        { name: draft.name, notes: draft.notes, preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "" }, tone: draft.tone, skill: draft.skill, refs: { examples: draft.examples, ideas: draft.ideas } },
+        { name: draft.name, notes: draft.notes, preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "", video: draft.look.video ?? null }, tone: draft.tone, skill: draft.skill, refs: { examples: draft.examples, ideas: draft.ideas } },
         profile.id,
       );
       setDraft(draftOf(saved));
@@ -119,6 +120,7 @@ export function StyleEditor({ project, profile, fonts, hooks, actions }: { proje
             </Field>
             <CharteImport project={project} draft={draft} setDraft={setDraft} fonts={fonts} />
             <LookControls look={draft.look} onChange={(p) => setDraft((d) => ({ ...d, look: { ...d.look, ...p } }))} suggestedHandle={suggestedHandle} />
+            <VideoLookControls look={draft.look} onChange={(video) => setDraft((d) => ({ ...d, look: { ...d.look, video: video ?? undefined } }))} />
             <Field label="Ton de Claude (descriptions, posts, textes de prompteur)">
               <textarea
                 aria-label="Ton de Claude"

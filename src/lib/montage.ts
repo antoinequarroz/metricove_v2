@@ -454,7 +454,7 @@ export const MAX_ASSET_PROMPT = 600;
 export const MAX_ASSET_COUNT = 4;
 
 /** Oldest Mac program that writes style rules and copies a creator's style (kind "style"). */
-export const STYLE_WORKER = "0.18.0";
+export const STYLE_WORKER = "0.19.0";
 export const MAX_STYLE_REFS = 3;
 export const MAX_RULES = 6;
 
@@ -482,6 +482,8 @@ export type StyleTask = {
     summary?: string;
     notes?: string;
     accent?: string;
+    /** copy: the Google font Claude matched to the creator's subtitles. */
+    font?: string;
   };
 };
 

@@ -5,7 +5,7 @@ import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
 import { getRushRow, getStyle, listJobs, pageJob, saveJob, withAhead } from "@/server/montage";
 import { cleanLook, starterProfile } from "@/lib/profiles";
-import { profileOf, styleIdOf, voiceOf } from "@/server/profiles";
+import { captionsOf, profileOf, styleIdOf, voiceOf } from "@/server/profiles";
 import { DEFAULT_STYLE } from "@/lib/profiles";
 import { MAX_FOCUS, MAX_PLAN_ITEMS, MAX_SOURCE_TEXT, MAX_SOURCES, PLAN_DAYS, PLAN_FORMATS, type PlanFormat, type SourceFile } from "@/lib/strategy";
 import { sourceFile } from "@/server/sources";
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     title: clip(b.title, 120) ?? (kind === "script" ? "Texte de prompteur" : "Nouveau montage"),
     projectId,
     ...(styleId ? { styleId } : {}),
-    style: projectId && kind === "montage" ? getStyle(projectId) : undefined,
+    style: projectId && kind === "montage" ? captionsOf(projectId, styleId, getStyle(projectId)) : undefined,
     voice: kind === "script" ? voiceOf(projectId, styleId) : undefined,
     status: "queued",
     action: kind === "script" ? "script" : "propose",

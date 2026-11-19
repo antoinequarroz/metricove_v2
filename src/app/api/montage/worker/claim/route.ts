@@ -47,7 +47,8 @@ export async function POST(req: Request) {
   if (claimed.motion && logo) claimed.motion = { ...claimed.motion, look: { ...claimed.motion.look, logo } };
   // The illustrations and sound effects of the job's style (worker 0.16.0 uses them; older ones ignore them).
   const assets = (styled || claimed.kind === "motion") && claimed.projectId ? assetsFor(claimed.projectId, claimed.styleId) : undefined;
-  const job = { ...claimed, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
+  // A montage also gets the inspiration images of its style (worker 0.19.0 shows them to Claude; older ones ignore them).
+  const job = { ...claimed, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill, ...(claimed.kind === "montage" && voice.images ? { images: voice.images } : {}) } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

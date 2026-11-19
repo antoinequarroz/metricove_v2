@@ -671,3 +671,15 @@ Une tâche `kind: "style"` (action `style`, `minWorker` 0.18.0) porte `job.style
 
 Réglages du Mac (`config.json`) : `ytDlp` (chemin de yt-dlp, `brew install yt-dlp`) et `ytDlpCookies` (navigateur dont
 yt-dlp prend les cookies, par ex. `"chrome"` : Instagram demande souvent d'être connecté).
+
+### Look vidéo d'un style (`look.video`, worker 0.19.0)
+
+Un style peut porter un **look vidéo** : police Google Fonts (n'importe quelle famille), graisse, capitales, couleur du
+texte, contour, fond derrière la ligne ou le mot dit, ombre, type d'accroche (bandeau, gros texte, cadre blanc), place,
+apparition et taille des sous-titres, couleur des mots mis en avant et fond des cartes. Il se règle dans Ressources →
+Styles (« Look des vidéos », avec un aperçu) et « Copier un créateur » le remplit d'après les images du reel.
+- Au claim, `themeOf` ajoute `font`/`googleFont`, `text`, `dark` et `theme.design` ; le Mac (hf.mjs, stage.mjs) dessine
+  sous-titres, accroche, carton de fin et cartes avec. Une graisse que Google n'a pas : la famille seule est prise.
+- À la création d'un montage, `captionsOf` met la place, l'apparition, la taille et la couleur du style dans `job.style`.
+- La copie garde 6 images clés des reels comme images d'inspiration du style ; un montage les reçoit (`voice.images`)
+  et Claude les lit avant de proposer la mise en scène.

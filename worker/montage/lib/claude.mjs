@@ -81,7 +81,7 @@ const fmtTime = (s) => s.toFixed(1);
  * `marks` : notes dessinées [{ file, t, version, text, phrase?, said? }] (images à lire avec l'outil Read).
  * `tracks` : fichiers du dossier musique quand Claude doit en choisir un.
  */
-export async function proposeEdit(cfg, { job, cands, previous, marks = [], captions, tracks = [], broll = null, stage = null, cwd }) {
+export async function proposeEdit(cfg, { job, cands, previous, marks = [], captions, tracks = [], broll = null, stage = null, inspiration = [], cwd }) {
   const b = job.brief || {};
   const lines = cands.map((c) => `${c.id} | rush ${c.rushName} | ${fmtTime(c.in)}–${fmtTime(c.out)} s | ${c.words.map((w, i) => `${i}:${w.w}`).join(" ")}`).join("\n");
   const prev = previous
@@ -106,6 +106,11 @@ ${marks.map((m, i) => `${i + 1}. À ${fmtTime(m.t)} s de la version ${m.version}
 ${stage.illustrations.length ? `- Illustrations disponibles (illustration = nom exact, ou vide si aucune ne colle) : ${tagged(stage.illustrations)}\n` : "- Pas d'illustration disponible : laisse illustration vide.\n"}- Bruitages (sfx) : 2 à 5 au total, à l'entrée d'un temps fort (whoosh, swoosh) ou sur un mot fort (pop, ding, impact), jamais deux à moins de 2 s. Noms possibles : ${stage.sfx.length ? tagged(stage.sfx) : stage.builtin.join(", ")}.
 `
     : "";
+  // Le look du style (police, sous-titres, accroche) est dessiné par le Mac ; Claude en reprend la mise en scène.
+  const looks = inspiration.length
+    ? `\nIMAGES D'INSPIRATION DU STYLE (lis-les toutes avec l'outil Read avant de répondre) : ${inspiration.join(", ")}
+Ce sont des images du créateur ou des visuels qu'Antoine veut retrouver. La police, les couleurs et le dessin des sous-titres sont déjà réglés ; à toi d'en reprendre la mise en scène : quand et comment le créateur passe en carte, en écran coupé ou en pastille, la longueur et le ton de ses titres à l'écran, la fréquence des B-roll, des zooms et des emojis. La vidéo doit ressembler à ces images, pas à un montage standard.\n`
+    : "";
   const music = tracks.length ? `\nMUSIQUE : choisis le morceau qui colle au ton (champ music) parmi : ${tracks.join(", ")}\n` : "";
   // Le profil du projet (ton écrit par Antoine, skills du Mac) : il guide ce que Claude écrit et choisit, pas ce qui a été dit.
   const project = job.voice?.tone || job.voice?.skill
@@ -119,7 +124,7 @@ BRIEF
 - Accroche souhaitée : ${b.hook || "à proposer"}
 - Appel à l'action : ${b.cta || "à proposer si pertinent"}
 - Consignes : ${b.instructions || "—"}
-${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}${brollTxt}${stageTxt}${project}
+${job.script ? `\nTEXTE PRÉVU (prompteur) — sert à reconnaître les bonnes prises :\n${job.script}\n` : ""}${prev}${job.feedback ? `\nRETOUR D'ANTOINE SUR LA DERNIÈRE VERSION (prioritaire) : ${job.feedback}\n` : ""}${notes}${music}${brollTxt}${stageTxt}${looks}${project}
 PHRASES DISPONIBLES (id | rush | temps | mots numérotés) :
 ${lines}
 

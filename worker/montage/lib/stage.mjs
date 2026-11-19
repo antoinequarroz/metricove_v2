@@ -164,7 +164,7 @@ export function stageLayer(stages, { W, H, theme, k }) {
 .sin{display:flex;flex-direction:column;align-items:center;gap:${px(30)};text-align:center;max-width:100%}
 .sil{display:block;max-width:80%;object-fit:contain}
 .sbar{width:${px(120)};height:${px(12)};border-radius:${px(6)}}
-.stt{font-weight:900;line-height:1.02;letter-spacing:-0.02em}
+.stt{font-weight:${theme.design?.weight >= 100 && theme.design.weight <= 900 ? theme.design.weight : 900};line-height:1.02;letter-spacing:-0.02em${theme.design?.upper ? ";text-transform:uppercase" : ""}}
 .sbd{font-weight:600;line-height:1.2;opacity:0.86;max-width:${px(860)}}
 .sring{position:absolute;border-radius:50%;box-sizing:border-box}`;
   return { els, js, css };

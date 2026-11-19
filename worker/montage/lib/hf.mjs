@@ -52,6 +52,11 @@ const SIZE = { s: 0.8, m: 1, l: 1.2 };
  * words : [{ w, s, e, seg, hl?, emoji? }] en secondes de la vidéo rendue ; speechEnd : fin de la parole ; dur : durée totale.
  * captions : { on, position, look, size, highlight, emoji } ; faces : { [seg]: { y0, y1 } } visage dans l'image (0..1), pour « auto ».
  */
+const luma = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
 export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, theme, format, captions = {}, faces = {}, texts = [], stages = [] }) {
   const k = Math.min(W, H) / 1080;
   const px = (v) => `${Math.round(v * k)}px`;
@@ -63,6 +68,18 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
   const look = captions.look || "karaoke";
   const STRETCH = /^\d{2,3}%$/.test(theme.fontStretch || "") ? `font-stretch:${theme.fontStretch};` : "";
   const fontFaces = fontFaceCss(theme, (p) => `assets/${basename(p)}`);
+  // Look vidéo du style (worker 0.19.0) : graisse, capitales, contour, fond derrière la ligne ou le mot dit, accroche.
+  const D = theme.design || {};
+  const hex = (v, or) => (/^#[0-9a-f]{6}$/i.test(v || "") ? v : or);
+  const WEIGHT = D.weight >= 100 && D.weight <= 900 ? D.weight : 900;
+  const CASE = D.upper ? "text-transform:uppercase;" : "";
+  const SC = hex(D.strokeColor, "#000000"), SW = Math.max(0, Math.min(16, Number(D.stroke) || 0));
+  const ring = SW ? [0, 45, 90, 135, 180, 225, 270, 315].map((d) => `${px(SW * Math.cos((d * Math.PI) / 180))} ${px(SW * Math.sin((d * Math.PI) / 180))} 0 ${SC}`) : [];
+  const SHADOW = [...ring, ...(D.shadow === false ? [] : ["0 0 3px rgba(0,0,0,0.55)", "0 4px 22px rgba(0,0,0,0.55)"])].join(",") || "none";
+  const BOX = D.box === "line" || D.box === "word" ? D.box : "none";
+  const BC = hex(D.boxColor, A);
+  const onBox = luma(BC) > 0.55 ? "#111111" : "#ffffff";
+  const HOOK = D.hook === "text" || D.hook === "box" ? D.hook : "band";
   const els = [], js = [];
 
   // Place des sous-titres : bas, haut, milieu, ou « auto » = sous le visage, sinon au-dessus.
@@ -129,7 +146,8 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
     c.forEach((w, m) => {
       const on = Math.max(a, w.s), off = m + 1 < c.length ? c[m + 1].s : Math.min(b, w.e + 0.25);
       if (look === "pop") js.push(`tl.to("#w${i}_${m}",{opacity:1,scale:1,duration:0.14,ease:"back.out(3)"},${f(on)});`);
-      if (look !== "simple") js.push(`tl.set("#w${i}_${m}",{color:"${HL}"},${f(on)}); tl.set("#w${i}_${m}",{color:"${w.hl ? HL : T}"},${f(Math.max(off, on + 0.04))});`);
+      if (look !== "simple" && BOX === "word") js.push(`tl.set("#w${i}_${m}",{color:"${onBox}",backgroundColor:"${BC}",textShadow:"none"},${f(on)}); tl.set("#w${i}_${m}",{color:"${w.hl ? HL : T}",backgroundColor:"rgba(0,0,0,0)",textShadow:"inherit"},${f(Math.max(off, on + 0.04))});`);
+      else if (look !== "simple") js.push(`tl.set("#w${i}_${m}",{color:"${HL}"},${f(on)}); tl.set("#w${i}_${m}",{color:"${w.hl ? HL : T}"},${f(Math.max(off, on + 0.04))});`);
     });
     if (em >= 0) {
       js.unshift(`gsap.set("#e${i}",{xPercent:-50,scale:0,opacity:0});`);
@@ -175,16 +193,16 @@ html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent}
 .shade-bottom{top:${Math.round(H * (capTop - 0.2))}px;bottom:0;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0.42) 45%,rgba(0,0,0,0.62) 100%)}
 .shade-top{top:0;height:${Math.round(H * 0.42)}px;background:linear-gradient(0deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0.42) 55%,rgba(0,0,0,0.62) 100%)}
 .cap{position:absolute;left:${px(60)};right:${px(60)};height:${px(capSize * 3)};display:flex;align-items:center;justify-content:center}
-.ct{position:relative;text-align:center;font-weight:900;font-size:${px(capSize)};line-height:1.06;letter-spacing:-0.01em;text-shadow:0 0 3px rgba(0,0,0,0.55),0 4px 22px rgba(0,0,0,0.55)}
-.w{display:inline-block;color:${T}}
+.ct{position:relative;text-align:center;font-weight:${WEIGHT};font-size:${px(capSize)};line-height:${BOX === "line" ? 1.18 : 1.06};letter-spacing:-0.01em;${CASE}text-shadow:${BOX === "line" ? "none" : SHADOW}${BOX === "line" ? `;background:${BC};padding:${px(14)} ${px(26)};border-radius:${px(18)}` : ""}}
+.w{display:inline-block;color:${BOX === "line" ? onBox : T}${BOX === "word" ? `;padding:0 ${px(10)};margin:0 -${px(4)};border-radius:${px(12)}` : ""}}
 .emo{position:absolute;left:50%;font-size:${px(capSize * 1.15)};line-height:1;font-family:"Apple Color Emoji","Noto Color Emoji",sans-serif;text-shadow:none}
 .emo-above{bottom:100%;margin-bottom:${px(14)}}.emo-below{top:100%;margin-top:${px(14)}}
 .ttl{position:absolute;left:0;right:0;top:${Math.round(H * ttlTop)}px;display:flex;justify-content:center}
-.tb{background:${A};color:${INK};padding:${px(18)} ${px(36)};transform-origin:left center;max-width:${Math.round(W * 0.88)}px}
-.tb span{font-weight:900;font-size:${px(format === "16:9" ? 66 : 78)};line-height:1.05;text-align:center}
+.tb{background:${HOOK === "text" ? "transparent" : HOOK === "box" ? "#ffffff" : A};color:${HOOK === "text" ? T : HOOK === "box" ? "#111111" : INK};padding:${px(18)} ${px(36)};transform-origin:left center;max-width:${Math.round(W * 0.88)}px${HOOK === "box" ? `;border-radius:${px(22)}` : ""}}
+.tb span{font-weight:${WEIGHT};font-size:${px((format === "16:9" ? 66 : 78) * (HOOK === "text" ? 1.25 : 1))};line-height:1.05;text-align:center;${CASE}${HOOK === "text" ? `text-shadow:${SHADOW}` : ""}}
 .end{position:absolute;inset:0;background:${DARK};display:flex;align-items:center;justify-content:center;flex-direction:column;gap:${px(28)}}
 .eb{width:${px(140)};height:${px(14)};background:${A};transform-origin:left center}
-.end span{font-weight:900;font-size:${px(format === "16:9" ? 84 : 96)};line-height:1.05;text-align:center;color:${T};max-width:${Math.round(W * 0.84)}px}`;
+.end span{font-weight:${WEIGHT};${CASE}font-size:${px(format === "16:9" ? 84 : 96)};line-height:1.05;text-align:center;color:${T};max-width:${Math.round(W * 0.84)}px}`;
 
   return `<!doctype html><html lang="fr" data-resolution="${W >= H ? "landscape" : "portrait"}"><head><meta charset="UTF-8" />
 <meta name="viewport" content="width=${W}, height=${H}" />

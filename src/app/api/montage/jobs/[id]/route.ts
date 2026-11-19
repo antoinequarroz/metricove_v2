@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { isVideoJob, MAX_ASSET_COUNT, MAX_RULES, MAX_SENT_NOTES, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
 import { findAsset } from "@/server/library";
 import { listProjects } from "@/server/db";
-import { createStyle, saveProfile } from "@/server/profiles";
+import { addRefImage, createStyle, saveProfile } from "@/server/profiles";
+import { cleanVideoLook, MAX_REF_IMAGES } from "@/lib/profiles";
 import { markSent, notesAsMarks } from "@/server/review-notes";
 import { ingestVideo } from "@/server/media";
 import { cleanEdl, cleanMarks, cleanReel, deleteJob, dropPreviews, EMPTY_EDL, getJob, addVersion, pageJob, previewPath, queue, release, reportRun, restoreReel, saveJob, staleWrite, touchJob, touchWorker, workerStatus } from "@/server/montage";
@@ -66,7 +67,7 @@ type Body = {
   plan?: unknown;
   asset?: { result?: unknown };
   /** kind "style": { rules } or, for a copy, { summary, notes, accent? }. */
-  style?: { rules?: unknown; summary?: unknown; notes?: unknown; accent?: unknown };
+  style?: { rules?: unknown; summary?: unknown; notes?: unknown; accent?: unknown; video?: unknown; frames?: unknown };
 };
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -279,9 +280,17 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const made = createStyle(project, t.name || "Style copié", t.styleId);
     if (typeof made === "string") return NextResponse.json({ error: made }, { status: 400 });
     const accent = typeof b.style?.accent === "string" && /^#[0-9a-f]{6}$/i.test(b.style.accent) ? b.style.accent.toLowerCase() : undefined;
-    const saved = saveProfile(project, { notes, ...(accent ? { look: { ...made.look, accent } } : {}) }, made.id);
+    // The creator's look on video (font, case, outline, box, hook, subtitles), as Claude read it on the frames.
+    const video = cleanVideoLook(b.style?.video);
+    const look = { ...made.look, ...(accent ? { accent } : {}), ...(video ? { video } : {}) };
+    const saved = saveProfile(project, { notes, look }, made.id);
     if (typeof saved === "string") saveProfile(project, { notes }, made.id);
-    t.result = { styleId: made.id, notes, summary: line(b.style?.summary, 1200) || undefined, ...(accent ? { accent } : {}) };
+    // Frames of the reels become the inspiration images of the style: Claude looks at them when it edits.
+    for (const [i, raw] of (Array.isArray(b.style?.frames) ? (b.style.frames as unknown[]) : []).slice(0, MAX_REF_IMAGES).entries()) {
+      if (typeof raw !== "string" || raw.length > 2_000_000) continue;
+      addRefImage(project, Buffer.from(raw, "base64"), `Image clé ${i + 1}`, made.id);
+    }
+    t.result = { styleId: made.id, notes, summary: line(b.style?.summary, 1200) || undefined, ...(accent ? { accent } : {}), ...(video?.font ? { font: video.font } : {}) };
     return NextResponse.json({ job: pageJob(release(job, "done")) });
   }
   if (b.status === "done" && job.kind === "plan" && job.plan) {
