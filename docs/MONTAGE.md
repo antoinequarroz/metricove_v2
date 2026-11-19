@@ -37,6 +37,8 @@ Le serveur refuse les corps de plus de 10 Mo. Tout fichier passe donc par morcea
 
 `POST /api/media` accepte aussi `{ "upload", "title"?, "post"? }` en JSON : c'est la voie à prendre pour toute vidéo de plus de 10 Mo (Claude Code, Hermes).
 
+Next.js 15.5.28 est corrigé par `patches/next@15.5.28.patch` (`patchedDependencies` de `pnpm-workspace.yaml`, copié par le Dockerfile avant `pnpm install`). Avec un middleware en runtime Node.js, Next n'attendait pas la remise en place du corps de la requête après le middleware : en production, tout corps encore en route (au-delà d'environ 64 Ko : morceau d'envoi, planche d'un reel, image) arrivait « disturbed » à la route, d'où un 500 en page HTML (« Response body object should not be disturbed or locked ») avant notre code. `pnpm dev` ne le montre pas. À la prochaine montée de version de Next, vérifier si le correctif (`await requestData.body.finalize()` dans `dist/server/next-server.js`) est arrivé, sinon refaire le patch.
+
 ## Tâches
 
 ```ts
@@ -494,7 +496,7 @@ Paquet B (chaîne du worker) :
 - `lib/reel/prompt.mjs` : `SCORE_SCHEMA`, `REVIEW_SCHEMA`, `REVISE_SCHEMA`, `writePrompt`, `reviewPrompt`, `revisePrompt`.
 - `lib/reel/render.mjs` : `produce(cfg, ctx)` (échelle de qualité : checkMoment, stagePage, lint, check, planche, relecture, rendu, repli), `reelCfg(cfg)` (valeurs par défaut `REEL_DEFAULTS`), `withMeta`, `vet`, `renderedPlan`, `applyPatch`, finition ffmpeg copiée de `motion.mjs`, contrôle `probe` (ffprobe).
 - `lib/reel/index.mjs` : `handleVideo(api, cfg, job, action, dir)` → `makeVideo`, `reviseVideo`, `renderVideo`.
-- `prompts/reel-video.md` (savoir-faire), `montage.mjs` (`VERSION = "0.15.1"` (porte vidéo du serveur : 0.15.0), `--setup-reel`, lignes de `--check`, verrou, `speed` dans la réclamation), `config.example.json`, `README.md`.
+- `prompts/reel-video.md` (savoir-faire), `montage.mjs` (`VERSION = "0.15.2"` (porte vidéo du serveur : 0.15.0), `--setup-reel`, lignes de `--check`, verrou, `speed` dans la réclamation), `config.example.json`, `README.md`.
 
 Paquet C : `src/lib/montage.ts`, `src/lib/worker-version.ts`, `src/server/montage.ts`, les routes `api/montage` (dont `jobs/[id]/board`, et le 409 d'un passage terminé dans `jobs/[id]/versions/[n]/preview`), cette section, et les outils de test `worker/montage/test/mock-server.mjs` (`MOCK=video`), `check-video-run.mjs`, `claude-spy.sh`, `config.sandbox.json`.
 

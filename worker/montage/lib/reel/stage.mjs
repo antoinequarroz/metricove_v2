@@ -173,12 +173,16 @@ function grainPng(size, rnd) {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(Buffer.concat(rows), { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
 }
 
-/** Le logo du look (data URL PNG, JPEG ou WebP, vérifié par ses premiers octets) : { buf, ext } ou null. */
+/**
+ * Le logo du look (data URL PNG, JPEG, WebP ou SVG, vérifié par ses premiers octets) : { buf, ext } ou null.
+ * Un SVG (le logo de LivreMatch en est un) n'est posé que par <img> : il n'y exécute aucun script et ne charge rien.
+ */
 function logoOf(look) {
-  const m = /^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(look?.logo || ""));
+  const m = /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,([A-Za-z0-9+/=]+)$/.exec(String(look?.logo || ""));
   if (!m) return null;
   const buf = Buffer.from(m[2], "base64");
   if (buf.length < 16 || buf.length > 3_000_000) return null;
+  if (m[1] === "svg+xml") return /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE[^>]*>\s*)?<svg\b/i.test(buf.toString("utf8", 0, 4096)) ? { buf, ext: "svg" } : null;
   if (buf[0] === 0x89 && buf.toString("ascii", 1, 4) === "PNG") return { buf, ext: "png" };
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { buf, ext: "jpg" };
   if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return { buf, ext: "webp" };
@@ -402,7 +406,7 @@ export async function stagePage(cfg, plan, hfDir, { safe = false, notes = [] } =
   // Signature : par le cta, sinon en bas de la boîte du dernier temps fort.
   const P = palette(look);
   const logo = logoOf(look);
-  if (look.logo && !logo) notes.push("Logo illisible (PNG, JPEG ou WebP attendu) : la signature sort sans logo.");
+  if (look.logo && !logo) notes.push("Logo illisible (PNG, JPEG, WebP ou SVG attendu) : la signature sort sans logo.");
   const handle = String(look.handle || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40);
   const last = beats[beats.length - 1];
   const chrome = handle || logo ? { handle, logo: !!logo, beat: last.id, cta: last.layout === "cta", at: r3(last.start + CHROME.delay) } : null;

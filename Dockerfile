@@ -10,6 +10,8 @@ FROM base AS deps
 ARG SKIP_BUILD_TOOLS=
 RUN [ -n "$SKIP_BUILD_TOOLS" ] || (apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Patched dependencies (pnpm-workspace.yaml → patchedDependencies): applied by the install.
+COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 
 FROM base AS build
