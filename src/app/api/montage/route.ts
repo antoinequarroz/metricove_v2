@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { freeDisk, listJobs, listRushes, pageJob, workerStatus } from "@/server/montage";
+import { freeDisk, listJobs, listRushes, pageJob, withAhead, workerStatus } from "@/server/montage";
 
 export const dynamic = "force-dynamic";
 
@@ -11,5 +11,7 @@ export function GET() {
     ...pageJob(j),
     ...(j.marks ? { marks: j.marks.map((m) => ({ ...m, image: m.image ? `/api/montage/jobs/${j.id}/marks/${m.id}` : undefined })) } : {}),
   }));
-  return NextResponse.json({ jobs, rushes: listRushes(), worker: workerStatus(), freeDisk: freeDisk() });
+  // `now`: the server's clock, so that the page counts elapsed and remaining times without trusting its own.
+  // `ahead` on each job waiting for the Mac: how many go before it.
+  return NextResponse.json({ jobs: withAhead(jobs), rushes: listRushes(), worker: workerStatus(), freeDisk: freeDisk(), now: Date.now() });
 }

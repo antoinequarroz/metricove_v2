@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listMedia, listProjects } from "@/server/db";
-import { claimJob, listRushes, saveMacBroll, workerSeen, type MacBroll } from "@/server/montage";
+import { isVideoJob } from "@/lib/montage";
+import { claimJob, cleanSpeed, listRushes, saveMacBroll, workerSeen, type MacBroll } from "@/server/montage";
 import { profileOf, themeOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
@@ -10,10 +11,13 @@ export const dynamic = "force-dynamic";
  * Otherwise: the job, what to do, and its rushes (with a download URL when the file waits on the server).
  */
 export async function POST(req: Request) {
-  const b = (await req.json().catch(() => ({}))) as { worker?: string; version?: string; tracks?: unknown; brolls?: unknown };
+  const b = (await req.json().catch(() => ({}))) as { worker?: unknown; version?: unknown; tracks?: unknown; brolls?: unknown; speed?: unknown };
+  const version = typeof b.version === "string" ? b.version.slice(0, 20) : undefined;
   // The files of the Mac's music folder (worker 0.10.0), so that the page can offer them by name.
   const tracks = Array.isArray(b.tracks) ? b.tracks.filter((t): t is string => typeof t === "string" && t.length > 0 && t.length <= 200).slice(0, 200) : undefined;
-  workerSeen({ worker: b.worker?.slice(0, 40), version: b.version?.slice(0, 20), tracks });
+  // The Mac only asks for work between two jobs: it is no longer busy. `speed` (worker 0.14.0): what it learned of its
+  // own speed, for « prête dans environ 5 min ».
+  workerSeen({ worker: typeof b.worker === "string" ? b.worker.slice(0, 40) : undefined, version, tracks, speed: cleanSpeed(b.speed) }, { idle: true });
   // The files of the Mac B-roll folder with a small picture (worker 0.13.0), sent when the folder changes.
   if (Array.isArray(b.brolls)) {
     const list: MacBroll[] = [];
@@ -25,18 +29,21 @@ export async function POST(req: Request) {
     }
     saveMacBroll(list);
   }
-  const claimed = claimJob();
+  // A job that needs a newer Mac (`minWorker`, e.g. a video reel) waits for one: an older Mac never gets it.
+  const claimed = claimJob(version);
   if (!claimed) return new Response(null, { status: 204 });
   // An edit lives for days (versions, feedback, final render): it gets the project's profile as it is now,
   // not as it was when the job was made. Not stored with the job.
   const styled = claimed.kind === "montage" || claimed.kind === "cover";
-  const voice = styled ? voiceOf(claimed.projectId) : undefined;
+  // A video reel is written by Claude in the project's voice: tone, skill, model posts and inspiration images.
+  const video = isVideoJob(claimed);
+  const voice = styled || video ? voiceOf(claimed.projectId) : undefined;
   const theme = styled ? themeOf(claimed.projectId) : undefined;
   // An animated reel shows the logo of its project: kept out of the stored job, added here.
   const owner = claimed.kind === "motion" && claimed.motion?.logo !== false && claimed.projectId ? listProjects().find((p) => p.id === claimed.projectId) : undefined;
   const logo = owner ? profileOf(owner).look.logo : undefined;
   if (claimed.motion && logo) claimed.motion = { ...claimed.motion, look: { ...claimed.motion.look, logo } };
-  const job = { ...claimed, ...(voice ? { voice: { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}) };
+  const job = { ...claimed, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill } } : {}), ...(theme ? { theme } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

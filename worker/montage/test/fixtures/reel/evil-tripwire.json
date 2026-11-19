@@ -1,0 +1,201 @@
+{
+ "_doc": [
+  "Fixture du piège : `sandbox: false` coupe le filtre statique (checkMoment refuserait ce moment). Le moment insère un <script> par root[\"owner\"+\"Document\"] (évasion vérifiée dans final-csp).",
+  "Attendu : check donne « moment evil: élément interdit <script> », le moment est retiré (expect.dropped) et la vidéo est rendue sans lui."
+ ],
+ "job": {
+  "id": "0e5a7c19-3b2d-4f86-a1c4-9d8e7f6a5b42",
+  "kind": "motion",
+  "motion": {
+   "mode": "video",
+   "request": "Test du piège",
+   "source": "idea",
+   "music": true,
+   "logo": false,
+   "look": {
+    "theme": "night",
+    "accent": "#ff5a1f",
+    "font": "grotesque",
+    "fields": [],
+    "grid": false,
+    "pill": false,
+    "align": "left",
+    "valign": "middle",
+    "grain": true,
+    "numbers": true,
+    "handle": "@metricove"
+   }
+  }
+ },
+ "options": {
+  "request": "Test du piège",
+  "source": "idea",
+  "seed": 2440981645
+ },
+ "raw": {
+  "title": "Piège",
+  "shape": "orb",
+  "pace": "normal",
+  "beats": [
+   {
+    "id": "un",
+    "title": "Un",
+    "text": "Le piège se referme",
+    "emphasis": "se referme",
+    "layout": "hero",
+    "bridge": "rise",
+    "actor": "highlight",
+    "camera": "drift",
+    "seconds": 2.4
+   },
+   {
+    "id": "deux",
+    "title": "Deux",
+    "text": "Le moment est retiré",
+    "layout": "stack",
+    "bridge": "morph",
+    "actor": "rest",
+    "camera": "still",
+    "seconds": 5
+   },
+   {
+    "id": "trois",
+    "title": "Trois",
+    "text": "La vidéo sort sans lui",
+    "sub": "Abonne-toi",
+    "layout": "cta",
+    "bridge": "rise",
+    "actor": "underline",
+    "camera": "drift",
+    "seconds": 6
+   }
+  ],
+  "moments": [
+   {
+    "id": "evil",
+    "brief": "Un rond, et une évasion par accès calculé qui insère un script dans la page.",
+    "from": "deux",
+    "to": "deux",
+    "zone": "below",
+    "html": "<div class=\"dot\"></div>",
+    "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+    "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ntry { const d = root[\"owner\" + \"Document\"]; const s = d[\"create\" + \"Element\"](\"script\"); s.textContent = \"window.__pwned = 1\"; d.body[\"append\" + \"Child\"](s); } catch (e) { }\ntry { ({})[\"constr\" + \"uctor\"][\"constr\" + \"uctor\"](\"window.__pwned2 = 1\")(); } catch (e) { }"
+   }
+  ],
+  "caption": "",
+  "notes": "Fixture du piège."
+ },
+ "clean": {
+  "pace": "normal",
+  "fixes": [
+   "Vidéo trop courte (13,4 s) : allongée à 15 s."
+  ],
+  "findings": []
+ },
+ "timed": {
+  "duration": 15,
+  "frames": 450,
+  "settle": [
+   1.2,
+   3.6,
+   8.6
+  ]
+ },
+ "plan": {
+  "scenes": [],
+  "look": {
+   "theme": "night",
+   "accent": "#ff5a1f",
+   "font": "grotesque",
+   "fields": [],
+   "grid": false,
+   "pill": false,
+   "align": "left",
+   "valign": "middle",
+   "grain": true,
+   "numbers": true,
+   "handle": "@metricove",
+   "logo": ""
+  },
+  "logo": false,
+  "music": true,
+  "volume": 0.7,
+  "track": "",
+  "texts": [],
+  "pace": "normal",
+  "duration": 15,
+  "video": {
+   "engine": 1,
+   "request": "Test du piège",
+   "source": "idea",
+   "title": "Piège",
+   "shape": "orb",
+   "beats": [
+    {
+     "id": "un",
+     "title": "Un",
+     "text": "Le piège se referme",
+     "emphasis": "se referme",
+     "layout": "hero",
+     "bridge": "rise",
+     "actor": "highlight",
+     "camera": "drift",
+     "seconds": 2.4,
+     "start": 0,
+     "end": 2.4
+    },
+    {
+     "id": "deux",
+     "title": "Deux",
+     "text": "Le moment est retiré",
+     "layout": "stack",
+     "bridge": "morph",
+     "actor": "rest",
+     "camera": "still",
+     "seconds": 5,
+     "start": 2.4,
+     "end": 7.4
+    },
+    {
+     "id": "trois",
+     "title": "Trois",
+     "text": "La vidéo sort sans lui",
+     "sub": "Abonne-toi",
+     "layout": "cta",
+     "bridge": "rise",
+     "actor": "underline",
+     "camera": "drift",
+     "seconds": 7.6,
+     "start": 7.4,
+     "end": 15
+    }
+   ],
+   "moments": [
+    {
+     "id": "evil",
+     "brief": "Un rond, et une évasion par accès calculé qui insère un script dans la page.",
+     "from": "deux",
+     "to": "deux",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"dot\"></div>",
+      "css": ".dot{position:absolute;left:400px;top:200px;width:100px;height:100px;border-radius:50%;background:var(--accent)}",
+      "js": "const dot = root.querySelector(\".dot\");\nmt.fromTo(dot, { scale: 0 }, { scale: 1, duration: 0.6, ease: \"expo.out\", immediateRender: false }, 0.2);\ntry { const d = root[\"owner\" + \"Document\"]; const s = d[\"create\" + \"Element\"](\"script\"); s.textContent = \"window.__pwned = 1\"; d.body[\"append\" + \"Child\"](s); } catch (e) { }\ntry { ({})[\"constr\" + \"uctor\"][\"constr\" + \"uctor\"](\"window.__pwned2 = 1\")(); } catch (e) { }"
+     }
+    }
+   ],
+   "seed": 2440981645,
+   "tools": {
+    "worker": "0.14.0",
+    "hyperframes": "0.8.137"
+   }
+  }
+ },
+ "notes": "Fixture du piège.",
+ "sandbox": false,
+ "expect": {
+  "dropped": [
+   "evil"
+  ]
+ }
+}

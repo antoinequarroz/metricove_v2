@@ -1,0 +1,179 @@
+{
+ "_doc": [
+  "Fixture d'évasion (revue 2) : `sandbox: false`, le second rideau seul.",
+  "texte : gsap.set(root, { after: \"…\" }) et une clé before dans un tween — clés hors de la liste fermée (méthodes de l'élément que GSAP appellerait), refusées par la façade ; retiré.",
+  "horloge : l'heure lue par gsap.getProperty(document.timeline, \"currentTime\") — la façade n'a plus getProperty ; retiré.",
+  "cssom : réécrit selectorText de sa propre feuille (son css s'appliquerait au texte du moteur) et coupe la feuille du moteur, par root.ownerDocument (sans la façade) — aucun textContent ne change, l'empreinte des feuilles (CSSOM) le voit ; retiré."
+ ],
+ "sandbox": false,
+ "plan": {
+  "scenes": [],
+  "look": {
+   "theme": "night",
+   "accent": "#ff5a1f",
+   "font": "grotesque",
+   "fields": [],
+   "grid": false,
+   "pill": false,
+   "align": "left",
+   "valign": "middle",
+   "grain": true,
+   "numbers": true,
+   "handle": "@metricove",
+   "logo": ""
+  },
+  "logo": false,
+  "music": true,
+  "volume": 0.7,
+  "track": "",
+  "texts": [],
+  "pace": "normal",
+  "duration": 20,
+  "video": {
+   "engine": 1,
+   "request": "Idée : 3 erreurs qui font décrocher sur un reel Instagram, finir par Abonne-toi",
+   "source": "idea",
+   "title": "3 erreurs qui font zapper un reel",
+   "shape": "orb",
+   "beats": [
+    {
+     "id": "accroche",
+     "title": "Accroche",
+     "text": "Ils zappent en 3 secondes",
+     "emphasis": "3 secondes",
+     "layout": "hero",
+     "bridge": "rise",
+     "actor": "highlight",
+     "camera": "push",
+     "seconds": 2.4,
+     "start": 0,
+     "end": 2.4
+    },
+    {
+     "id": "erreurs",
+     "title": "3 erreurs",
+     "text": "3 erreurs qui font fuir",
+     "count": true,
+     "layout": "number",
+     "bridge": "morph",
+     "actor": "dot",
+     "camera": "drift",
+     "seconds": 3.2,
+     "start": 2.4,
+     "end": 5.6
+    },
+    {
+     "id": "intro",
+     "title": "Erreur 1",
+     "text": "Erreur 1 : te présenter d’abord",
+     "emphasis": "te présenter",
+     "layout": "hero",
+     "bridge": "rise",
+     "actor": "underline",
+     "camera": "drift",
+     "seconds": 2.8,
+     "start": 5.6,
+     "end": 8.4
+    },
+    {
+     "id": "son",
+     "title": "Erreur 2",
+     "text": "Erreur 2 : tout miser sur le son",
+     "sub": "Écris l’essentiel à l’écran.",
+     "emphasis": "le son",
+     "layout": "stack",
+     "bridge": "morph",
+     "actor": "rest",
+     "camera": "still",
+     "seconds": 4.2,
+     "start": 8.4,
+     "end": 12.6
+    },
+    {
+     "id": "plan",
+     "title": "Erreur 3",
+     "text": "Erreur 3 : un plan figé",
+     "sub": "Relance l’œil toutes les 2 secondes.",
+     "emphasis": "plan figé",
+     "layout": "stack",
+     "bridge": "cut",
+     "actor": "bar",
+     "camera": "drift",
+     "seconds": 4.2,
+     "start": 12.6,
+     "end": 16.8
+    },
+    {
+     "id": "abonne",
+     "title": "Abonne-toi",
+     "text": "Zéro erreur dans ton prochain reel",
+     "sub": "Abonne-toi",
+     "emphasis": "prochain reel",
+     "layout": "cta",
+     "bridge": "rise",
+     "actor": "underline",
+     "camera": "push",
+     "seconds": 3.2,
+     "start": 16.8,
+     "end": 20
+    }
+   ],
+   "moments": [
+    {
+     "id": "texte",
+     "brief": "Une barre discrète",
+     "from": "accroche",
+     "to": "erreurs",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"b\"></div>",
+      "css": ".b{width:40px;height:40px;background:var(--accent)}",
+      "js": "gsap.set(root, { after: \"PROMO -50 POUR CENT\" });\nmt.to(\".b\", { before: \"*\", duration: 2 });\nmt.to(\".b\", { x: 10, duration: 1 });"
+     }
+    },
+    {
+     "id": "horloge",
+     "brief": "Une barre discrète",
+     "from": "plan",
+     "to": "plan",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"b\"></div>",
+      "css": ".b{width:40px;height:40px;background:var(--accent)}",
+      "js": "var d = gsap.getProperty(root, \"ownerDocument\");\nvar t = gsap.getProperty(gsap.getProperty(d, \"timeline\"), \"currentTime\");\nmt.to(\".b\", { x: t % 600, duration: 1 });"
+     }
+    },
+    {
+     "id": "cssom",
+     "brief": "Une barre discrète",
+     "from": "son",
+     "to": "son",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"b\"></div>",
+      "css": "transform:translateX(380px);\n.b{width:40px;height:40px;background:var(--accent)}",
+      "js": "var d = root.ownerDocument;\nvar sheets = d.styleSheets;\nsheets[sheets.length - 1].cssRules[0].selectorText = \"#type\";\nsheets[0].disabled = true;\nmt.to(\".b\", { x: 10, duration: 1 });"
+     }
+    }
+   ],
+   "caption": "3 erreurs qui font zapper ton reel dès les premières secondes.\n\n1. Te présenter avant la promesse\n2. Tout miser sur le son\n3. Garder un plan figé\n\nTu en fais combien ? Abonne-toi pour la suite.\n\n#reels #instagram #createurdecontenu",
+   "seed": 542867949,
+   "tools": {
+    "worker": "0.14.0",
+    "hyperframes": "0.8.137"
+   }
+  }
+ },
+ "expect": {
+  "dropped": [
+   "texte",
+   "horloge",
+   "cssom"
+  ],
+  "why": {
+   "texte": "clé de tween « (after|before) » interdite",
+   "horloge": "getProperty",
+   "cssom": "hors de son cadre"
+  }
+ }
+}

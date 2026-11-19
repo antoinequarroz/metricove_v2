@@ -17,6 +17,7 @@ import { writePost } from "./post.mjs";
 import { cleanMotion, makeMotion, renderPlan } from "./motion.mjs";
 import { reviseMotion, writeReelMarks } from "./motion-revise.mjs";
 import { directMotion } from "./motion-direct.mjs";
+import { handleVideo, isVideoJob } from "./reel/index.mjs";
 
 export async function handle(api, cfg, { job, action, rushes = [], media }) {
   const dir = ensureDir(join(cfg.workDir, "taches", job.id));
@@ -44,6 +45,13 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       await api.patch(job.id, { status: "done", post });
       log(`[${job.id.slice(0, 8)}] post envoyé (${post.slides.length} visuel(s), ${post.caption.length} car.)`);
       rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (job.kind === "motion" && isVideoJob(job)) {
+      // Reel vidéo continu (worker 0.14.0) : sa propre progression (battement de 15 s) remplace celui de 60 s.
+      clearInterval(beat);
+      assertSpace(cfg);
+      await handleVideo(api, cfg, job, action, dir);
       return;
     }
     if (job.kind === "motion") {
@@ -236,8 +244,12 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
     }
     throw new Error(`Action inconnue : ${action}`);
   } catch (e) {
+    // Une annulation venue de la page (tâche supprimée, arrêtée ou reprise ailleurs) n'envoie pas d'échec.
+    if (e?.cancelled) { log(`[${job.id.slice(0, 8)}] ${e.message} : arrêt sans rien envoyer`); return; }
     log(`[${job.id.slice(0, 8)}] échec :`, e.message);
-    await api.fail(job.id, e.message).catch(() => {});
+    // Un reel vidéo porte l'identité de son passage : l'échec d'un passage déjà terminé est refusé (409) par Metricove.
+    const run = job.kind === "motion" && isVideoJob(job) && job.run?.startedAt !== undefined ? job.run.startedAt : undefined;
+    await api.fail(job.id, e.message, run).catch(() => {});
   } finally {
     clearInterval(beat);
   }

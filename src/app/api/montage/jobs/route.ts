@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
-import { MAX_DIRECTION, MAX_SCENES, type MontageFormat, type MontageJob } from "@/lib/montage";
+import { MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
-import { getRushRow, getStyle, listJobs, saveJob } from "@/server/montage";
+import { getRushRow, getStyle, listJobs, pageJob, saveJob, withAhead } from "@/server/montage";
 import { cleanLook, starterProfile } from "@/lib/profiles";
 import { profileOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
 
+/** The jobs as the page sees them (scripts use it too): no code from Claude, a link in place of each drawing. */
 export function GET() {
-  return NextResponse.json({ jobs: listJobs() });
+  const jobs = listJobs().map((j) => ({
+    ...pageJob(j),
+    ...(j.marks ? { marks: j.marks.map((m) => ({ ...m, image: m.image ? `/api/montage/jobs/${j.id}/marks/${m.id}` : undefined })) } : {}),
+  }));
+  return NextResponse.json({ jobs: withAhead(jobs), now: Date.now() });
 }
 
 type Body = {
@@ -35,6 +40,12 @@ type Body = {
   music?: boolean;
   direction?: unknown;
   pace?: unknown;
+  // kind "motion", mode "video" (worker 0.14.0)
+  mode?: unknown;
+  request?: unknown;
+  source?: unknown;
+  seconds?: unknown;
+  track?: unknown;
 };
 
 /**
@@ -47,6 +58,7 @@ export async function POST(req: Request) {
   if (b.kind === "caption") return captionJob(b);
   if (b.kind === "cover") return coverJob(b);
   if (b.kind === "post") return postJob(b);
+  if (b.kind === "motion" && b.mode === "video") return videoJob(b);
   if (b.kind === "motion") return motionJob(b);
   const kind = b.kind === "script" ? "script" : "montage";
   const format: MontageFormat = ["9:16", "4:5", "1:1", "16:9"].includes(b.brief?.format as string) ? (b.brief!.format as MontageFormat) : "9:16";
@@ -205,6 +217,62 @@ function motionJob(b: Body) {
     action: "motion",
     brief: { format: "9:16" },
     motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, ...(direction ? { direction } : {}), ...(pace ? { pace } : {}), project: project?.name },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/**
+ * Asks the Mac for a continuous video reel (worker 0.14.0): Claude writes the whole video from Antoine's request, in
+ * the look and the voice of the project. Only a Mac at VIDEO_WORKER or newer can take it (`minWorker`); an older one
+ * leaves it waiting, and the page says why.
+ */
+function videoJob(b: Body) {
+  const request = typeof b.request === "string" ? b.request.replace(/\r\n?/g, "\n").trim().slice(0, REEL_VIDEO.request) : "";
+  if (request.length < REEL_VIDEO.minRequest) return NextResponse.json({ error: `Écris ta demande (${REEL_VIDEO.minRequest} caractères au moins)` }, { status: 400 });
+  const source = REEL_SOURCES.find((s) => s === b.source) ?? "idea";
+  // Auto when left out (Claude picks between 15 and 60 s).
+  const seconds = REEL_TARGETS.find((t) => t === Number(b.seconds));
+  const pace = (["calm", "normal", "fast"] as const).find((p) => p === b.pace);
+  const direction = typeof b.direction === "string" ? b.direction.replace(/\r\n?/g, "\n").trim().slice(0, MAX_DIRECTION) : "";
+  // Only compared with the names of the Mac's music folder, never joined to a path.
+  const track = typeof b.track === "string" ? b.track.trim().slice(0, 200) : "";
+  const project = listProjects().find((p) => p.id === b.projectId);
+  const base = project ? profileOf(project).look : starterProfile("antoine").look;
+  const look = cleanLook(b.look, base);
+  if (typeof look === "string") return NextResponse.json({ error: look }, { status: 400 });
+  // The logo stays out of the job (the list of jobs is read every few seconds): the Mac gets it when it takes the job.
+  const { logo: _logo, ...stored } = look;
+  void _logo;
+  const first = request.split("\n").find((l) => l.trim()) ?? request;
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "motion",
+    // Runs of breaking spaces only: the non-breaking ones of French typography (« ? », « 3 h ») stay, as in line().
+    title: `Reel animé : ${first.replace(/[^\S   ]+/g, " ").trim().slice(0, 60)}`,
+    projectId: project?.id,
+    status: "queued",
+    action: "motion",
+    brief: { format: "9:16", ...(seconds ? { seconds } : {}) },
+    motion: {
+      mode: "video",
+      scenes: [],
+      request,
+      source,
+      ...(seconds ? { seconds } : {}),
+      ...(pace ? { pace } : {}),
+      ...(direction ? { direction } : {}),
+      music: b.music !== false,
+      ...(track ? { track } : {}),
+      logo: b.logo !== false,
+      look: stored,
+      project: project?.name,
+    },
+    minWorker: VIDEO_WORKER,
     rushIds: [],
     versions: [],
     createdAt: now,

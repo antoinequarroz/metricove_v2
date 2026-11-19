@@ -1,0 +1,438 @@
+{
+  "_doc": [
+    "Fixture du moteur : un script long (60 s visées) en papier / serif, 12 temps forts, un moment plein cadre (full, barres qui se servent de anchors) dont le texte devient un surtitre.",
+    "Vérifie la durée bornée à 60 s, la typographie serif et le surtitre de la zone full."
+  ],
+  "job": {
+    "id": "f19c0b7d-58e2-4a61-b3c9-0d7e64a2f815",
+    "kind": "motion",
+    "motion": {
+      "mode": "video",
+      "request": "Script : comment j’ai doublé mes vues en trois mois sans acheter de pub. Garder mes mots, finir par Abonne-toi.",
+      "source": "script",
+      "music": true,
+      "logo": false,
+      "seconds": 60,
+      "pace": "calm",
+      "look": {
+        "theme": "paper",
+        "accent": "#c2410c",
+        "font": "serif",
+        "fields": [],
+        "grid": false,
+        "pill": false,
+        "align": "left",
+        "valign": "middle",
+        "grain": true,
+        "numbers": true,
+        "handle": "@metricove"
+      }
+    }
+  },
+  "options": {
+    "request": "Script : comment j’ai doublé mes vues en trois mois sans acheter de pub. Garder mes mots, finir par Abonne-toi.",
+    "source": "script",
+    "seed": 1070859277,
+    "target": 60,
+    "pace": "calm"
+  },
+  "raw": {
+    "title": "Doubler ses vues sans pub",
+    "shape": "line",
+    "pace": "calm",
+    "beats": [
+      {
+        "id": "accroche",
+        "title": "Accroche",
+        "text": "J’ai doublé mes vues",
+        "emphasis": "doublé",
+        "layout": "hero",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "push",
+        "seconds": 2.4
+      },
+      {
+        "id": "sanspub",
+        "title": "Sans pub",
+        "text": "Sans un euro de publicité",
+        "emphasis": "un euro",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "rest",
+        "camera": "drift",
+        "seconds": 4
+      },
+      {
+        "id": "avant",
+        "title": "Avant",
+        "text": "Avant, je publiais au hasard",
+        "sub": "Un jour une vidéo, puis plus rien pendant deux semaines.",
+        "layout": "stack",
+        "bridge": "rise",
+        "actor": "bar",
+        "camera": "drift",
+        "seconds": 5
+      },
+      {
+        "id": "declic",
+        "title": "Le déclic",
+        "text": "Le déclic : un rendez-vous fixe",
+        "emphasis": "rendez-vous fixe",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "highlight",
+        "camera": "still",
+        "seconds": 4.6
+      },
+      {
+        "id": "methode",
+        "title": "La méthode",
+        "text": "Ma méthode tient en trois règles",
+        "items": [
+          "Une idée notée chaque matin",
+          "Un format que je répète",
+          "Le mardi et le vendredi"
+        ],
+        "layout": "list",
+        "bridge": "rise",
+        "actor": "rest",
+        "camera": "drift",
+        "seconds": 6
+      },
+      {
+        "id": "regle1",
+        "title": "Règle 1",
+        "text": "Noter une idée chaque matin",
+        "sub": "Dix minutes avec un café, rien de plus.",
+        "emphasis": "chaque matin",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "underline",
+        "camera": "drift",
+        "seconds": 4.6
+      },
+      {
+        "id": "regle2",
+        "title": "Règle 2",
+        "text": "Répéter un format qui marche",
+        "sub": "Le public aime reconnaître ce qu’il va voir.",
+        "emphasis": "format",
+        "layout": "stack",
+        "bridge": "rise",
+        "actor": "dot",
+        "camera": "drift",
+        "seconds": 4.6
+      },
+      {
+        "id": "courbe",
+        "title": "La courbe",
+        "text": "Les vues ont suivi",
+        "layout": "number",
+        "bridge": "morph",
+        "actor": "hidden",
+        "camera": "still",
+        "seconds": 5
+      },
+      {
+        "id": "chiffre",
+        "title": "Le chiffre",
+        "text": "×2 en trois mois",
+        "count": true,
+        "layout": "number",
+        "bridge": "cut",
+        "actor": "dot",
+        "camera": "push",
+        "seconds": 4
+      },
+      {
+        "id": "lecon",
+        "title": "La leçon",
+        "text": "La constance compte plus que l’inspiration",
+        "emphasis": "constance",
+        "layout": "hero",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "drift",
+        "seconds": 5
+      },
+      {
+        "id": "toi",
+        "title": "À toi",
+        "text": "Choisis ton rendez-vous dès ce soir",
+        "sub": "Deux jours fixes suffisent pour commencer.",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "bar",
+        "camera": "drift",
+        "seconds": 4.6
+      },
+      {
+        "id": "abonne",
+        "title": "Abonne-toi",
+        "text": "La suite de mon plan arrive mardi",
+        "sub": "Abonne-toi",
+        "emphasis": "mardi",
+        "layout": "cta",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "push",
+        "seconds": 4.4
+      }
+    ],
+    "moments": [
+      {
+        "id": "barres",
+        "brief": "Des barres montent et la plus haute pointe vers le chiffre : la courbe parle d'elle-même.",
+        "from": "courbe",
+        "to": "courbe",
+        "zone": "full",
+        "html": "<svg class=\"chart\" viewBox=\"0 0 900 1020\" aria-hidden=\"true\"><line class=\"base\" x1=\"60\" y1=\"930\" x2=\"840\" y2=\"930\" stroke=\"currentColor\" stroke-width=\"4\"/><g class=\"bars\"><rect class=\"b b0\" x=\"90\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b1\" x=\"240\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b2\" x=\"390\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b3\" x=\"540\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b4\" x=\"690\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/></g><path class=\"ptr\" d=\"M710 210 C 710 120, 640 60, 520 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\"/><circle class=\"pin\" cx=\"710\" cy=\"210\" r=\"18\" fill=\"currentColor\"/></svg>",
+        "css": ".chart{display:block;width:900px;height:1020px}.base{color:var(--sub);opacity:.4}.b{color:var(--sub);opacity:.55}.b4{color:var(--accent);opacity:1}.ptr,.pin{color:var(--accent)}",
+        "js": "const bars = gsap.utils.toArray(\".b\");\nconst h = [190, 280, 360, 470, 710];\nconst ptr = root.querySelector(\".ptr\");\nconst pin = root.querySelector(\".pin\");\ngsap.set(ptr, { drawSVG: \"0%\" });\ngsap.set(pin, { scale: 0, transformOrigin: \"50% 50%\" });\nfor (let i = 0; i < bars.length; i++) {\n  mt.fromTo(bars[i], { attr: { y: 920, height: 0 } }, { attr: { y: 920 - h[i], height: h[i] }, duration: 1.1, ease: \"expo.out\", immediateRender: false }, 0.25 + i * 0.11);\n}\nconst a = anchors[beats[0].id].title;\nconst lift = Math.min(40, Math.max(0, -a.y - a.h));\nmt.to(pin, { scale: 1, duration: 0.5, ease: \"back.out(2)\" }, 1.05);\nmt.to(ptr, { drawSVG: \"100%\", y: -lift, duration: 0.9, ease: \"expo.inOut\" }, 1.15);\nmt.to(bars, { y: -8, duration: Math.max(0.6, D - 2.2), ease: \"sine.inOut\", stagger: 0.08 }, 1.9);"
+      }
+    ],
+    "caption": "J’ai doublé mes vues en trois mois, sans publicité. Voici les trois règles que je suis encore aujourd’hui.\n\n#reels #instagram #createurdecontenu",
+    "notes": "Un trait fin souligne les idées clés du script ; les barres montent en plein cadre au moment où les vues décollent."
+  },
+  "clean": {
+    "pace": "calm",
+    "fixes": [],
+    "findings": []
+  },
+  "timed": {
+    "duration": 59.46666666666667,
+    "frames": 1784,
+    "settle": [
+      1.2,
+      3.6,
+      7.6,
+      13.466666666666667,
+      18.066666666666666,
+      26.9,
+      32.13333333333333,
+      37.36666666666667,
+      42.36666666666667,
+      46.36666666666667,
+      51.36666666666667,
+      56.266666666666666
+    ]
+  },
+  "plan": {
+    "scenes": [],
+    "look": {
+      "theme": "paper",
+      "accent": "#c2410c",
+      "font": "serif",
+      "fields": [],
+      "grid": false,
+      "pill": false,
+      "align": "left",
+      "valign": "middle",
+      "grain": true,
+      "numbers": true,
+      "handle": "@metricove",
+      "logo": ""
+    },
+    "logo": false,
+    "music": true,
+    "volume": 0.7,
+    "track": "",
+    "texts": [],
+    "pace": "calm",
+    "duration": 59.46666666666667,
+    "video": {
+      "engine": 1,
+      "request": "Script : comment j’ai doublé mes vues en trois mois sans acheter de pub. Garder mes mots, finir par Abonne-toi.",
+      "source": "script",
+      "target": 60,
+      "title": "Doubler ses vues sans pub",
+      "shape": "line",
+      "beats": [
+        {
+          "id": "accroche",
+          "title": "Accroche",
+          "text": "J’ai doublé mes vues",
+          "emphasis": "doublé",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "push",
+          "seconds": 2.4,
+          "start": 0,
+          "end": 2.4
+        },
+        {
+          "id": "sanspub",
+          "title": "Sans pub",
+          "text": "Sans un euro de publicité",
+          "emphasis": "un euro",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "rest",
+          "camera": "drift",
+          "seconds": 4,
+          "start": 2.4,
+          "end": 6.4
+        },
+        {
+          "id": "avant",
+          "title": "Avant",
+          "text": "Avant, je publiais au hasard",
+          "sub": "Un jour une vidéo, puis plus rien pendant deux semaines.",
+          "layout": "stack",
+          "bridge": "rise",
+          "actor": "bar",
+          "camera": "drift",
+          "seconds": 5.866666666666666,
+          "start": 6.4,
+          "end": 12.266666666666667
+        },
+        {
+          "id": "declic",
+          "title": "Le déclic",
+          "text": "Le déclic : un rendez-vous fixe",
+          "emphasis": "rendez-vous fixe",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "highlight",
+          "camera": "still",
+          "seconds": 4.6,
+          "start": 12.266666666666667,
+          "end": 16.866666666666667
+        },
+        {
+          "id": "methode",
+          "title": "La méthode",
+          "text": "Ma méthode tient en trois règles",
+          "items": [
+            "Une idée notée chaque matin",
+            "Un format que je répète",
+            "Le mardi et le vendredi"
+          ],
+          "layout": "list",
+          "bridge": "rise",
+          "actor": "rest",
+          "camera": "drift",
+          "seconds": 8.833333333333334,
+          "start": 16.866666666666667,
+          "end": 25.7
+        },
+        {
+          "id": "regle1",
+          "title": "Règle 1",
+          "text": "Noter une idée chaque matin",
+          "sub": "Dix minutes avec un café, rien de plus.",
+          "emphasis": "chaque matin",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "underline",
+          "camera": "drift",
+          "seconds": 5.233333333333333,
+          "start": 25.7,
+          "end": 30.933333333333334
+        },
+        {
+          "id": "regle2",
+          "title": "Règle 2",
+          "text": "Répéter un format qui marche",
+          "sub": "Le public aime reconnaître ce qu’il va voir.",
+          "emphasis": "format",
+          "layout": "stack",
+          "bridge": "rise",
+          "actor": "dot",
+          "camera": "drift",
+          "seconds": 5.233333333333333,
+          "start": 30.933333333333334,
+          "end": 36.166666666666664
+        },
+        {
+          "id": "courbe",
+          "title": "La courbe",
+          "text": "Les vues ont suivi",
+          "layout": "number",
+          "bridge": "morph",
+          "actor": "hidden",
+          "camera": "still",
+          "seconds": 5,
+          "start": 36.166666666666664,
+          "end": 41.166666666666664
+        },
+        {
+          "id": "chiffre",
+          "title": "Le chiffre",
+          "text": "×2 en trois mois",
+          "count": true,
+          "layout": "number",
+          "bridge": "cut",
+          "actor": "dot",
+          "camera": "push",
+          "seconds": 4,
+          "start": 41.166666666666664,
+          "end": 45.166666666666664
+        },
+        {
+          "id": "lecon",
+          "title": "La leçon",
+          "text": "La constance compte plus que l’inspiration",
+          "emphasis": "constance",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "drift",
+          "seconds": 5,
+          "start": 45.166666666666664,
+          "end": 50.166666666666664
+        },
+        {
+          "id": "toi",
+          "title": "À toi",
+          "text": "Choisis ton rendez-vous dès ce soir",
+          "sub": "Deux jours fixes suffisent pour commencer.",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "bar",
+          "camera": "drift",
+          "seconds": 4.9,
+          "start": 50.166666666666664,
+          "end": 55.06666666666667
+        },
+        {
+          "id": "abonne",
+          "title": "Abonne-toi",
+          "text": "La suite de mon plan arrive mardi",
+          "sub": "Abonne-toi",
+          "emphasis": "mardi",
+          "layout": "cta",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "push",
+          "seconds": 4.4,
+          "start": 55.06666666666667,
+          "end": 59.46666666666667
+        }
+      ],
+      "moments": [
+        {
+          "id": "barres",
+          "brief": "Des barres montent et la plus haute pointe vers le chiffre : la courbe parle d'elle-même.",
+          "from": "courbe",
+          "to": "courbe",
+          "zone": "full",
+          "code": {
+            "html": "<svg class=\"chart\" viewBox=\"0 0 900 1020\" aria-hidden=\"true\"><line class=\"base\" x1=\"60\" y1=\"930\" x2=\"840\" y2=\"930\" stroke=\"currentColor\" stroke-width=\"4\"/><g class=\"bars\"><rect class=\"b b0\" x=\"90\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b1\" x=\"240\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b2\" x=\"390\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b3\" x=\"540\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/><rect class=\"b b4\" x=\"690\" y=\"920\" width=\"110\" height=\"0\" rx=\"20\" fill=\"currentColor\"/></g><path class=\"ptr\" d=\"M710 210 C 710 120, 640 60, 520 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\"/><circle class=\"pin\" cx=\"710\" cy=\"210\" r=\"18\" fill=\"currentColor\"/></svg>",
+            "css": ".chart{display:block;width:900px;height:1020px}.base{color:var(--sub);opacity:.4}.b{color:var(--sub);opacity:.55}.b4{color:var(--accent);opacity:1}.ptr,.pin{color:var(--accent)}",
+            "js": "const bars = gsap.utils.toArray(\".b\");\nconst h = [190, 280, 360, 470, 710];\nconst ptr = root.querySelector(\".ptr\");\nconst pin = root.querySelector(\".pin\");\ngsap.set(ptr, { drawSVG: \"0%\" });\ngsap.set(pin, { scale: 0, transformOrigin: \"50% 50%\" });\nfor (let i = 0; i < bars.length; i++) {\n  mt.fromTo(bars[i], { attr: { y: 920, height: 0 } }, { attr: { y: 920 - h[i], height: h[i] }, duration: 1.1, ease: \"expo.out\", immediateRender: false }, 0.25 + i * 0.11);\n}\nconst a = anchors[beats[0].id].title;\nconst lift = Math.min(40, Math.max(0, -a.y - a.h));\nmt.to(pin, { scale: 1, duration: 0.5, ease: \"back.out(2)\" }, 1.05);\nmt.to(ptr, { drawSVG: \"100%\", y: -lift, duration: 0.9, ease: \"expo.inOut\" }, 1.15);\nmt.to(bars, { y: -8, duration: Math.max(0.6, D - 2.2), ease: \"sine.inOut\", stagger: 0.08 }, 1.9);"
+          }
+        }
+      ],
+      "caption": "J’ai doublé mes vues en trois mois, sans publicité. Voici les trois règles que je suis encore aujourd’hui.\n\n#reels #instagram #createurdecontenu",
+      "seed": 1070859277,
+      "tools": {
+        "worker": "0.14.0",
+        "hyperframes": "0.8.137"
+      }
+    }
+  },
+  "notes": "Un trait fin souligne les idées clés du script ; les barres montent en plein cadre au moment où les vues décollent."
+}

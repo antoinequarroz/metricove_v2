@@ -42,12 +42,12 @@ Le serveur refuse les corps de plus de 10 Mo. Tout fichier passe donc par morcea
 ```ts
 type Job = {
   id: string;
-  kind: "montage" | "script" | "caption" | "cover" | "post";
+  kind: "montage" | "script" | "caption" | "cover" | "post" | "motion";
   title: string;
   projectId?: string;
   status: "queued" | "working" | "review" | "rendering" | "done" | "failed" | "cancelled";
   /** Ce que le worker doit faire maintenant (null = rien). */
-  action: null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post";
+  action: null | "propose" | "preview" | "final" | "script" | "caption" | "cover" | "post" | "motion" | "broll";
   step?: string;          // « Transcription… », affiché tel quel
   progress?: number;      // 0..1
   error?: string;
@@ -65,6 +65,8 @@ type Job = {
   approved?: number;      // numéro de version validée
   mediaId?: string;       // vidéo finale dans la bibliothèque
   createdAt: string; updatedAt: string;
+  minWorker?: string;     // plus ancien worker qui peut prendre le job ("0.14.0" pour un reel vidéo)
+  run?: JobRun;           // état vivant d'un job pris (voir « Reel vidéo continu »)
 };
 
 type Version = { n: number; edl: Edl; notes?: string; preview: boolean; by: "claude" | "edit"; createdAt: string };
@@ -322,3 +324,224 @@ Les deux écrans de montage (face caméra : `timeline.tsx` + `review-page.tsx` ;
 **« Claude, propose du B-roll ici » (worker 0.13.0)** — glisser sur la piste B-roll choisit un passage (un clic seul ajoute un plan de 2 s). `PATCH /api/montage/jobs/:id` `{ brollAsk: { range: [de, à], note? }, edl }` : l'EDL à l'écran devient une version « edit », `job.brollAsk` est gardé et l'action `broll` part au Mac. Le worker donne à Claude les mots dits dans le passage (temps de timeline) et les fichiers du dossier B-roll (`proposeBroll`), garde 1 à 3 plans entièrement dans le passage, remplace ceux qui y étaient, cherche les fichiers, rend l'aperçu et l'envoie avec `POST …/versions/:n/preview` `{ upload, broll, notes }`. Si Claude échoue, l'aperçu part quand même avec une note, sans changement dans le passage.
 
 **Autre prise (A-roll)** — dans l'inspecteur d'un plan, « Autre prise » liste les passages coupés qui disent la même chose (mots en commun, `otherTakes` dans `src/lib/montage.ts`). Le choix prend la place du plan dans l'ordre du montage, avec sa vitesse ; l'ancien plan passe dans les coupés (« autre prise »). Rien à faire côté Mac.
+
+### Reel vidéo continu (worker 0.14.0)
+
+> Contrat entre le site et le Mac pour METRI-16/17. Les types font foi dans `src/lib/montage.ts` et `src/lib/worker-version.ts` ; le nettoyage côté serveur dans `src/server/montage.ts` ; le moteur et la chaîne du Mac dans `worker/montage/lib/reel/`. Les anciens reels à scènes (sections précédentes) ne changent pas.
+
+Un reel vidéo est **un seul plan continu**, pas une suite de cartes. Claude écrit la *partition* (3 à 12 temps forts et la façon dont chacun naît du précédent) et au plus 3 *moments* HyperFrames sur mesure, enfermés dans un bac à sable. Le moteur du Mac (`worker/montage/lib/reel/`) compile le tout en une composition HyperFrames 1080×1920 à 30 i/s : une scène, une caméra, une timeline GSAP en pause. Il possède la typographie, la zone sûre, la marque, le déterminisme et la continuité. Un rendu moteur seul, sans moment, est toujours possible (plancher de repli).
+
+#### Plan d'une vidéo
+
+Une version garde `reel: ReelPlan`. Un plan vidéo est un `ReelPlan` qui porte `video` et dont `scenes` vaut `[]` ; `pace` est le rythme de toute la vidéo ; `look`, `logo`, `music`, `volume`, `track`, `cue` et `texts` gardent leur sens. Tout ce qui teste `v.reel && v.preview` (retrait, échec renvoyé en review, base d'une retouche, édition à la main, validation) continue de marcher.
+
+```ts
+type ReelVideo = {
+  engine: 1;                 // VIDEO_ENGINE : un plan d'un moteur plus récent est refusé, jamais deviné
+  request: string;           // ≤ 4000, la demande d'Antoine
+  source: "idea" | "script" | "post";
+  target?: 15 | 30 | 45 | 60;// absent = Auto
+  direction?: string;        // ≤ 1000, mise en scène facultative
+  title: string;             // ≤ 80, titre écrit par Claude
+  shape: "orb" | "line" | "none";  // forme de marque qui vit d'un bout à l'autre
+  beats: ReelBeat[];         // 3 à 12 écrits, 2 gardés au moins
+  moments: ReelMoment[];     // ≤ 3
+  caption?: string;          // ≤ 2200, description du post écrite avec la vidéo
+  seed: number;              // uint32 : hachage de job.id (job.id + n à une régénération), fixe ensuite
+  tools?: { worker?: string; hyperframes?: string };
+  captions?, voiceOver?, motionStyle?  // réservés (METRI-18, METRI-27/28), jamais lus en v1
+};
+type ReelBeat = {            // un repère de la vidéo : une idée
+  id: string;                // /^[a-z][a-z0-9-]{0,23}$/ (VIDEO_BEAT_ID), stable d'une version à l'autre
+  title: string;             // ≤ 40, nom du repère
+  text: string;              // ≤ 110
+  sub?: string;              // ≤ 160 (layout cta : texte de la pastille, « Abonne-toi » par défaut)
+  items?: string[];          // layout list : 2 à 4 de ≤ 40
+  emphasis?: string;         // ≤ 60, mots recopiés de text
+  count?: boolean;           // layout number : le nombre compte
+  layout: "hero" | "stack" | "number" | "list" | "cta";
+  bridge: "rise" | "morph" | "carry" | "zoom" | "cut";   // naissance depuis le précédent (ignorée sur le premier)
+  actor: "rest" | "dot" | "underline" | "highlight" | "bar" | "hidden";
+  camera: "drift" | "push" | "still";
+  seconds: number;           // durée voulue 1,5–10 (lire avec reelBeatSeconds)
+  fixed?: boolean;           // posée à la main : gardée telle quelle
+  cut?: boolean;             // coupé à la main, gardé dans le plan
+  say?: string;              // réservé METRI-18
+  start?: number; end?: number;  // secondes de la vidéo, écrites par le Mac seulement
+};
+type ReelMoment = {          // visuel sur mesure sur 1 à 3 temps forts consécutifs (sans limite pour behind)
+  id: string;                // /^[a-z][a-z0-9]{0,11}$/ (VIDEO_MOMENT_ID)
+  brief: string;             // ≤ 200, affiché dans la page
+  from: string; to: string;  // ids de temps forts
+  zone: "above" | "below" | "behind" | "full";
+  code?: { html: string; css: string; js: string };  // serveur et Mac seulement (12k / 8k / 12k, 60k en tout)
+  custom?: boolean;          // côté page : le code existe sur le serveur (false = retiré à la main)
+};
+```
+
+Constantes partagées (`src/lib/montage.ts`) : `VIDEO_WORKER = "0.14.0"`, `VIDEO_ENGINE = 1`, les listes `REEL_LAYOUTS`, `REEL_BRIDGES`, `REEL_ACTORS`, `REEL_CAMERAS`, `REEL_ZONES`, `REEL_SHAPES`, `REEL_SOURCES`, `REEL_TARGETS` (une par ligne : `reel-vocab.test.mjs` les compare à `lib/reel/vocab.mjs`), `REEL_VIDEO` (limites de la demande, des temps forts, des durées), `READ_PACE`, `VIDEO_LIMITS` (longueurs des textes et du code), `VIDEO_BUDGETS` (caractères par layout à la taille de départ : hero 60 ; stack 90 + sub 160 ; number 40 + sub 120 ; list 50 + items de 40 ; cta 50 + sub 60), `VIDEO_BEAT_ID`, `VIDEO_MOMENT_ID`.
+
+Le choix se fait toujours sur `isVideoJob(job)` (`kind === "motion"` et `motion.mode === "video"` ou une version avec `reel.video`) et sur `v.reel.video`, jamais sur une forme devinée. Les anciens plans à scènes (art, layer, fx, dur) n'ont pas `video` : `cleanReel`, `renderPlan`, `reviseMotion`, `ReelReview` et `reelTimeline` les traitent comme avant. `MontageVersion.edl` reste `EMPTY_EDL` 9:16.
+
+#### Durée d'un temps fort (même formule dans la page et sur le Mac)
+
+`reelBeatSeconds(beat, last, pace)` (`src/lib/montage.ts`) et `score.mjs` (worker) calculent exactement la même chose :
+
+- mots = morceaux séparés par des espaces (espaces insécables compris, `\s`) qui contiennent au moins une lettre ou un chiffre (`/[\p{L}\p{N}]/u`) ; on compte ceux de `text`, `sub` et de chaque item ;
+- lecture minimale (`reelReadSeconds`) = (0,9 + 0,28 × mots + 0,6 si `count` + 0,3 × nombre d'items) × `READ_PACE[pace]` (calm 1,15, normal 1, fast 0,88) ;
+- durée = `fixed` ? `seconds` : max(`seconds`, lecture minimale), puis bornée à 1,5–10 s ; le dernier temps fort gardé fait au moins 2,5 s (`REEL_VIDEO.last`, aussi quand il est `fixed`) ; puis arrondie à l'image (`Math.round(s × 30) / 30`).
+
+`cleanScore` écrit dans `seconds` les durées après mise à l'échelle vers la cible : un recalcul sans cible redonne donc les mêmes temps. Les temps forts gardés se suivent bout à bout : start₀ = 0, endᵢ = arrondi à l'image de (startᵢ + durée), startᵢ₊₁ = endᵢ ; la durée de la vidéo est la fin du dernier.
+
+- `videoTimeline(plan, rendered)` : les temps forts gardés au format de `reelTimeline()` (`scene.title` = nom du repère, `scene.body` = texte, `scene.custom = "art"` quand un moment vivant couvre le temps fort). Avec `rendered`, les `start`/`end` écrits par le Mac, si tous les temps forts gardés les ont ; sinon bout à bout avec `reelBeatSeconds`.
+- `reelSettle({ start, end })` = start + min(1,2 ; 0,6 × (end − start)) : l'instant où le temps fort est posé (tuile de la planche, couverture).
+
+#### Tâche
+
+- `job.motion` (vidéo) : `{ mode: "video", scenes: [], request, source, seconds?, pace?, direction?, music, track?, logo, look, project? }`. Le logo n'est jamais stocké : la route claim l'injecte dans `motion.look.logo`, comme aujourd'hui.
+- `job.minWorker = "0.14.0"` sur un job vidéo ; absent sur les autres (n'importe quel worker les prend).
+- `job.regen` : la prochaine action `motion` écrit une nouvelle vidéo à partir de la demande (version n+1, nouvelle graine) au lieu de retoucher.
+- `job.run` (`JobRun`), état vivant d'un job pris, en heures du serveur ; `queue()` et `release()` l'effacent :
+  `{ startedAt, by?, beatAt, phase?, phases?, phaseAt?, etaAt?, frames?: [i, n], beats?: [{ id, title, start, end }], board?: { v, n, frames: [{ id, t }] }, done?: [{ phase, s }] }`.
+- Phases (`JOB_PHASES`) : `write`, `check`, `review`, `render`, `finish`, `upload`. Prévues : création `write, check, review, render, finish, upload` (review retirée si la relecture est sautée) ; retouche `write, check, render, finish, upload` ; édition à la main (`preview`) `check, render, finish, upload`.
+- `job.ahead` : réponses GET seulement, jamais stocké (jobs avec une action créés avant celui-ci).
+
+#### Contrats HTTP
+
+Page → serveur :
+- `POST /api/montage/jobs` `{ kind: "motion", mode: "video", request, source?, seconds?, pace?, direction?, music, track?, logo, look, projectId }` → 201. `videoJob()` stocke `motion` (ci-dessus, look sans logo), `minWorker: "0.14.0"`, `brief: { format: "9:16", seconds }`, `status: "queued"`, `action: "motion"`, titre « Reel animé : <première ligne de la demande, ≤ 60> ». Moins de 10 caractères → 400 « Écris ta demande (10 caractères au moins) ». `{ kind: "motion", scenes }` sans `mode` reste l'ancien chemin.
+- `PATCH /api/montage/jobs/:id` :
+  - `{ regenerate: true, request?, seconds? }` → 409 « Le Mac travaille déjà sur ce reel » si le job a une action, 400 si ce n'est pas une vidéo (ou une demande de moins de 10 caractères) ; sinon met à jour `motion.request` et `motion.seconds` (+ `brief.seconds`) s'ils sont donnés (`seconds` hors de 15/30/45/60, `null` compris = Auto), `regen = true`, efface `feedback`, `marks`, `range`, `base`, puis `queue("motion")`.
+  - `{ stop: true }` → seulement un reel VIDÉO (`isVideoJob`) avec une action et une version `reel` + aperçu, sinon 400 « Rien à rétablir : annule plutôt » ; fait `restoreReel`, `regen = undefined`, `release("review")`. Une première génération s'annule par `DELETE`. Un reel à scènes n'a pas `stop` : son worker ne s'arrête que sur un 404 (job supprimé), jamais sur `action: null` ; il garde `withdraw` et `cancel`.
+  - Inchangés : `{ revise, marks?, range?, from? }` (`revise: ""` sans version = Réessayer), `{ reel, from }` (édition à la main), `{ approve: n }`, `{ withdraw: true }`, `{ cancel: true }`, `DELETE`. `withdraw`, `cancel` et une retouche (`revise` sur un reel) effacent aussi `regen` : une régénération reprise ou annulée ne revient jamais avec la retouche suivante (le Mac choisit `makeVideo` dès que `regen` est posé).
+- `GET /api/montage` ajoute `now` (ms du serveur) et `ahead` sur les jobs en attente. `GET /api/montage/jobs/:id` → `{ job: pageJob, worker: workerStatus(), now }` (le Mac ne lit que le statut 404 et `.job`). `GET /api/montage/jobs` passe aussi par `pageJob`.
+- `workerStatus()` → `{ online, lastSeen?, name?, version?, tracks?, busy?: { id, title }, silent?, speed?: { frameMs?, writeS? } }` (type `WorkerStatus` de `use-montage.ts`). `busy` ne compte que tant que le Mac tient ce job : une action ET pas en file (fini, arrêté ou supprimé : le Mac est libre ; de nouveau en file après un arrêt : personne ne l'a encore réclamé).
+- `GET /api/montage/jobs/:id/board?v=<run.board.v>` → l'image de la planche (`image/jpeg`, `private, no-store`), 404 s'il n'y en a pas. Elle reste dans `DATA_DIR/montage/<id>/` jusqu'à la validation (`dropPreviews`) ou la suppression du job.
+
+Mac → serveur :
+- `POST /api/montage/worker/claim` `{ worker, version, tracks?, brolls?, speed?: { frameMs, writeS } }`. `claimJob(version)` saute les jobs où `!atLeast(version, job.minWorker)` et pose `run = { startedAt, by: version, beatAt }` (pour tout job, quel que soit le worker : le Studio connaît toujours le temps écoulé). Pour une vidéo, la réponse ajoute `job.voice = { tone, skill, examples, images }` (`voiceOf` ; `images` = adresses `/api/profiles/:id/images/:img` que le Mac télécharge avec son jeton) et le logo dans `motion.look.logo`. `speed` est gardé (bornes : `frameMs` 1–10 000, `writeS` 1–3600) pour l'estimation « prête dans environ N min » de la page.
+- Identité du passage : chaque écriture du worker (`PATCH`, `POST /board`, `POST /versions`, `POST /versions/:n/preview`) peut porter `run` = le `run.startedAt` reçu à la réclamation (facultatif, worker ≥ 0.14.0). `staleWrite(job, run)` répond 409 sans rien enregistrer (l'envoi d'une version refusée est effacé aussitôt) quand :
+  - `run` est donné et diffère de `job.run?.startedAt` (passage arrêté, annulé, ou repris par une autre réclamation : `queue()` et `release()` effacent `run`, une réclamation en pose un nouveau) ;
+  - `run` est absent et le job est une vidéo sans action (arrêtée, annulée, finie) ou de nouveau en file (une nouvelle demande faite après un arrêt, que personne n'a encore réclamée). Ainsi la version, la planche, le PATCH ou l'échec tardif d'un passage arrêté n'efface plus la demande qui suit et ne remet plus l'ancien passage à l'écran.
+  - Les autres jobs sans `run` (anciens workers, reels à scènes, face caméra, textes…) gardent leur comportement, sauf un PATCH de progression sur un job sans action ou en file : ignoré (200, rien d'enregistré, le Mac n'est pas marqué occupé).
+  - Le worker 0.14.0 DOIT traiter ce 409 comme l'ordre de s'arrêter, tout de suite (pas seulement comme une écriture perdue) : sur un PATCH de progression, sur la planche, sur la version et sur l'aperçu (`handleVideo`, `lib/reel/index.mjs` : `ended(e)` → `controller.abort(cancelled(…))`), puis aucun `PATCH failed`. C'est le SEUL signal qu'il reçoit quand la page a cliqué « Arrêter » puis fait une nouvelle demande avant sa veille suivante : le job est alors de nouveau en file avec une action, sans `run`, et la veille (404, `action: null`, ou `run.startedAt` présent et différent) ne voit rien. Un 404 (job supprimé) arrête de la même façon.
+  - Une écriture refusée rafraîchit la présence du Mac (`workerSeen({})`, sans le marquer occupé) : la carte de la nouvelle demande ne lit pas « Ton Mac est éteint » pendant que le Mac lâche l'ancien passage.
+- `PATCH /api/montage/jobs/:id` `{ step, progress, phase?, phases?, eta?, frames?, beats?, done?, run? }`. `step` (≤ 200) et `progress` (0..1) sont TOUJOURS envoyés (ancien serveur, ancienne page). Le serveur valide : `phase` dans `JOB_PHASES` ; `phases` ⊂ `JOB_PHASES`, ≤ 6 ; `eta` en secondes 0..3600 ; `frames` [i, n] entiers, 0 ≤ i ≤ n ≤ 20000 ; `beats` ≤ 12 `{ id: VIDEO_BEAT_ID, title ≤ 40, 0 ≤ start < end ≤ 61 }` ; `done` ≤ 6 `{ phase, s: 0..3600 }`. Puis `run.beatAt = maintenant`, `run.phaseAt = maintenant` si la phase change, `run.etaAt = maintenant + eta`, `touchWorker(job.id)`. Au plus un PATCH toutes les 1,5 s, plus un à chaque changement de phase ; battement de 15 s qui renvoie le dernier corps. Un ancien serveur ignore les champs en plus.
+- `POST /api/montage/jobs/:id/board` `{ image: "data:image/jpeg;base64,…" (≤ 800 000 caractères, ≤ 600 Ko décodés, un vrai JPEG FF D8 … FF D9), frames: [{ id: VIDEO_BEAT_ID, t: 0..61 }] (1 à 12), run? }` → 200 `{ board }`, `DATA_DIR/montage/<id>/board.jpg` et `run.board = { v: Date.now(), n, frames }` (constantes `VIDEO_BOARD`). 400 « Planche réservée aux reels vidéo » pour un autre job (texte, description, face caméra…), 400 si le corps n'est pas un objet, 400 avec la raison en français si l'image ou les tuiles sont invalides ; 409 si le passage est terminé (`staleWrite` : arrêté, fini, de nouveau en file, ou `run` différent). Planche-sprite : tuiles 180×320 côte à côte, une par temps fort gardé, à son instant posé (`reelSettle`). Un ancien serveur répond 404 : le Mac l'ignore.
+- `POST /api/montage/jobs/:id/versions` `{ reel, notes (≤ 2000), upload, run? }` (409 si le passage est terminé, voir l'identité du passage). À la première version vidéo, le job devient « Reel animé : <video.title> » et `regen` est effacé. Un 400 sur un plan vidéo fait échouer le job avec « Metricove ne connaît pas encore les reels vidéo : mets le site à jour. » : JAMAIS de repli `/final` pour une vidéo (le repli reste pour une première génération à scènes).
+- `POST /api/montage/jobs/:id/versions/:n/preview` `{ upload, reel, notes, run? }` : inchangé (`cleanReel` sans base accepte le plan vidéo du Mac ; les textes posés à la main sont gardés), sauf le 409 d'un passage terminé (une nouvelle édition faite après un arrêt peut reprendre le même numéro de version).
+- Un PATCH de progression qui arrive sur un job sans action ou en file n'enregistre rien (ni `step`, ni `progress`, ni `run`, ni l'état occupé) ; une réclamation d'un job vidéo repart toujours sans `step`/`progress`.
+- Ordre des routes d'écriture du worker (`PATCH`, `/board`, `/versions`, `/versions/:n/preview`) : le corps est lu EN ENTIER avant `getJob()`. Tout ce qui suit est synchrone (better-sqlite3, `fs.*Sync`), donc la vérification (`staleWrite`) et l'enregistrement (`saveJob`, un upsert) voient un arrêt, une annulation ou un `DELETE` arrivé pendant l'envoi du corps : une planche de 800 Ko en route pendant un `DELETE` ne recrée pas le job. Un corps JSON `null` (ou illisible) vaut `{}` (jamais de 500).
+
+Nettoyage côté serveur (`cleanReel` → `cleanVideo`) :
+- Depuis le Mac (sans base) : `engine === 1`, sinon « Moteur vidéo inconnu : mets le site à jour » ; textes bornés par `VIDEO_LIMITS`, listes forcées, `seconds` 1,5–10, `start`/`end` gardés si 0 ≤ start < end ≤ 61 ; ≤ 12 temps forts aux ids uniques ; ≤ 3 moments aux ids uniques dont `from`/`to` existent ; code au-delà de 12k/8k/12k par moment ou 60k en tout → « Code des animations trop long ». `scenes = []` et la règle « Garde au moins une scène » est sautée.
+- Depuis la page (avec base) : `engine`, `request`, `source`, `target`, `direction`, `title`, `shape`, `caption`, `seed`, `tools` et les champs réservés viennent TOUJOURS de `base.video` ; temps forts : seuls les ids de la base, champs modifiables `title`, `text`, `sub`, `items`, `emphasis`, `count`, `layout`, `bridge`, `actor`, `camera`, `seconds`, `fixed`, `cut` et l'ordre, `start`/`end` retirés ; moments : gardés seulement si la base a l'id ET que la page envoie `custom: true`, avec `brief`, `from`, `to`, `zone` et `code` de la base ; au moins 2 temps forts gardés, sinon « Garde au moins deux temps forts ». `duration` vient du Mac seulement.
+- `pageReel` : `video.moments` sans `code`, avec `custom: !!code`. Le code ne va jamais au navigateur.
+
+#### Vie d'un reel vidéo
+
+1. **Création** (page) : `POST /api/montage/jobs` `{ kind: "motion", mode: "video", … }` → job `queued`, action `motion`, `minWorker: "0.14.0"`. La page suit le job avec `GET /api/montage/jobs/:id` (toutes les 2 s tant qu'il est en file ou en cours).
+2. **Attente** : un Mac plus ancien que 0.14.0, ou qui ne dit pas sa version, reçoit 204 ; le job attend, `ahead` donne sa place dans la file et `worker` dit pourquoi (hors ligne, occupé, trop ancien).
+3. **Réclamation** par un Mac ≥ 0.14.0 : `run = { startedAt, by, beatAt }`, `status: "working"`, `step: "Pris en charge par le Mac"` ; le job arrive avec `voice` et le logo.
+4. **Écriture, vérification, relecture, rendu, finition, envoi** : `PATCH { step, progress, phase, phases, eta, frames?, beats?, done? }` au plus toutes les 1,5 s et toutes les 15 s au moins ; `beats` dès que la partition est connue (avant le rendu) ; `POST /board` après les premières images (vers 40 %).
+5. **Fin** : `POST /versions { reel, notes, upload }` → version `claude` avec aperçu, `release("review")`, `run` effacé, titre « Reel animé : <video.title> » à la première vidéo.
+6. **Ensuite**, depuis l'écran de retouche ou le Studio :
+   - retouche d'un passage par Claude : `PATCH { revise, marks?, range, from }` → action `motion` avec `job.base` → le Mac (`reviseVideo`) ne réécrit que les temps forts ouverts → `POST /versions` ;
+   - édition à la main : `PATCH { reel, from }` → version `edit`, action `preview` → le Mac (`renderVideo`) rend le plan stocké SANS Claude (le code hérité repasse le bac à sable) → `POST /versions/:n/preview` ;
+   - régénérer : `PATCH { regenerate: true }` → action `motion` avec `regen` → nouvelle vidéo (version n+1, nouvelle graine, idée différente demandée) ;
+   - arrêter : `PATCH { stop: true }` → `restoreReel`, `release("review")`. Le Mac s'arrête à la PREMIÈRE de ces deux choses : sa veille (toutes les 10 s) voit `action: null`, ou sa prochaine écriture (un PATCH de progression part au plus toutes les 1,5 s pendant le travail, et au moins toutes les 15 s avec le battement) reçoit 409 (`staleWrite`). Si une nouvelle demande (régénérer, retouche, édition) a été mise en file avant la veille suivante, la veille ne voit plus rien (une action, pas de `run`) : seul le 409 l'arrête, donc en 15 s au plus (mesuré : 1,5 s, scénario `stop-regen`). Il tue alors ses processus, n'envoie ni version, ni aperçu, ni planche, et ne doit envoyer aucun `PATCH failed` (s'il en envoie un, il porte l'ancien `run` et reçoit 409 : la nouvelle demande reste intacte). Puis il réclame la nouvelle demande ;
+   - valider : `PATCH { approve: n }` → média dans la bibliothèque (planche et aperçus supprimés), puis `PUT /api/media/:id/cover`.
+7. **Échec** : `PATCH { status: "failed", error }` → `regen` effacé ; s'il existe une version avec aperçu : `restoreReel` et `release("review")` (la dernière bonne version reste jouable, l'erreur est affichée) ; sinon `failed` (le job n'est plus supprimé par le Studio : Réessayer = `PATCH { revise: "" }`).
+
+#### Porte de version et présence du Mac
+
+- `atLeast(version, min)` (`src/lib/worker-version.ts`) compare des triplets numériques ; une version absente ou illisible vaut `"0.0.0"` ; `min` absent = pas de minimum (vrai). Un Mac jamais vu, ou une réclamation sans version, ne reçoit aucun job à `minWorker`.
+- `workerSeen(info, { idle })` garde la version, `tracks` et `speed` précédents quand ils manquent (la route scan n'efface plus la version) ; la route claim passe `idle: true` (efface `busy`). `touchWorker(jobId)` : `at = maintenant`, `busy = jobId`.
+- `online` = vu depuis moins de 30 s, ou occupé et vu depuis moins de 90 s ; `silent` = occupé et sans nouvelles depuis 45 s pour un job vidéo tenu par un worker ≥ 0.14.0 (`run.by`), 120 s sinon. Le battement de 15 s n'existe que sur le chemin vidéo du worker 0.14.0 (`Progress`) : ses autres chemins (texte de prompteur, description, post, couverture, face caméra, reels à scènes) battent toujours toutes les 60 s, comme les anciens workers.
+- Reprise : une réclamation est périmée après 15 min, ou après 90 s pour un job vidéo dont `run.by` ≥ 0.14.0 (battement de 15 s ; `workDir/worker.lock` garantit un seul worker). Un job vidéo repris repart avec un nouveau `run` (`startedAt` change : l'ancien worker, s'il revient, s'arrête) et sans `step`/`progress` de l'essai précédent. Un job pris par un worker plus ancien garde les 15 min.
+- Tout PATCH de progression et toute planche du passage en cours rafraîchissent la présence (`touchWorker`), quelle que soit la version du worker : un Mac occupé n'apparaît plus « hors ligne » au bout de 30 s. Une écriture refusée par `staleWrite` rafraîchit la présence sans marquer le Mac occupé (`workerSeen({})` : nom, version, pistes et vitesse gardés ; `busy` laissé, et `workerStatus` ne compte plus un job qui n'est pas au Mac). Un PATCH de progression d'un ancien worker sur un job sans action ou en file n'est pas refusé (200) et ne touche pas la présence.
+
+#### Modules du worker (`worker/montage/lib/reel/`)
+
+Nouveaux fichiers seulement ; `motion.mjs`, `motion-direct.mjs`, `motion-art.mjs` et `motion-revise.mjs` ne changent pas. Aucun fichier n'appartient à deux paquets.
+
+`Finding = { code: string, severity: "block" | "review" | "note", target: "engine" | "moment:<id>" | "beat:<id>", message: string (français), fixHint?: string }`.
+
+Paquet A (moteur, interfaces figées) :
+- `vocab.mjs` : la source unique du vocabulaire, lue par le moteur, le bac à sable ET le prompt. Listes `LAYOUTS`, `BRIDGES`, `ACTORS`, `CAMERAS`, `ZONES`, `SHAPES`, `SOURCES`, `TARGETS`, `PACES` (égales aux `REEL_*` de `src/lib/montage.ts`, même ordre) ; `VIDEO` (= `REEL_VIDEO`), `READ_PACE`, `VIDEO_LIMITS`, `BUDGETS` (= `VIDEO_BUDGETS`), `BEAT_ID`, `MOMENT_ID`, `DEFAULTS` ; durées et règles (`READ`, `TIMING`, `RULES`, `RHYTHM` : décalage des mots 0,07 / 0,05 / 0,035 s, liaison 0,9 / 0,7 / 0,5 s) ; cadres (`SAFE` x 90–990 y 280–1450, `CAPS_BAND` y 1450–1700 réservée aux sous-titres, `ZONE_FRAMES` : `above` moment x90 y280 900×620 et texte y940–1440, `below` texte y300–860 et moment x90 y900 900×540, `behind` plein cadre, `full` moment x90 y420 900×1020 et surtitre y290–400) ; `TYPE` (tailles de départ, planchers, pas ×0,94) ; constantes de mouvement (`EASE`, `ENTER`, `BRIDGE`, `ACTOR`, `CAMERA`, `DECOR`, `COUNT`, `CHROME`) ; listes du bac à sable (`MOMENT`, `CODE`, `MOMENT_TAGS`, `MOMENT_ATTRS`, `BANNED_IDENTIFIERS`, `BANNED_METHODS`, `BANNED_PROPS`…) ; `FONTS` copiée de `motion.mjs` ; `INFO` (libellés français et « quand l'utiliser ») ; `TS_MIRROR` (pour `reel-vocab.test.mjs`) ; fonctions pures `countWords`, `minSeconds`, `beatSeconds` (= `reelBeatSeconds`), `settleAt` (= `reelSettle`), `quantize`, `seedOf(jobId, n?)` (FNV-1a 32 bits de `job.id`, ou de `"<job.id>#<n>"` à une régénération, n = numéro de la version créée) et `grammarLines()` (section « grammaire » du prompt).
+- `score.mjs` :
+  - `cleanScore(raw, { target, pace, base, seed, request, source, direction })` → `{ video, pace, fixes: string[], findings: Finding[] }` (`request`, `source`, `direction` : champs d'en-tête repris de la tâche). `raw` = sortie de `SCORE_SCHEMA` (ou un `ReelVideo`) ; `target` = secondes ou absent (Auto) ; `pace` = rythme imposé ou absent ; `base` = `ReelVideo` d'avant (relecture, retouche) ; `seed` = uint32 calculé par B (création : hachage de `job.id` ; régénération : `job.id` + n ; sinon `base.seed`). Le `pace` rendu (imposé, sinon celui de Claude, sinon `normal`) va dans `ReelPlan.pace`. `fixes` = lignes en français pour les notes.
+  - `timeScore(video, { pace })` → `{ video, duration, settle: number[] }` : `start`/`end` sur les temps forts gardés (formule ci-dessus), `duration` = fin du dernier, `settle` = un instant posé par temps fort gardé.
+  - `lintScore(video, { pace })` → `Finding[]` (`texte_trop_long`, `accroche_trop_longue`, `monotone`, `appel_absent`, `trop_long` ; severity `review` ou `note`).
+  - `openBeats(video, { range, marks, pace })` → ids des temps forts ouverts (recoupent le passage de plus de 0,15 s, ou contiennent l'instant d'une note ; tous sans passage ni note).
+  - `mergeRevision(video, rev, open)` → `{ video, changed: boolean, ignored: string[], fresh: Set<string> }` (`rev` = sortie de `REVISE_SCHEMA` ; temps forts verrouillés identiques à l'octet hors `start`/`end` ; `fresh` = ids des moments remplacés ou nouveaux).
+  - `applyReview(video, patch)` → `{ video, fresh: Set<string> }` (`patch` = sortie de `REVIEW_SCHEMA` ; l'appelant repasse ensuite par `cleanScore` avec `base`).
+- `sandbox.mjs` : `checkMoments(moments)` (tailles cumulées) et `checkMoment(m, { id })` → `{ ok: true, code: { html, css, js }, advice?: string[] }` | `{ ok: false, why: string[] }` (règles de la section sécurité du design ; `advice` : couleurs hors palette, pour la relecture).
+- `stage.mjs` : `stagePage(cfg, plan, hfDir, { safe, notes })` → `Promise<{ duration, settle: number[], marks: [{ id, title, start, end }], momentIds: string[] }>`.
+  - `plan` : `ReelPlan` vidéo nettoyé, `look.logo` en data URL (réinjecté par l'appelant), `texts`, `pace`. stagePage appelle `timeScore` lui-même et écrit les temps dans `score.js`.
+  - Il ne construit que les moments qui ont `code` (déjà passé par `checkMoment`, dont l'appelant reprend `code`) ; `safe: true` = aucun moment, liaisons rise/cut, caméra still, acteur rest/underline. `momentIds` = moments construits.
+  - `notes` : tableau où stagePage ajoute ses notes en français (police de repli…).
+  - Écrit dans `hfDir` (copies, jamais de liens) : `index.html`, `hyperframes.json`, `package.json`, `index.motion.json`, `assets/` (`gsap.min.js` et plugins de `cfg.gsapDir`, polices `display-N.woff2`/`body-N.woff2`, `logo.png`, `score.js`, `m-<id>.js`, `texts.js`, `stage.js`). Clés de config lues : `gsapDir` (obligatoire), `gsapFile`, `fontsDir`.
+- `stage-runtime.js` (copié en `assets/stage.js`, `engine: 1`) : lit `window.__SCORE`, `window.__MOMENTS`, `window.__TEXTS`, pose `window.__timelines.main` après le chargement des polices. Erreurs d'un moment préfixées `moment <id>: ` (console.error) ; texte au plancher : `console.warn("texte trop long <beatId>")`.
+
+Paquet B (chaîne du worker) :
+- `lib/util.mjs` : `run(cmd, args, { …, timeoutMs, signal, onLine })` (ajouts seulement) : lancement detached, à l'expiration ou à l'annulation `kill(-pid, "SIGTERM")` puis `SIGKILL` 3 s plus tard, erreur en français ; `onLine` reçoit stdout découpé sur `\r` et `\n`, sans codes ANSI.
+- `lib/claude.mjs` : `askStream(cfg, prompt, schema, cwd, { tools, timeoutMs, signal, onDelta, effort })` → `structured_output` ; `claudeFlags(cfg)` (`--restricted`, `--tools`, stream-json ; mis en cache). `ask()` ne change pas.
+- `lib/api.mjs` : `step(id, s, p, extra = {})`, `board(id, image, frames)` (avale le 404), `claim(version, tracks, brolls, speed)`.
+- `lib/jobs.mjs` : aiguillage du bloc motion : `job.motion?.mode === "video" || v?.reel?.video` → `handleVideo` ; action `preview` → `renderVideo` (sans Claude) ; action `motion` → `makeVideo` (`job.regen` ou aucune version vidéo) ou `reviseVideo` (avec une base). Pas de `/final` pour une vidéo, pas de PATCH failed après une annulation. Un plan à `engine` > 1 → « Ce reel a été fait par un Mac plus récent : mets le Mac à jour ».
+- `lib/reel/hf-cli.mjs` : `HF_TIMEOUTS` (lint 60 s, check 180 s, snapshot 120 s), `browserPath(cfg, { ensure })`, `renderTimeout(frames, maxFrameMs)` (120 s + images × maxFrameMs, 25 min au plus), `RENDER_PROGRESS`, `parseSummary(line)`, `hfEnv(cfg)` (variables `HYPERFRAMES_NO_TELEMETRY`, `…_NO_UPDATE_CHECK`, `…_NO_AUTO_INSTALL`, `…_SKIP_SKILLS` = 1, `HYPERFRAMES_BROWSER_PATH` = `workDir/chrome-offline.sh`), `offlineBrowser(cfg)`, `lint(cfg, dir, o)` et `check(cfg, dir, o)` → `{ blocking: Finding[], advice: Finding[] }`, `snapshot(cfg, dir, times, o)` → chemins des PNG, `render(cfg, dir, out, { onFrame, signal, timeoutMs })` → `{ summary }`, `blame(findings, momentIds)` → `{ engine: Finding[], moments: { [id]: Finding[] } }`. `o = { signal, timeoutMs }`.
+- `lib/reel/progress.mjs` : `new Progress(steps, cfg, job, { kind: "write" | "revise" | "edit" })` (phases prévues `PLANS`, durées par défaut `DEFAULTS`, textes `STEP`, fraction, eta, PATCH limités, battement de 15 s), `readStats`, `learnStats` et `speedOf(cfg)` (`reel-stats.json`, moyenne glissante α 0,3 ; `speed` de la réclamation).
+- `lib/reel/prompt.mjs` : `SCORE_SCHEMA`, `REVIEW_SCHEMA`, `REVISE_SCHEMA`, `writePrompt`, `reviewPrompt`, `revisePrompt`.
+- `lib/reel/render.mjs` : `produce(cfg, ctx)` (échelle de qualité : checkMoment, stagePage, lint, check, planche, relecture, rendu, repli), `reelCfg(cfg)` (valeurs par défaut `REEL_DEFAULTS`), `withMeta`, `vet`, `renderedPlan`, `applyPatch`, finition ffmpeg copiée de `motion.mjs`, contrôle `probe` (ffprobe).
+- `lib/reel/index.mjs` : `handleVideo(api, cfg, job, action, dir)` → `makeVideo`, `reviseVideo`, `renderVideo`.
+- `prompts/reel-video.md` (savoir-faire), `montage.mjs` (`VERSION = "0.14.0"`, `--setup-reel`, lignes de `--check`, verrou, `speed` dans la réclamation), `config.example.json`, `README.md`.
+
+Paquet C : `src/lib/montage.ts`, `src/lib/worker-version.ts`, `src/server/montage.ts`, les routes `api/montage` (dont `jobs/[id]/board`, et le 409 d'un passage terminé dans `jobs/[id]/versions/[n]/preview`), cette section, et les outils de test `worker/montage/test/mock-server.mjs` (`MOCK=video`), `check-video-run.mjs`, `claude-spy.sh`, `config.sandbox.json`.
+
+Paquet D : `src/components/montage/reel-studio.tsx`, `reel-progress.tsx`, `use-reel-job.ts`, `cover-capture.ts`, `video-review.tsx`, `video-beats.tsx`, `use-montage.ts`, `src/app/(app)/videos/studio/anime/page.tsx`. Il importe les types et fonctions de `src/lib/montage.ts` et `atLeast`. Les retouches d'une ligne dans `review-page.tsx`, `reel-timeline.tsx` et `visuals-page.tsx` se font en dernier, à l'intégration.
+
+#### Configuration et fichiers du Mac
+
+- `config.json` : `gsapFile`, `gsapDir` (obligatoire pour la vidéo : Chrome hors ligne ne joint aucun CDN), `fontsDir`, `hyperframesReference`, `reel: { review: true, effort: "", restricted: true, claudeWriteMin: 6, claudeReviewMin: 4, claudeReviseMin: 5, maxFrameMs: 400, jobMaxMin: 30, reviewWithinMin: 6 }` (`review: false` saute la relecture en images ; `restricted: false` est écrit par `--setup-reel` quand Claude refuse le mode restreint : écriture par l'ancien appel, sans relecture).
+- `workDir/chrome-offline.sh` (Chrome sans DNS hors de la boucle locale), `workDir/reel-stats.json` (durées apprises), `workDir/worker.lock` (`{ pid, startedAt }`).
+- Installation (une fois) : `git pull`, `node montage.mjs --setup-reel` (gsap 3.14.2 local, navigateur hors ligne, rendu de mesure de 3 s rendu deux fois au même framemd5, test de `claude -p --restricted`), `node montage.mjs --check`, redémarrage. HyperFrames reste épinglé à 0.8.137 (`lint`, `check`, `snapshot`, `render` ; jamais `validate`, `add` ni `skills update`).
+
+#### Déploiement et retour arrière
+
+1. Serveur et interface d'abord. Sans danger avec un Mac en 0.13 : les demandes vidéo attendent (204 à la réclamation, bannière « Le programme du Mac est trop ancien »), tout le reste est inchangé.
+2. Sur le Mac : `git pull`, `node montage.mjs --setup-reel`, `node montage.mjs --check`, redémarrage du worker.
+3. Les demandes vidéo en attente partent seules, dans l'ordre.
+
+Chaque côté peut revenir en arrière seul : le serveur ignore les champs en plus du worker (`speed`, `phase`…), un worker 0.13 ne voit jamais un job à `minWorker`, et un worker 0.14 contre un ancien serveur échoue clairement sur une vidéo (pas de `/final`) mais fait tout le reste comme avant.
+
+#### Tests
+
+- Unitaires du worker : `cd worker/montage && node --test test/*.test.mjs` (`reel-sandbox`, `reel-score`, `reel-vocab`, `reel-progress`).
+- Moteur seul, sans Claude : `node test/reel-render.mjs test/fixtures/reel/<fixture>.json <sortie>`.
+- Worker de bout en bout contre un faux Metricove (`test/mock-server.mjs`, `MOCK=video`) : `node test/check-video-run.mjs --run [scénario] [--fake] [--root /tmp/mc] [--gsap <dist>]` prépare le bac à sable (dossiers, piste de 30 s, config dérivée de `test/config.sandbox.json`, avec `claude.bin` = le `claude-spy.sh` du dépôt où tourne le script et GSAP pris dans `--gsap` ou `gsapDir`, refusé s'il manque `gsap.min.js`), lance le faux serveur et `node montage.mjs`, attend la fin, arrête tout et vérifie (`<sortie>/check.json`). Sans `--run`, `node test/check-video-run.mjs <sortie>` vérifie un passage déjà fait. Scénarios :
+  - `suite` (défaut) : v1 (Claude écrit) → retouche du 2e repère (« rends le chiffre plus frappant ») → v2 → édition à la main (texte du 1er temps fort et d'un temps fort du moment, un temps fort coupé, un moment retiré s'il y en a deux, musique coupée ; action `preview`) → aperçu → régénération → nouvelle version. Vérifie : phases dans l'ordre, progression jamais en recul, temps restant qui descend pendant le rendu, images qui avancent, repères avant le rendu, `done`, planche (JPEG, une tuile par temps fort), plan conforme (scenes [], engine 1, temps forts contigus de 0 à `duration`, 15–60 s, ≤ 3 moments, champs connus), mp4 (h264 1080×1920, 30 i/s, round(D × 30) ± 1 images, aac), temps forts hors du passage identiques à l'octet en v2, AUCUN appel à Claude pendant l'édition (`claude-spy.sh`), moment gardé malgré le texte changé, idée différente à la régénération, moins de 15 min ;
+  - `short` (v1 seulement), `stop` (arrêt au premier PATCH du rendu qui annonce des images, donc pendant que Chrome capture : aucun envoi, aucun PATCH failed, plus aucun PATCH 12 s après, les Chrome vus sous le worker morts 10 s après, suivis par pid même s'ils ont été rattachés à init), `stop-regen` (le même arrêt, puis « Régénérer » 1 s après, avant la veille suivante du Mac : aucun PATCH failed, plus aucun PATCH du passage arrêté 15 s après l'arrêt, aucun envoi entre l'arrêt et la réclamation suivante, les Chrome vus avant l'arrêt morts 10 s après, et la nouvelle demande réclamée moins de 30 s après l'arrêt ; les écritures portent `run`, le faux serveur les attribue à leur passage), `oldserver` (400 sur la version vidéo → « mets le site à jour », 404 sur la planche, rien sur `/final`), `evil` (moment piégé stocké + édition → retiré, rendu sans lui, note), `claude-timeout` (faux Claude muet, `reel.claudeWriteMin` 0,05 → « Claude n'a pas fini d'écrire… », aucun Claude orphelin, suivi par pid), `old` (réclamations sans version et 0.13.0 → 204, 0.14.0 → le job), `legacy` (ancien reel à scènes → `renderPlan`).
+  - `--fake` : faux Claude (`CLAUDE_FAKE=1`, partition de la fixture `score-basic`) pour tester la chaîne sans payer ; sans lui, le vrai `claude` passe par `claude-spy.sh`, qui note chaque appel dans `$CLAUDE_SPY_LOG` et chaque prompt dans `$CLAUDE_PROMPT_LOG` (`<sortie>/claude-prompts.log`). La suite y vérifie que le prompt de la régénération donne les titres de la version d'avant et demande « une idée visuelle nettement différente », et que la première écriture n'en parle pas (avec `--fake`, les titres de la nouvelle version sont forcément les mêmes : seule la graine change).
+  - Chrome hors ligne : si `<root>/work/chrome-offline.sh` manque, le script l'écrit comme `--setup-reel` (Chrome de HyperFrames + `--host-resolver-rules`, sans le rendu de mesure ni le test de Claude). Chaque scénario vidéo vérifie qu'aucun « Chrome hors ligne absent » n'est dans `worker.log` et que chaque navigateur vu sous le worker porte le drapeau.
+  - `--minutes` : délai du scénario, par défaut 30 min pour la suite avec `--fake` et 45 min avec le vrai Claude (la suite réelle dépasse 30 min sur un conteneur Linux), 15 min (avec `--fake`) ou 20 min pour les autres.
+  - `old` est un auto-test du FAUX serveur (sa porte compare les versions avec `src/lib/worker-version.ts` quand Node ≥ 22.18 sait le lire, sinon une copie) : la porte réelle se vérifie avec `server`.
+- Serveur réel, sans worker : `node test/check-video-run.mjs --run server [--server http://localhost:3000] [--token <API_TOKEN>] [--slow]` joue le Mac et la page contre `pnpm dev` : porte de `claimJob` (sans version, 0.13.0 et 0.9.9 → 204, 0.14.0 → la vidéo avec `run`), identité du passage (`run` différent → 409), écritures tardives d'un passage arrêté refusées avec ou sans `run` (PATCH, planche, version, échec) alors qu'une nouvelle demande attend, vidéo refusée effacée aussitôt, nouvelle demande intacte, réclamation suivante sans progression héritée, édition à la main de la page (`PATCH { reel, from: 1 }` qui change un texte et essaie de changer le code, la zone, le début et le brief d'un moment, d'ajouter un moment, et de changer `engine`, `seed`, `request`, `title`) : le Mac reçoit le code de la version 1 à l'octet près, rien de ce que la page a injecté, aucun moment en plus, et les champs réservés de la base (la moitié serveur de la frontière du bac à sable), `regen` effacé par `withdraw`, `cancel` et la retouche, `stop` refusé sur un reel à scènes (pris par un Mac 0.13.0, versions sans `run` acceptées comme avant), espaces insécables gardés, code jamais renvoyé à la page, aperçu en Range, valider (`{ approve: 3 }` → 200 et un média, supprimé à la fin) ; `--slow` : silence à 45 s sur une vidéo, pas sur un texte de prompteur (deux attentes de 50 s), toujours en ligne à 60 s sans réclamation, puis « Arrêter », « Régénérer » et un rapport de l'ancien passage → 409 et le Mac reste en ligne, pas occupé. Il refuse de tourner (code 2) si la file du serveur n'est pas vide ou si un autre worker l'interroge, et supprime ce qu'il crée. Il réclame sous le nom `check-video-run` : à la fin, file vide, une dernière réclamation remet le nom et la version d'avant dans la fiche de présence (le Mac paraît alors en ligne 30 s ; sans elle, la dernière version annoncée, 0.13.0, ferait dire au Studio « Mac à mettre à jour »).
+- Serveur réel : les routes ci-dessus contre `pnpm dev`. Puis le vrai worker contre `METRICOVE_URL=http://localhost:3000` (`--once`, faux Claude) : création suivie comme le Studio (GET /jobs/:id toutes les 2 s : phases, `etaAt`, images, repères, planche, Mac occupé et en ligne, progression jamais en recul), édition à la main rendue sans Claude, validation (la planche part avec les aperçus). Sur un serveur qui a des rushes, faire passer le worker par un relais qui répond lui-même à `POST /api/montage/rushes/scan` : un `rushesDir` vide effacerait les rushes du Mac.
+
+#### Durées mesurées (novembre 2026, conteneur Linux 4 cœurs partagé, charge 9 à 14)
+
+Rendu logiciel (pas de GPU), donc plus lent qu'un Mac ; `check` et `finish` sont les écarts au budget du plan (40 s et 8 s attendus).
+
+| Passage | Images | write | check | review | render | finish | Total |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| v1, vrai Claude (36 s) | 1080 | 63 s | 72 s | 112 s | 203 s | 118 s | 569 s |
+| v2, retouche par le vrai Claude | 1080 | 11 s | 71 s | — | 226 s | 150 s | 457 s |
+| v3, édition à la main (sans Claude) | 852 | — | 70 s | — | 167 s | 106 s | 343 s |
+| Régénération, vrai Claude (28,6 s) | 858 | 73 s | 71 s | 126 s | 147 s | coupé | — |
+| v1, faux Claude, faux serveur (20 s) | 600 | 0 s | 69 s | 0 s | 100 s | 61 s | 230 s |
+| v1, faux Claude, vrai worker contre `pnpm dev` (20 s) | 600 | 0 s | — | — | 138 s de capture | — | 357 s |
+
+- Coût du vrai Claude : écriture 0,46 à 0,48 $, relecture 0,36 à 0,38 $, retouche d'un passage 0,22 $ ; une génération coûte donc environ 0,85 $ et la suite complète (création, retouche, régénération) 1,90 $.
+- Suite complète avec `--fake` (4 passages de 18 à 21 s) : 962 s (v1 208 s, retouche 237 s, édition 249 s, régénération 268 s), soit au-dessus des 15 min du plan sur cette machine alors qu'aucun Claude n'attend : `check` (~70 s) et `finish` (55 à 80 s) pèsent autant que le rendu.
+- La régénération de la suite réelle a été coupée pendant `finish` par la limite de 30 min de l'outil de test (pas par le worker) ; la suite avec `--fake` la vérifie de bout en bout.
+- Pendant le rendu, le temps restant remonte au début (moyenne mobile sur peu d'images, charge variable : 235 → 255 s à l'image 8, puis +5 s par palier jusqu'à l'image 170 environ) : la vérification « temps restant qui descend » a échoué sur v1 et v2 de la suite réelle (36 s, 1080 images) ; elle passe sur les quatre passages de la suite avec `--fake` (20 s).

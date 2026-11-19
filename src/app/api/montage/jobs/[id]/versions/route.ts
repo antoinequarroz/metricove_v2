@@ -1,13 +1,30 @@
 import fs from "node:fs";
 import { NextResponse } from "next/server";
+import { isVideoJob } from "@/lib/montage";
 import { cleanLook } from "@/lib/profiles";
-import { addVersion, cleanEdl, cleanReel, EMPTY_EDL, getJob, moveInto, previewPath, release, takeUpload, UploadError } from "@/server/montage";
+import { addVersion, cleanEdl, cleanReel, dropUpload, EMPTY_EDL, getJob, moveInto, pageJob, previewPath, release, staleWrite, takeUpload, UploadError } from "@/server/montage";
 
-/** The worker sends a proposal: { edl, notes?, upload? (preview video) }, or for an animated reel { reel, notes?, upload }. */
+/**
+ * The worker sends a proposal: { edl, notes?, upload? (preview video) }, or for an animated reel { reel, notes?, upload }.
+ * A video reel also sends `run` (worker ≥ 0.14.0, optional): the `run.startedAt` of its claim.
+ */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const job = getJob((await params).id);
-  if (!job) return NextResponse.json({ error: "Montage introuvable" }, { status: 404 });
-  const b = (await req.json().catch(() => ({}))) as { edl?: unknown; reel?: unknown; notes?: string; upload?: string };
+  const { id } = await params;
+  // The body first, the job after: from here on everything is synchronous (SQLite, files), so a stop, a cancel or a
+  // DELETE that arrived while the body was coming in is seen, and a deleted job is never saved back.
+  const b = ((await req.json().catch(() => null)) ?? {}) as { edl?: unknown; reel?: unknown; notes?: string; upload?: string; run?: unknown };
+  const job = getJob(id);
+  if (!job) {
+    dropUpload(b.upload);
+    return NextResponse.json({ error: "Montage introuvable" }, { status: 404 });
+  }
+  // A video from a run that is over (stopped, cancelled, or a new request queued after a stop): it would cancel the
+  // request that follows and bring back a video nobody wants. Nothing is stored, its upload is dropped.
+  const stale = staleWrite(job, b.run, isVideoJob(job) || !!(b.reel as { video?: unknown } | null | undefined)?.video);
+  if (stale) {
+    dropUpload(b.upload);
+    return NextResponse.json({ error: stale }, { status: 409 });
+  }
   // An animated reel: the version is the plan the Mac rendered (texts, lengths, animations, Claude's code).
   let reel;
   if (job.kind === "motion") {
@@ -37,8 +54,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       job.marks = undefined;
       job.range = undefined;
       job.base = undefined;
+      // A regeneration is done: the next request to Claude retouches this version.
+      job.regen = undefined;
+      // The first video gives the job the title Claude wrote for it (later ones keep the title, renamed by hand or not).
+      if (reel.video?.title && !job.versions.some((x) => x.n !== v.n && x.reel?.video)) job.title = `Reel animé : ${reel.video.title}`.slice(0, 120);
     }
-    return NextResponse.json({ job: release(job, "review"), version: v.n }, { status: 201 });
+    // The answer goes to the Mac, which does not read it: like every answer, it carries no code (pageJob).
+    return NextResponse.json({ job: pageJob(release(job, "review")), version: v.n }, { status: 201 });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: e instanceof UploadError ? e.status : 500 });
   }
