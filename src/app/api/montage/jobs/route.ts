@@ -8,6 +8,7 @@ import { getRushRow, getStyle, listJobs, pageJob, saveJob, withAhead } from "@/s
 import { cleanLook, starterProfile } from "@/lib/profiles";
 import { captionsOf, profileOf, styleIdOf, voiceOf } from "@/server/profiles";
 import { DEFAULT_STYLE } from "@/lib/profiles";
+import { atLeast } from "@/lib/worker-version";
 import { MAX_FOCUS, MAX_PLAN_ITEMS, MAX_SOURCE_TEXT, MAX_SOURCES, PLAN_DAYS, PLAN_FORMATS, type PlanFormat, type SourceFile } from "@/lib/strategy";
 import { sourceFile } from "@/server/sources";
 import { listNotes } from "@/server/review-notes";
@@ -65,6 +66,8 @@ type Body = {
   source?: unknown;
   seconds?: unknown;
   track?: unknown;
+  /** Engine 2 (worker 0.22.0): false = no sound effects; anything else = on. */
+  sfx?: unknown;
   // kind "brand" (mode too)
   sources?: unknown;
   url?: unknown;
@@ -307,8 +310,10 @@ function videoJob(b: Body) {
   const { logo: _logo, ...stored } = look;
   void _logo;
   const voice = voiceOfBody(b.voice);
-  // What a Mac before 0.19.0 cannot do (voice-over, library or composed music): only a newer one takes the job.
+  // What a Mac before AUDIO_WORKER cannot do (voice-over, library or composed music): only a newer one takes the job.
   const needsAudio = !!voice || track === GEN_TRACK || !!libTrackId(track);
+  // Never under VIDEO_WORKER (the engine new videos are made with); the audio features may only raise it.
+  const minWorker = needsAudio && !atLeast(VIDEO_WORKER, AUDIO_WORKER) ? AUDIO_WORKER : VIDEO_WORKER;
   const first = request.split("\n").find((l) => l.trim()) ?? request;
   const now = new Date().toISOString();
   const job: MontageJob = {
@@ -332,11 +337,12 @@ function videoJob(b: Body) {
       music: b.music !== false,
       ...(track ? { track } : {}),
       ...(voice ? { voice } : {}),
+      ...(b.sfx === false ? { sfx: false } : {}),
       logo: b.logo !== false,
       look: stored,
       project: project?.name,
     },
-    minWorker: needsAudio ? AUDIO_WORKER : VIDEO_WORKER,
+    minWorker,
     ...(cleanModel(b.model) ? { model: cleanModel(b.model) } : {}),
     ...(cleanEffort(b.effort) ? { effort: cleanEffort(b.effort) as ClaudeEffort } : {}),
     rushIds: [],

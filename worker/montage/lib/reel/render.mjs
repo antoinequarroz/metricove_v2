@@ -16,15 +16,16 @@ import { checkMoment } from "./sandbox.mjs";
 import { stagePage, gsapCore, GSAP_MISSING } from "./stage.mjs";
 import { cleanScore, applyReview } from "./score.mjs";
 import * as HF from "./hf-cli.mjs";
-import { REVIEW_SCHEMA, reviewPrompt } from "./prompt.mjs";
+import { reviewSchema, reviewPrompt } from "./prompt.mjs";
 import { FPS, W, H, TOOLS, CODE, RHYTHM } from "./vocab.mjs";
 import { STEP } from "./progress.mjs";
 import { speakBeats, fitVoice, narrationMix, composeForVideo } from "./narration.mjs";
+import { signatureMix } from "./sig-mix.mjs";
 
 /** Réglages du reel (config.json → reel), avec leurs valeurs par défaut. */
-export const REEL_DEFAULTS = Object.freeze({ review: true, effort: "", restricted: true, claudeWriteMin: 6, claudeReviewMin: 4, claudeReviseMin: 5, maxFrameMs: 400, jobMaxMin: 30, reviewWithinMin: 6 });
+export const REEL_DEFAULTS = Object.freeze({ review: true, effort: "", restricted: true, claudeWriteMin: 6, claudeReviewMin: 4, claudeReviseMin: 5, maxFrameMs: 400, jobMaxMin: 30, reviewWithinMin: 6, engine: 2 });
 /** Bornes des réglages numériques : une valeur absente, nulle, négative ou illisible reprend la valeur par défaut. */
-export const REEL_BOUNDS = Object.freeze({ claudeWriteMin: [1, 15], claudeReviewMin: [1, 10], claudeReviseMin: [1, 15], jobMaxMin: [5, 90], maxFrameMs: [50, 2000], reviewWithinMin: [0, 30] });
+export const REEL_BOUNDS = Object.freeze({ claudeWriteMin: [1, 15], claudeReviewMin: [1, 10], claudeReviseMin: [1, 15], jobMaxMin: [5, 90], maxFrameMs: [50, 2000], reviewWithinMin: [0, 30], engine: [1, 2] });
 const replaced = new Set();
 /**
  * Réglages du reel normalisés : chaque nombre est borné (REEL_BOUNDS), review et restricted sont des booléens, effort
@@ -158,12 +159,28 @@ export async function canCopy(file, signal) {
  * animé donne sinon près de 58 Mb/s). Mesuré sur 3 s : veryfast deux fois plus rapide que medium, SSIM 0,853 contre
  * 0,854. Délai proportionnel à la durée.
  */
-async function finish(cfg, plan, silent, out, duration, notes, signal, { clips, marks } = {}) {
+async function finish(cfg, plan, silent, out, duration, notes, signal, { clips, marks, sig } = {}) {
   const track = plan.music ? await resolveTrack(cfg, plan.track || "", notes) : null;
   const cue = musicCue(plan.cue, duration);
+  const wav = out.replace(/\.mp4$/, "-son.wav");
   // Avec une voix off : la piste son est mixée à part (phrases posées sur les temps forts, musique baissée dessous).
   const voiced = clips?.size && marks?.some((m) => clips.has(m.id));
-  const mixed = voiced ? await narrationMix({ clips, marks, track, cue, volume: plan.volume, duration, out: out.replace(/\.mp4$/, "-son.wav"), notes, signal }) : null;
+  let mixed = null;
+  // Engine 2 (Signature) : musique calée sur la grille du tempo, montée sur le moment fort, bruitages des coupes.
+  if (sig) {
+    try {
+      const r = await signatureMix({ clips, marks, track, cue: plan.cue || {}, volume: plan.volume, sfx: sig.sfx, sfxOn: plan.sfx !== false, fpb: sig.fpb, duration, drop: sig.drop, seed: plan.video?.seed, out: wav, notes, signal });
+      mixed = r?.file || null;
+      if (r?.music?.aligned?.grid) notes.push(`Musique calée sur le rythme de la vidéo (${Math.round(r.music.bpmOut)} BPM)${r.music.aligned.drop ? ", sa montée tombe sur le moment fort" : ""}.`);
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      log(`son Signature : ${e.message}`);
+      // La note dit ce qui reste vraiment : la musique telle quelle, sinon la voix seule (une vidéo sans son : rien).
+      if (track) notes.push("Le son n'a pas pu être calé sur le rythme de la vidéo : la musique est posée telle quelle, sans bruitages.");
+      else if (voiced) notes.push("Les bruitages n'ont pas pu être mixés : la vidéo garde seulement la voix.");
+    }
+  }
+  if (!mixed && voiced) mixed = await narrationMix({ clips, marks, track, cue, volume: plan.volume, duration, out: wav, notes, signal });
   const audio = mixed
     ? ["-i", mixed, "-map", "0:v", "-map", "1:a"]
     : track
@@ -238,7 +255,9 @@ export async function produce(cfg, ctx) {
     const l = await io.lint(cfg, dir, { signal });
     if (l.blocking.length) return { ...base, blocking: { engine: l.blocking, moments: {} }, advice: l.advice, lintFailed: true };
     const c = await io.check(cfg, dir, { signal });
-    const held = HF.heldOnly(c.advice, stage.marks, stage.settle, (RHYTHM[plan.pace] || RHYTHM.normal).bridge);
+    // Une liaison dure un temps de la grille en engine 2 (fpb images), la durée B du rythme en engine 1.
+    const bridge = Number(plan.video?.engine) === 2 && stage.fpb ? stage.fpb / FPS : (RHYTHM[plan.pace] || RHYTHM.normal).bridge;
+    const held = HF.heldOnly(c.advice, stage.marks, stage.settle, bridge);
     return { ...base, blocking: HF.blame(c.blocking, stage.momentIds), advice: [...l.advice, ...held], timedOut: !!c.timedOut };
   }
 
@@ -287,20 +306,31 @@ export async function produce(cfg, ctx) {
     throw new Error(`La composition ne passe pas la vérification (${reasonOf([...st.blocking.engine, ...Object.values(st.blocking.moments).flat()])}).`);
   }
 
-  /** d) Images à l'instant posé de chaque temps fort, planche-sprite au Studio. Une panne n'arrête pas la vidéo. */
+  /**
+   * d) Images à l'instant posé de chaque temps fort, planche-sprite au Studio. Une panne n'arrête pas la vidéo.
+   * Engine 2 : aussi le milieu de chaque transition (stage.mids), entre les deux scènes, pour la relecture seule (la
+   * planche du Studio garde une image par temps fort).
+   */
   async function board(st) {
     P.step(STEP.board);
     try {
-      const times = st.stage.settle.slice(0, 12);
-      const files = await io.snapshot(cfg, st.dir, times, { signal });
+      const settle = st.stage.settle.slice(0, 12);
+      const posed = st.stage.marks.slice(0, 12).map((m, i) => ({ id: m.id, t: Math.round((settle[i] ?? m.start) * 1000) / 1000 }));
+      const mids = Array.isArray(st.stage.mids) ? st.stage.mids : [];
+      // Ordre de lecture : scène 0, transition vers 1, scène 1… (les transitions vers les scènes gardées sur la planche).
+      const shots = posed.flatMap((f, i) => {
+        const m = i > 0 ? mids.find((x) => x.id === f.id) : null;
+        return m ? [{ id: m.id, t: Math.round(m.t * 1000) / 1000, kind: m.kind }, f] : [f];
+      });
+      const all = await io.snapshot(cfg, st.dir, shots.map((f) => f.t), { signal });
+      const files = all.filter((_, i) => !shots[i].kind);
       const out = join(ctx.dir, "board.jpg");
       await sprite(files, out, signal);
       const image = `data:image/jpeg;base64,${readFileSync(out).toString("base64")}`;
-      const frames = st.stage.marks.slice(0, 12).map((m, i) => ({ id: m.id, t: Math.round((times[i] ?? m.start) * 1000) / 1000 }));
       // ctx.board (index.mjs) ajoute run et change un 409 en annulation ; sinon le client seul (tests, outils).
-      if (image.length <= 800_000 && !api.dryRun) await (ctx.board ? ctx.board(image, frames) : api.board(job.id, image, frames, { signal }));
+      if (image.length <= 800_000 && !api.dryRun) await (ctx.board ? ctx.board(image, posed) : api.board(job.id, image, posed, { signal }));
       // Une planche jusqu'à 9 images, plusieurs au-delà (HyperFrames pagine) : sans elles, la relecture est sautée.
-      return { files, frames, sheets: HF.contactSheets(st.dir), key: keyOf(st) };
+      return { files: all, frames: shots, sheets: HF.contactSheets(st.dir), key: keyOf(st) };
     } catch (e) {
       if (signal?.aborted) throw e;
       log("planche non faite :", e.message);
@@ -326,7 +356,8 @@ export async function produce(cfg, ctx) {
   // e) Relecture par Claude.
   const findings = [...(ctx.findings || []).filter((f) => f.severity === "review"), ...vetted.advice, ...st.advice];
   const faulty = Object.entries(st.blocking.moments).map(([id, fs]) => ({ id, brief: st.plan.video.moments.find((m) => m.id === id)?.brief || id, why: [reasonOf(fs)] }));
-  const worth = st.plan.video.moments.length > 0 || refused.length > 0 || faulty.length > 0 || findings.length > 0;
+  // Engine 2 : toujours relu (les scènes de la bibliothèque sont remplies par Claude : il vérifie ce qu'elles donnent).
+  const worth = Number(st.plan.video?.engine) === 2 || st.plan.video.moments.length > 0 || refused.length > 0 || faulty.length > 0 || findings.length > 0;
   const within = Date.now() - (ctx.startedAt || t0) < R.reviewWithinMin * 60_000;
   let reviewed = false;
   if (canReview && worth && within && shots?.sheets?.length) {
@@ -335,7 +366,7 @@ export async function produce(cfg, ctx) {
     else {
       P.start("review", STEP.review);
       const patch = await reviewVideo(cfg, ctx, { st, shots, findings, refused: [...refused, ...faulty], note });
-      const changes = patch && ((patch.beats || []).length > 0 || (patch.moments || []).some((m) => m.action !== "keep"));
+      const changes = patch && ((patch.beats || []).length > 0 || (patch.moments || []).some((m) => m.action !== "keep") || (typeof patch.drop === "string" && patch.drop !== st.plan.video.drop));
       const said = patch?.notes ? `Relecture : ${String(patch.notes).trim()}` : "";
       if (!changes) note(said);
       else {
@@ -468,8 +499,10 @@ export async function produce(cfg, ctx) {
   P.start("finish", STEP.finish);
   const out = join(ctx.dir, "reel.mp4");
   // La musique composée pour cette vidéo, à sa durée exacte (le plan garde « lib:<id> » : une retouche la réutilise).
-  if (st.plan.track === "gen") st.plan = await composeForVideo(api, st.plan, D, { signal, notes, music: job?.music });
-  const fin = await finish(cfg, st.plan, silent, out, D, notes, signal, { clips, marks: st.stage.marks });
+  // Engine 2 : le son suit la grille du tempo de la page rendue (fpb, bruitages, moment fort).
+  const sig = Number(st.plan.video?.engine) === 2 && st.stage.fpb ? st.stage : null;
+  if (st.plan.track === "gen") st.plan = await composeForVideo(api, st.plan, D, { signal, notes, music: job?.music, ...(sig ? { tempo: { bpm: (FPS * 60) / sig.fpb, drop: sig.drop } } : {}) });
+  const fin = await finish(cfg, st.plan, silent, out, D, notes, signal, { clips, marks: st.stage.marks, sig });
   rmSync(silent, { force: true });
   await probe(out, D, signal);
   P.fraction(1);
@@ -506,6 +539,7 @@ export function renderedPlan(st) {
     volume: p.volume ?? 0.7,
     track: p.track || "",
     ...(p.cue ? { cue: p.cue } : {}),
+    ...(p.sfx === false ? { sfx: false } : {}),
     texts: p.texts || [],
     pace: p.pace,
     duration: st.stage.duration,
@@ -537,9 +571,10 @@ async function reviewVideo(cfg, ctx, { st, shots, findings, refused, note }) {
   shots.files.forEach((f, i) => copyFileSync(f, join(dir, `frame-${String(i).padStart(2, "0")}.png`)));
   const lines = [...findings.map((f) => `${f.target} : ${f.message}`), ...refused.map((r) => `moment ${r.id} refusé : ${r.why.join(" ; ")}`)];
   writeFileSync(join(dir, "constats.txt"), lines.join("\n") || "aucun constat");
-  const prompt = reviewPrompt({ video: st.plan.video, marks: st.stage.marks, duration: st.stage.duration, frames: shots.frames, sheets, findings, refused, look: st.plan.look });
+  const engine = Number(st.plan.video?.engine) === 2 ? 2 : 1;
+  const prompt = reviewPrompt({ video: st.plan.video, marks: st.stage.marks, duration: st.stage.duration, frames: shots.frames, sheets, findings, refused, look: st.plan.look, engine, dropAt: st.stage.drop });
   try {
-    return await io.askStream(cfg, prompt, REVIEW_SCHEMA, dir, { tools: "Read", timeoutMs: R.claudeReviewMin * 60_000, signal: ctx.signal, what: "review" });
+    return await io.askStream(cfg, prompt, reviewSchema({ engine }), dir, { tools: "Read", timeoutMs: R.claudeReviewMin * 60_000, signal: ctx.signal, what: "review" });
   } catch (e) {
     if (ctx.signal?.aborted) throw e;
     log(`relecture en images sautée : ${e.message}`);

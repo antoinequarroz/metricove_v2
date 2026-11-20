@@ -238,6 +238,8 @@ export type ReelPlan = {
   duration?: number;
   /** Continuous video reel (worker 0.15.0). With it, `scenes` is [] and `pace` is the rhythm of the whole video. */
   video?: ReelVideo;
+  /** Video reel, engine 2: the sound effects laid on the tempo grid (left out: on). */
+  sfx?: boolean;
 };
 
 export const REEL_PACE = { calm: 1.25, normal: 1, fast: 0.8 } as const;
@@ -257,15 +259,34 @@ export function reelTimeline(plan: ReelPlan, rendered = false) {
   });
 }
 
-/* ---------- Continuous video reel (worker 0.15.0, docs/MONTAGE.md « Reel vidéo continu ») ---------- */
+/* ---------- Continuous video reel (worker 0.15.0; engine 2 « Signature »: worker 0.22.0; docs/MONTAGE.md « Reel vidéo continu ») ---------- */
 
-/** Oldest Mac program that makes video reels: a video job carries it as `minWorker`, and only such a Mac can claim it. */
-export const VIDEO_WORKER = "0.15.0";
-/** Version of the Mac's stage engine (ReelVideo.engine). A plan made by a newer engine is refused, never guessed. */
-export const VIDEO_ENGINE = 1;
-// The lists stay one per line: worker/montage/test/reel-vocab.test.mjs reads them with a regex and compares them to lib/reel/vocab.mjs.
-export const REEL_LAYOUTS = ["hero", "stack", "number", "list", "cta"] as const;
-export const REEL_BRIDGES = ["rise", "morph", "carry", "zoom", "cut"] as const;
+/** Oldest Mac program that makes video reels: a video job carries it as `minWorker`, and only such a Mac can claim it (0.22.0 plays engine 2). */
+export const VIDEO_WORKER = "0.22.0";
+/**
+ * Newest stage engine of the Mac (ReelVideo.engine): 1 « Plateau » (worker 0.15.0), 2 « Signature » (worker 0.22.0, a
+ * library of scenes on the tempo grid of the music). New videos are made with it. A plan made by an engine the site does
+ * not know is refused, never guessed.
+ */
+export const VIDEO_ENGINE = 2;
+/** The engines the server takes from the Mac (cleanVideo); a page edit keeps the engine of its base. */
+export const VIDEO_ENGINES = [1, 2] as const;
+// The lists stay one per line, as plain literals: worker/montage/test/reel-vocab.test.mjs reads them with a regex and compares them to lib/reel/vocab.mjs (TS_MIRROR).
+/** Layouts of engine 2: the five of engine 1, played again, and the five new scenes of the library. */
+export const REEL_LAYOUTS = ["hero", "stack", "number", "list", "cta", "slot", "phone", "cards", "bubbles", "wall"] as const;
+/** Layouts of engine 1 (« Plateau »). */
+export const REEL_LAYOUTS_V1 = ["hero", "stack", "number", "list", "cta"] as const;
+/** Bridges (transitions) of engine 2: the five of engine 1 and five new ones. */
+export const REEL_BRIDGES = ["rise", "morph", "carry", "zoom", "cut", "flood", "wipe", "whip", "push", "flip"] as const;
+/** Bridges of engine 1. */
+export const REEL_BRIDGES_V1 = ["rise", "morph", "carry", "zoom", "cut"] as const;
+/** Engine 2: the background of a scene, taken from the look of the project (base, accent, ink, second background). */
+export const REEL_SURFACES = ["base", "accent", "ink", "alt"] as const;
+/** Engine 2: what the phone shows (layout "phone"). */
+export const REEL_SCREENS = ["feed", "app", "chat", "notifs"] as const;
+/** Engine 2: frames per music beat of each rhythm at 30 fps (100, 120 and 128.6 BPM); REEL_FPB_RANGE for a chosen music. */
+export const REEL_FPB = { calm: 18, normal: 15, fast: 14 } as const;
+export const REEL_FPB_RANGE = [12, 20] as const;
 export const REEL_ACTORS = ["rest", "dot", "underline", "highlight", "bar", "hidden"] as const;
 export const REEL_CAMERAS = ["drift", "push", "still"] as const;
 export const REEL_ZONES = ["above", "below", "behind", "full"] as const;
@@ -276,28 +297,38 @@ export const REEL_TARGETS = [15, 30, 45, 60] as const;
 export const REEL_VIDEO = { request: 4000, minRequest: 10, beats: [3, 12], keep: 2, moments: 3, seconds: [1.5, 10], total: [15, 60], last: 2.5 } as const;
 /** Reading time multiplier of each rhythm (minimum length of a beat). */
 export const READ_PACE = { calm: 1.15, normal: 1, fast: 0.88 } as const;
-/** Longest texts and code of a video plan (characters). The server cuts texts and refuses code beyond them; the Mac checks again. `code`: all moments together. */
+/** Engine 2: reading time of a scene (reelSigReadSeconds), the words entering one by one on the tempo. */
+export const REEL_SIG_READ = { base: 0.8, perWord: 0.2, subWord: 0.15, perItem: 0.25, itemWord: 0.12 } as const;
+/** Longest texts and code of a video plan (characters). The server cuts texts and refuses code beyond them; the Mac checks again. `code`: all moments together. `beat.label`: the button, stamp or brand name of engine 2. */
 export const VIDEO_LIMITS = {
   title: 80,
   caption: 2200,
   tools: 40,
-  beat: { title: 40, text: 110, sub: 160, items: 4, item: 40, emphasis: 60 },
+  beat: { title: 40, text: 110, sub: 160, items: 4, item: 40, emphasis: 60, label: 24 },
   moment: { brief: 200, html: 12000, css: 8000, js: 12000 },
   code: 60000,
 } as const;
-/** Characters a layout holds at its starting size (`item`: each item of a list). Beyond, the engine shrinks the text down to a floor. */
+/** Characters a layout holds at its starting size (`item`: each item of a list, a phone, cards, bubbles, a slot or a wall). Beyond, the engine shrinks the text down to a floor. */
 export const VIDEO_BUDGETS = {
   hero: { text: 60 },
   stack: { text: 90, sub: 160 },
   number: { text: 40, sub: 120 },
   list: { text: 50, item: 40 },
   cta: { text: 50, sub: 60 },
+  slot: { text: 30, item: 22 },
+  phone: { text: 60, sub: 60, item: 34 },
+  cards: { text: 50, sub: 50, item: 40 },
+  bubbles: { text: 50, item: 28 },
+  wall: { text: 40, item: 22 },
 } as const satisfies Record<ReelLayout, { text: number; sub?: number; item?: number }>;
 export const VIDEO_BEAT_ID = /^[a-z][a-z0-9-]{0,23}$/;
 export const VIDEO_MOMENT_ID = /^[a-z][a-z0-9]{0,11}$/;
 
+export type ReelEngine = (typeof VIDEO_ENGINES)[number];
 export type ReelLayout = (typeof REEL_LAYOUTS)[number];
 export type ReelBridge = (typeof REEL_BRIDGES)[number];
+export type ReelSurface = (typeof REEL_SURFACES)[number];
+export type ReelScreen = (typeof REEL_SCREENS)[number];
 export type ReelActor = (typeof REEL_ACTORS)[number];
 export type ReelCamera = (typeof REEL_CAMERAS)[number];
 export type ReelZone = (typeof REEL_ZONES)[number];
@@ -312,19 +343,29 @@ export type ReelBeat = {
   title: string;
   /** ≤ 110. */
   text: string;
-  /** ≤ 160 (layout "cta": the text of the pill). */
+  /** ≤ 160 (layout "cta": the text of the pill or button; engine 2 "cards": the punchline that follows the stamp). */
   sub?: string;
-  /** Layout "list": 2–4 items of ≤ 40. */
+  /** Layout "list": 2–4 items of ≤ 40. Engine 2: the words of "slot" and "wall", the cards, the bubbles, what the phone shows. */
   items?: string[];
   /** ≤ 60, words copied from `text`. */
   emphasis?: string;
   /** Layout "number": the number counts up. */
   count?: boolean;
+  /** Engine 1: REEL_LAYOUTS_V1 only. */
   layout: ReelLayout;
-  /** How it is born from the previous beat (ignored on the first one). */
+  /** How it is born from the previous beat (ignored on the first one). Engine 1: REEL_BRIDGES_V1 only. */
   bridge: ReelBridge;
+  /** Engine 1: the brand shape. Engine 2: how the emphasis is marked. */
   actor: ReelActor;
   camera: ReelCamera;
+  /** Engine 2: the background of the scene (left out: "base"). */
+  surface?: ReelSurface;
+  /** Engine 2, layout "phone": what the phone shows (left out: "app" with items, else "feed"). */
+  screen?: ReelScreen;
+  /** Engine 2, layout "phone" with screen "app": index in `items` of the choice the finger taps (left out: the button, else the first one). */
+  pick?: number;
+  /** Engine 2, layouts "phone", "cards" and "cta": the button (or the name of the conversation), the stamp, the brand name. One line, ≤ 24. */
+  label?: string;
   /** Wanted length, 1.5–10 s. Read it through reelBeatSeconds. */
   seconds: number;
   /** Set by hand: the length is kept exactly (no reading floor, no scaling). */
@@ -352,7 +393,8 @@ export type ReelMoment = {
   custom?: boolean;
 };
 export type ReelVideo = {
-  engine: 1;
+  /** 1 « Plateau » (worker 0.15.0), 2 « Signature » (worker 0.22.0). */
+  engine: ReelEngine;
   /** ≤ 4000. */
   request: string;
   source: ReelSource;
@@ -365,10 +407,14 @@ export type ReelVideo = {
   shape: ReelShape;
   /** 3–12 written, ≥ 2 kept. */
   beats: ReelBeat[];
-  /** ≤ 3. */
+  /** ≤ 3 (engine 2: none, the library scenes are the visuals). */
   moments: ReelMoment[];
   /** ≤ 2200, the post description written with the video. */
   caption?: string;
+  /** Engine 2: frames per music beat (an integer of REEL_FPB_RANGE), the tempo grid every cut and sound effect sits on. */
+  fpb?: number;
+  /** Engine 2: id of the kept beat where the music « drops » (the strong moment of the video). */
+  drop?: string;
   /** uint32: the engine's randomness (halo paths…), fixed once the video exists. */
   seed: number;
   tools?: { worker?: string; hyperframes?: string };
@@ -393,16 +439,57 @@ export function reelReadSeconds(b: Pick<ReelBeat, "text" | "sub" | "items" | "co
 }
 
 /**
- * Seconds a beat lasts in the video. Same formula as the Mac (worker/montage/lib/reel/score.mjs): `seconds` (kept
- * exactly when `fixed`, else at least the reading time), bounded to 1.5–10 s, at least 2.5 s for the last kept beat,
- * rounded to a frame (1/30 s).
+ * Engine 2: minimum reading time of a scene, before the 1.5–10 s bounds (REEL_SIG_READ): the words of `text`, of `sub`
+ * and of the items read, plus each item read. Items read: all of them, the last one only for slot and cards (the others
+ * roll by), none for wall (a backdrop of words); slot, cards and wall add nothing per item. The count of a number is in
+ * the scene's own floor on the Mac. Same formula as the Mac (worker/montage/lib/reel/vocab.mjs minSeconds, engine 2).
  */
-export function reelBeatSeconds(b: ReelBeat, last: boolean, pace: ReelPlan["pace"] = "normal"): number {
+export function reelSigReadSeconds(b: Pick<ReelBeat, "text" | "sub" | "items" | "layout">, pace: ReelPlan["pace"] = "normal") {
+  const items = b.items ?? [];
+  const layout: string = b.layout;
+  const read = layout === "wall" ? [] : layout === "slot" || layout === "cards" ? items.slice(-1) : items;
+  const per = layout === "wall" || layout === "slot" || layout === "cards" ? 0 : read.length;
+  const R = REEL_SIG_READ;
+  return (R.base + R.perWord * readWords(b.text) + R.subWord * readWords(b.sub) + R.itemWord * readWords(read.join(" ")) + R.perItem * per) * (READ_PACE[pace] ?? 1);
+}
+
+/**
+ * Seconds a beat lasts in the video. Same formula as the Mac (worker/montage/lib/reel/vocab.mjs beatSeconds): `seconds`
+ * (kept exactly when `fixed`, else at least the reading time), bounded to 1.5–10 s, at least 2.5 s for the last kept
+ * beat, rounded to a frame (1/30 s). Engine 2 (`fpb` = frames per music beat, 0 = engine 1): the reading time of
+ * reelSigReadSeconds, then the length is put on the tempo grid with reelOnGrid.
+ */
+export function reelBeatSeconds(b: ReelBeat, last: boolean, pace: ReelPlan["pace"] = "normal", fpb = 0): number {
   const want = Number.isFinite(b.seconds) ? b.seconds : 0;
   const [lo, hi] = REEL_VIDEO.seconds;
-  let s = Math.min(hi, Math.max(lo, b.fixed ? want : Math.max(want, reelReadSeconds(b, pace))));
+  const read = fpb ? reelSigReadSeconds(b, pace) : reelReadSeconds(b, pace);
+  let s = Math.min(hi, Math.max(lo, b.fixed ? want : Math.max(want, read)));
   if (last) s = Math.max(s, REEL_VIDEO.last);
-  return frames30(s);
+  return fpb ? reelOnGrid(frames30(s), fpb, !!b.fixed, last ? REEL_VIDEO.last : lo) : frames30(s);
+}
+
+/**
+ * Engine 2: a length put on the tempo grid (`fpb` frames per music beat). A length set by hand (`fixed`) goes to the
+ * nearest beat, any other to the next one (never under the reading time); always within floor–10 s (`floor`: 1.5 s,
+ * 2.5 s for the last kept beat). Same rule as the Mac (worker/montage/lib/reel/vocab.mjs onGrid).
+ */
+export function reelOnGrid(seconds: number, fpb: number, fixed = false, floor: number = REEL_VIDEO.seconds[0]): number {
+  const f = Math.round(seconds * 30);
+  const lo = Math.round(Math.max(REEL_VIDEO.seconds[0], floor) * 30);
+  const hi = Math.round(REEL_VIDEO.seconds[1] * 30);
+  let n = fixed ? Math.round(f / fpb) : Math.ceil(f / fpb - 1e-6);
+  if (n * fpb > hi) n = Math.floor(hi / fpb);
+  if (n * fpb < lo) n = Math.ceil(lo / fpb);
+  return (n * fpb) / 30;
+}
+
+/**
+ * Frames per music beat of a video: its `fpb` for engine 2 when it is an integer of REEL_FPB_RANGE, else 0 (no grid:
+ * engine 1). Same rule as the Mac (worker/montage/lib/reel/score.mjs fpbOf).
+ */
+export function videoFpb(video?: Pick<ReelVideo, "engine" | "fpb">): number {
+  const fpb = video?.fpb;
+  return Number(video?.engine) === 2 && typeof fpb === "number" && Number.isInteger(fpb) && fpb >= REEL_FPB_RANGE[0] && fpb <= REEL_FPB_RANGE[1] ? fpb : 0;
 }
 
 /** Instant a beat is settled (its text is in place): the storyboard tile and the cover are taken there. */
@@ -411,11 +498,13 @@ export const reelSettle = (p: { start: number; end: number }) => p.start + Math.
 /**
  * The beats that play, with their place on the timeline: same shape as reelTimeline(), so ReelTimeline shows them
  * unchanged (scene.title = marker name, scene.body = text, custom "art" when a moment covers the beat).
- * `rendered`: the times the Mac wrote (the video as it is), when every kept beat has them; otherwise laid end to end.
+ * `rendered`: the times the Mac wrote (the video as it is), when every kept beat has them; otherwise laid end to end,
+ * exactly as the Mac's timeScore (worker/montage/lib/reel/score.mjs: reelBeatSeconds with the tempo grid of videoFpb).
  */
 export function videoTimeline(plan: ReelPlan, rendered = false): { scene: ReelScene; index: number; start: number; end: number }[] {
   const video = plan.video;
   if (!video) return [];
+  const fpb = videoFpb(video);
   const kept = video.beats.filter((b) => !b.cut);
   const covered = new Set<string>();
   for (const m of video.moments ?? []) {
@@ -428,7 +517,7 @@ export function videoTimeline(plan: ReelPlan, rendered = false): { scene: ReelSc
   let t = 0;
   return kept.map((b, index) => {
     const start = asRendered ? (b.start as number) : t;
-    const end = asRendered ? (b.end as number) : frames30(t + reelBeatSeconds(b, index === kept.length - 1, plan.pace));
+    const end = asRendered ? (b.end as number) : frames30(t + reelBeatSeconds(b, index === kept.length - 1, plan.pace, fpb));
     t = end;
     const scene: ReelScene = { id: b.id, title: b.title, body: b.text, seconds: b.seconds, ...(covered.has(b.id) ? { custom: "art" as const } : {}), ...(asRendered ? { dur: end - start } : {}) };
     return { scene, index, start, end };
@@ -560,6 +649,8 @@ export type MotionRequest = {
   track?: string;
   /** Video only: a voice-over read by ElevenLabs or Google; Claude writes the line said on each beat. */
   voice?: { provider: "elevenlabs" | "google"; voiceId: string; name?: string };
+  /** Video only, engine 2: false = no sound effects on the tempo grid (the Mac copies it into ReelPlan.sfx); left out = on. */
+  sfx?: boolean;
 };
 
 /** Phases of a video job, in order. "review" is left out of `phases` when Claude does not need to look at the frames. */

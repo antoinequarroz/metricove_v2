@@ -17,7 +17,7 @@ import { cleanScore, timeScore, openBeats, mergeRevision } from "./score.mjs";
 import { scoreSchema, reviseSchema, writePrompt, revisePrompt, countLayouts } from "./prompt.mjs";
 import { Progress, STEP, reviseStep } from "./progress.mjs";
 import { io, produce, reelCfg, withMeta } from "./render.mjs";
-import { ENGINE, FPS, seedOf } from "./vocab.mjs";
+import { ENGINE, ENGINE_NEW, FPS, VIDEO_WORKER, seedOf } from "./vocab.mjs";
 
 const ALIVE_MS = 10_000;
 const NOTES_MAX = 2000;
@@ -253,6 +253,24 @@ async function askTwice(ctx, P, { prompt, schema, cwd, tools, timeoutMs, what },
   throw new Error(what === "revise" ? `Claude n'a pas écrit de retouche exploitable (${why}). Réessaie.` : `Claude n'a pas écrit de partition exploitable (${why}). Réessaie.`);
 }
 
+/** a ≥ b pour des versions x.y.z (morceaux absents ou illisibles = 0). */
+export function atLeast(a, b) {
+  const p = (v) => String(v ?? "").split(".").map((x) => parseInt(x, 10) || 0);
+  const x = p(a), y = p(b);
+  for (let i = 0; i < Math.max(x.length, y.length, 3); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return true;
+}
+
+/**
+ * Le moteur d'une nouvelle vidéo : ENGINE_NEW (2, Signature) quand le site la demande à un Mac qui le joue
+ * (job.minWorker ≥ VIDEO_WORKER : un site plus ancien ne connaît pas engine 2 et refuserait la vidéo) ; 1 sinon, ou
+ * quand config.json → reel.engine vaut 1 (retour au moteur Plateau).
+ */
+export function engineFor(job, R = {}) {
+  if (Number(R.engine) === 1) return 1;
+  return atLeast(job?.minWorker, VIDEO_WORKER) ? ENGINE_NEW : 1;
+}
+
 /** Les repères (temps forts gardés avec start/end) envoyés au Studio dès que la partition est connue. */
 function announce(P, video, pace) {
   const t = timeScore(video, { pace });
@@ -268,7 +286,9 @@ async function makeVideo(ctx, last) {
   try {
     P.start("write", STEP.write);
     const versions = job.versions || [];
-    const regen = job.regen && last ? { titles: last.reel.video.beats.filter((b) => !b.cut).map((b) => b.title), shape: last.reel.video.shape } : null;
+    // layouts : les scènes de la version d'avant (engine 2 : le prompt de régénération les nomme pour en changer).
+    const prev = job.regen && last ? last.reel.video.beats.filter((b) => !b.cut) : [];
+    const regen = job.regen && last ? { titles: prev.map((b) => b.title), layouts: prev.map((b) => b.layout), shape: last.reel.video.shape } : null;
     const nextN = (versions[versions.length - 1]?.n ?? 0) + 1;
     // Graine : seedOf(job.id) à la création, seedOf(job.id, n) quand des versions existent (n = la version créée).
     const seed = versions.length ? seedOf(job.id, nextN) : seedOf(job.id);
@@ -281,17 +301,19 @@ async function makeVideo(ctx, last) {
     // Voix off (une phrase dite par temps fort) et musique à composer (une consigne) : demandées dans la partition.
     const voice = voiceOfJob(job);
     const gen = motion.music && motion.track === "gen";
+    // Engine 2 (Signature) : le storyboard de la bibliothèque de scènes, sur la grille du tempo.
+    const engine = engineFor(job, R);
     const result = await askTwice(ctx, P, {
-      prompt: (why) => writePrompt(job, { cfg, images: ref.files, regen, retry: why }),
-      schema: scoreSchema({ voice: !!voice, music: gen }),
+      prompt: (why) => writePrompt(job, { cfg, images: ref.files, regen, retry: why, engine }),
+      schema: scoreSchema({ voice: !!voice, music: gen, engine }),
       cwd: writeDir,
       tools: ref.files.length ? "Read" : "",
       timeoutMs: R.claudeWriteMin * 60_000,
       what: "write",
-    }, (raw) => ({ raw, c: cleanScore(raw, { target: m.seconds, pace: m.pace, seed, request: m.request, source: m.source, direction: m.direction }) }));
+    }, (raw) => ({ raw, c: cleanScore(raw, { target: m.seconds, pace: m.pace, seed, request: m.request, source: m.source, direction: m.direction, engine }) }));
     rmSync(writeDir, { recursive: true, force: true });
     const { raw, c } = result;
-    log(`[${short(job.id)}] partition : ${c.video.beats.length} temps forts, ${c.video.moments.length} moment(s), rythme ${c.pace} (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+    log(`[${short(job.id)}] partition : ${c.video.beats.length} temps forts, ${engine === 2 ? `moteur Signature, ${Math.round((FPS * 600) / c.video.fpb) / 10} BPM` : `${c.video.moments.length} moment(s)`}, rythme ${c.pace} (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
     const plan = {
       scenes: [],
       look: motion.look,
@@ -300,6 +322,7 @@ async function makeVideo(ctx, last) {
       volume: motion.volume,
       track: motion.track,
       ...(motion.cue ? { cue: motion.cue } : {}),
+      ...(motion.sfx === false ? { sfx: false } : {}),
       texts: [],
       pace: c.pace,
       video: { ...withMeta(c.video, null), ...(voice ? { voiceOver: voice } : {}) },
@@ -338,8 +361,8 @@ async function reviseVideo(ctx, from) {
     P.start("write", reviseStep(range || (shown.length ? [Math.min(...shown.map((m) => m.start)), Math.max(...shown.map((m) => m.end))] : null)));
     log(`[${short(job.id)}] retouche : temps forts ouverts ${open.join(", ") || "aucun"}`);
     const result = await askTwice(ctx, P, {
-      prompt: (why) => revisePrompt(job, { video, marks, open, range, notes: drawn, feedback: [job.feedback, why && `(Ta réponse précédente était inexploitable : ${why}. Renvoie le JSON complet du schéma.)`].filter(Boolean).join("\n"), look: base.look }),
-      schema: reviseSchema({ voice: !!video.voiceOver }),
+      prompt: (why) => revisePrompt(job, { video, marks, open, range, notes: drawn, feedback: [job.feedback, why && `(Ta réponse précédente était inexploitable : ${why}. Renvoie le JSON complet du schéma.)`].filter(Boolean).join("\n"), look: base.look, engine: video.engine }),
+      schema: reviseSchema({ voice: !!video.voiceOver, engine: video.engine }),
       cwd: reviseDir,
       tools: drawn.some((d) => d.file) ? "Read" : "",
       timeoutMs: R.claudeReviseMin * 60_000,

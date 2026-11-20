@@ -8,7 +8,8 @@ import { existsSync, writeFileSync, readdirSync, statSync, rmSync } from "node:f
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { run, ensureDir, home, log } from "../util.mjs";
-import { minSeconds, quantize, VIDEO } from "./vocab.mjs";
+import { minSeconds, quantize, onGrid, FPB, FPB_RANGE, VIDEO } from "./vocab.mjs";
+import { sigFloor } from "./score.mjs";
 
 /** Décalage de la phrase après le début du temps fort, et marge laissée après elle (secondes). */
 export const VOICE_LEAD = 0.15;
@@ -76,28 +77,34 @@ export async function speakBeats(cfg, api, video, voice, { signal, notes = [] } 
 
 /**
  * Chaque temps fort avec une phrase dure au moins phrase + marges (fixed, pour que la mise à l'échelle et la relecture
- * ne le raccourcissent plus), et au moins son temps de lecture ; 10 s au plus.
+ * ne le raccourcissent plus), et au moins son temps de lecture ; 10 s au plus. Engine 2 : au moins le plancher de sa
+ * scène aussi (sigFloor), que cleanScore n'applique plus à un temps fort fixé.
  */
 export function fitVoice(plan, clips) {
   if (!clips?.size) return plan;
   const pace = plan.pace || "normal";
+  // Engine 2 : la durée va au temps de la grille suivant (fixed arrondit ensuite au plus proche : déjà dessus).
+  const sig = Number(plan.video.engine) === 2;
+  const fpb = sig ? (Number.isInteger(plan.video.fpb) && plan.video.fpb >= FPB_RANGE[0] && plan.video.fpb <= FPB_RANGE[1] ? plan.video.fpb : FPB[pace] || FPB.normal) : 0;
   const beats = plan.video.beats.map((b) => {
     const c = clips.get(b.id);
     if (!c || b.cut) return b;
-    const want = quantize(Math.min(VIDEO.seconds[1], Math.max(Number(b.seconds) || 0, minSeconds(b, pace), c.dur + VOICE_LEAD + VOICE_TAIL)));
+    const raw = quantize(Math.min(VIDEO.seconds[1], Math.max(Number(b.seconds) || 0, minSeconds(b, pace, plan.video.engine), sig ? sigFloor(b, fpb) : 0, c.dur + VOICE_LEAD + VOICE_TAIL)));
+    const want = fpb ? onGrid(raw, fpb) : raw;
     return { ...b, seconds: want, fixed: true };
   });
   return { ...plan, video: { ...plan.video, beats } };
 }
 
 /**
- * La piste son du reel (wav 48 kHz stéréo) : phrases posées au début de leur temps fort, musique qui baisse sous la
- * voix, loudnorm −14 LUFS. `marks` : [{ id, start, end }] du moteur ; `track` : fichier de musique ou null.
+ * La voix off en filtres ffmpeg : chaque phrase posée VOICE_LEAD après le début de son temps fort (accélérée jusqu'à
+ * ×1,2 si elle déborde, sinon coupée avec une note), toutes mixées en `[vo]`, coupé à `duration`. Les entrées sont
+ * numérotées à partir de `first`. Renvoie { inputs, filters, count } (count = 0 : aucune phrase posée).
  */
-export async function narrationMix({ clips, marks, track, cue, volume = 0.7, duration, out, notes = [], signal }) {
-  const placed = marks.filter((m) => clips.has(m.id));
+export function voiceGraph({ clips, marks, duration, notes = [], first = 0 }) {
+  const placed = (marks || []).filter((m) => clips?.has(m.id));
   const inputs = [];
-  const parts = [];
+  const filters = [];
   placed.forEach((m, i) => {
     const c = clips.get(m.id);
     const room = Math.max(0.5, m.end - m.start - VOICE_LEAD - 0.1);
@@ -108,11 +115,21 @@ export async function narrationMix({ clips, marks, track, cue, volume = 0.7, dur
     }
     inputs.push("-i", c.file);
     const delay = Math.round((m.start + VOICE_LEAD) * 1000);
-    parts.push(`[${i}:a]aresample=48000,aformat=channel_layouts=stereo${tempo > 1.001 ? `,atempo=${tempo.toFixed(3)}` : ""},atrim=0:${room.toFixed(3)},adelay=${delay}|${delay},apad[v${i}]`);
+    filters.push(`[${first + i}:a]aresample=48000,aformat=channel_layouts=stereo${tempo > 1.001 ? `,atempo=${tempo.toFixed(3)}` : ""},atrim=0:${room.toFixed(3)},adelay=${delay}|${delay},apad[v${i}]`);
   });
-  const n = placed.length;
-  const fc = [...parts];
-  fc.push(`${placed.map((_, i) => `[v${i}]`).join("")}amix=inputs=${n}:duration=longest:normalize=0,atrim=0:${duration.toFixed(3)},asetpts=N/SR/TB[vo]`);
+  if (placed.length) filters.push(`${placed.map((_, i) => `[v${i}]`).join("")}amix=inputs=${placed.length}:duration=longest:normalize=0,atrim=0:${duration.toFixed(3)},asetpts=N/SR/TB[vo]`);
+  return { inputs, filters, count: placed.length };
+}
+
+/**
+ * La piste son du reel (wav 48 kHz stéréo) : phrases posées au début de leur temps fort, musique qui baisse sous la
+ * voix, loudnorm −14 LUFS. `marks` : [{ id, start, end }] du moteur ; `track` : fichier de musique ou null.
+ */
+export async function narrationMix({ clips, marks, track, cue, volume = 0.7, duration, out, notes = [], signal }) {
+  const vg = voiceGraph({ clips, marks, duration, notes });
+  const inputs = [...vg.inputs];
+  const n = vg.count;
+  const fc = [...vg.filters];
   const LN = "loudnorm=I=-14:TP=-1.5:LRA=11";
   if (track) {
     inputs.push("-stream_loop", "-1", ...cue.seek, "-i", track);
@@ -127,26 +144,37 @@ export async function narrationMix({ clips, marks, track, cue, volume = 0.7, dur
   return out;
 }
 
-/** La consigne de musique quand Claude n'en a pas écrit : le ton et le rythme de la vidéo. */
-export function fallbackMusicPrompt(plan) {
-  const pace = plan.pace === "fast" ? "upbeat, 120 BPM" : plan.pace === "calm" ? "calm, 80 BPM" : "mid-tempo, 100 BPM";
+/** La consigne de musique quand Claude n'en a pas écrit : le ton et le rythme de la vidéo (`bpm` : celui de la grille Signature). */
+export function fallbackMusicPrompt(plan, bpm) {
+  const pace = bpm ? `${plan.pace === "calm" ? "warm" : "energetic"}, ${bpm} BPM` : plan.pace === "fast" ? "upbeat, 120 BPM" : plan.pace === "calm" ? "calm, 80 BPM" : "mid-tempo, 100 BPM";
   return `Modern instrumental background music for a short vertical social video, ${pace}, clean production, light percussion, warm synths, builds gently and ends cleanly. No vocals.`;
 }
 
+/** Secondes composées en plus de la vidéo pour un reel Signature : le départ est choisi dans cette marge. */
+export const SIG_MUSIC_SLACK = 6;
+
 /**
  * Fait composer la musique de la vidéo (plan.track === "gen") et renvoie le plan avec track = « lib:<id> ». Une panne
- * laisse la vidéo sans musique (track vidé) avec la raison dans les notes.
+ * laisse la vidéo sans musique (track vidé) avec la raison dans les notes. `tempo` ({ bpm, drop }, reel Signature) :
+ * la musique est demandée au tempo de la grille, avec sa montée SIG_MUSIC_SLACK / 2 s après le moment fort et
+ * SIG_MUSIC_SLACK s de plus que la vidéo : le mixage (sig-mix.mjs) choisit son départ dans cette marge pour poser
+ * la montée sur le moment fort, quelle que soit la précision du compositeur.
  */
-export async function composeForVideo(api, plan, duration, { signal, notes = [], music } = {}) {
+export async function composeForVideo(api, plan, duration, { signal, notes = [], music, tempo } = {}) {
   if (plan.track !== "gen" || !plan.music) return plan;
+  const bpm = tempo && Number(tempo.bpm) > 0 ? Math.round(Number(tempo.bpm)) : 0;
+  const drop = bpm && Number.isFinite(Number(tempo.drop)) && Number(tempo.drop) >= 0 ? Number(tempo.drop) : null;
+  const beat = bpm ? `Tempo exactly ${bpm} BPM, steady 4/4 pulse, crisp transients.${drop !== null ? ` Build up, then a clear drop at ${Math.round(drop + SIG_MUSIC_SLACK / 2)} seconds.` : ""} Full energy from the first second.` : "";
   // Le style de musique du projet (Ressources → Styles) s'ajoute à la consigne de Claude, 600 caractères au plus.
   const style = String(music?.style || "").replace(/\s+/g, " ").trim().slice(0, 300);
-  const base = String(plan.musicPrompt || "").trim() || fallbackMusicPrompt(plan);
-  const prompt = style ? `${base.slice(0, 590 - style.length)} Style: ${style}.` : base;
+  const base = String(plan.musicPrompt || "").trim() || fallbackMusicPrompt(plan, bpm);
+  const room = 590 - (style ? style.length + 9 : 0) - (beat ? beat.length + 1 : 0);
+  const prompt = [base.slice(0, Math.max(80, room)), beat, style ? `Style: ${style}.` : ""].filter(Boolean).join(" ").slice(0, 600);
   const provider = music?.provider === "google" || music?.provider === "elevenlabs" ? music.provider : undefined;
+  const seconds = bpm ? Math.ceil(duration + SIG_MUSIC_SLACK) : Math.ceil(duration) + 1;
   try {
-    log(`musique composée pour la vidéo (${Math.ceil(duration)} s) : ${prompt.slice(0, 120)}`);
-    const item = await api.composeMusic({ prompt, provider, seconds: Math.ceil(duration) + 1, name: `Reel · ${String(plan.video?.title || "musique").slice(0, 60)}`, tags: ["reel"] }, { signal });
+    log(`musique composée pour la vidéo (${seconds} s) : ${prompt.slice(0, 160)}`);
+    const item = await api.composeMusic({ prompt, provider, seconds, name: `Reel · ${String(plan.video?.title || "musique").slice(0, 60)}`, tags: ["reel"] }, { signal });
     notes.push(`Musique composée pour cette vidéo, rangée dans Ressources → Musique (« ${prompt.slice(0, 140)}${prompt.length > 140 ? "…" : ""} »).`);
     const { musicPrompt: _p, ...rest } = plan;
     void _p;

@@ -1,0 +1,51 @@
+{
+  "_doc": ["Reel Signature (engine 2) de test : LivreMatch, thème Perso, 8 scènes de la bibliothèque, toutes les transitions fortes."],
+  "job": {
+    "id": "7c1e2a90-5b3d-4f61-9a8e-2d4c6b8f0e11",
+    "kind": "motion",
+    "motion": {
+      "mode": "video",
+      "request": "Reel marketing LivreMatch : trouver le livre qui matche avec tes envies en 6 questions",
+      "source": "idea",
+      "music": true,
+      "logo": false,
+      "look": {
+        "theme": "custom",
+        "accent": "#5456fa",
+        "font": "grotesque",
+        "fields": [
+          { "bg": "#f7f5ed", "ink": "#15161f" },
+          { "bg": "#f3f45b", "ink": "#15161f" },
+          { "bg": "#15161f", "ink": "#f7f5ed" }
+        ],
+        "grid": true,
+        "align": "center",
+        "valign": "middle",
+        "grain": true,
+        "numbers": true,
+        "handle": "@livrematchfr"
+      }
+    }
+  },
+  "options": {
+    "request": "Reel marketing LivreMatch : trouver le livre qui matche avec tes envies en 6 questions",
+    "source": "idea",
+    "seed": 912345677,
+    "engine": 2
+  },
+  "raw": {
+    "title": "Trouve le livre qui matche",
+    "shape": "orb",
+    "pace": "normal",
+    "beats": [
+      { "id": "accroche", "title": "Accroche", "text": "Tu ne sais jamais quoi lire ?", "emphasis": "quoi lire", "layout": "hero", "bridge": "rise", "actor": "highlight", "camera": "push", "surface": "base", "seconds": 2.6 },
+      { "id": "scroll", "title": "Le scroll", "text": "Tu scrolles des heures sans trouver", "emphasis": "des heures", "layout": "phone", "screen": "feed", "bridge": "wipe", "actor": "rest", "camera": "drift", "surface": "alt", "seconds": 2.8 },
+      { "id": "quiz", "title": "Le quiz", "text": "LivreMatch te pose 6 questions", "emphasis": "6 questions", "layout": "phone", "screen": "app", "items": ["Fantasy épique", "Romance slow burn", "Thriller haletant"], "pick": 1, "label": "Suivant", "bridge": "flip", "actor": "rest", "camera": "drift", "surface": "alt", "seconds": 3.2 },
+      { "id": "envie", "title": "Ton envie", "text": "Ton envie du moment", "emphasis": "envie", "layout": "slot", "items": ["Dragons", "Ennemis to lovers", "Slow burn", "Magie noire"], "bridge": "flood", "actor": "highlight", "camera": "drift", "surface": "accent", "seconds": 2.6 },
+      { "id": "match", "title": "Le match", "text": "On te propose des livres", "sub": "Le livre parfait", "layout": "cards", "items": ["La Cité des Cendres", "L'Héritière des Brumes", "Le Serment d'Ombre"], "label": "MATCH", "bridge": "whip", "actor": "rest", "camera": "drift", "surface": "base", "seconds": 4.2 },
+      { "id": "chiffre", "title": "Le catalogue", "text": "Plus de 2000 livres", "emphasis": "2000", "count": true, "layout": "number", "bridge": "zoom", "actor": "dot", "camera": "drift", "surface": "ink", "seconds": 3 },
+      { "id": "genres", "title": "Les genres", "text": "Trouve ton prochain coup de cœur", "emphasis": "coup de cœur", "layout": "wall", "items": ["Fantasy", "Romance", "Thriller", "Dark academia", "Cosy"], "bridge": "push", "actor": "rest", "camera": "drift", "surface": "base", "seconds": 3 },
+      { "id": "fin", "title": "Fin", "text": "Fais le quiz gratuit", "emphasis": "quiz", "sub": "livrematch.fr", "layout": "cta", "label": "LivreMatch", "bridge": "zoom", "actor": "highlight", "camera": "still", "surface": "accent", "seconds": 3 }
+    ]
+  }
+}

@@ -117,6 +117,8 @@ export function cleanMotion(m = {}) {
     track: String(m.track || "").slice(0, 200),
     // Départ dans le morceau et fondus, quand Antoine les a réglés.
     ...(m.cue && typeof m.cue === "object" ? { cue: { start: m.cue.start, fadeIn: m.cue.fadeIn, fadeOut: m.cue.fadeOut } } : {}),
+    // Reel vidéo Signature (engine 2) : bruitages des coupes coupés à la main.
+    ...(m.sfx === false ? { sfx: false } : {}),
     // Textes libres posés à la main sur la vidéo (lib/texts.mjs).
     texts: cleanTexts(m.texts),
     pace: Object.hasOwn(PACE, m.pace) ? m.pace : "normal",

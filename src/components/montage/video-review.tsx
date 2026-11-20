@@ -35,7 +35,7 @@ const round1 = (s: number) => Math.round(s * 10) / 10;
 
 /**
  * Whether two plans make the same video, as far as the page can change it: the beats (without the times the Mac
- * wrote), which moments stay bespoke, the rhythm, the music, the free texts and the logo.
+ * wrote), which moments stay bespoke, the rhythm, the music, the sound effects (engine 2), the free texts and the logo.
  */
 export function sameVideo(a: ReelPlan, b: ReelPlan) {
   const key = (p: ReelPlan) =>
@@ -47,6 +47,7 @@ export function sameVideo(a: ReelPlan, b: ReelPlan) {
       p.volume ?? 0.7,
       p.track ?? "",
       p.cue ?? {},
+      p.sfx !== false,
       p.texts ?? [],
       !!p.logo,
     ]);
@@ -355,7 +356,13 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
       let k = 0;
       return { beats: beats.map((b) => (b.cut ? b : order[k++])) };
     });
-  /** A new rhythm: the beats whose length is not set by hand follow it (their wanted length scales with the reading pace). */
+  /**
+   * A new rhythm: the beats whose length is not set by hand follow it (their wanted length scales with the reading pace).
+   * Engine 2 too: the lengths the Mac wrote already hold the reading time of the old rhythm, so without the scaling a
+   * faster rhythm would change nothing. The music keeps its tempo (`fpb` comes from the base) and the Mac keeps each
+   * scene on its beats and never under its floor (in music beats, not known here): the draft can be a little shorter
+   * than the next preview on a scene at its floor.
+   */
   const setPace = (pace: ReelPlan["pace"]) =>
     edit((d) => {
       if (!d?.video || d.pace === pace) return d;
@@ -370,8 +377,9 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
   const canAsk = job.status === "review" && !!version?.preview && !dirty && !working;
   const canDraw = canAsk && compareWith === null;
   const keptCount = video ? video.beats.filter((b) => !b.cut).length : 0;
-  /** A list beat edited down to fewer than 2 points: the Mac would lay it out as a « Pile », so no preview until fixed. */
+  /** A list (engine 2: a slot, cards, bubbles, a wall) edited down to fewer than 2 points: the Mac would lay it out otherwise, so no preview until fixed. */
   const listShort = dirty && !!video?.beats.some(shortList);
+  const listShortText = video?.engine === 2 ? "Une liste, une machine à sous, des cartes, des bulles ou un mur de mots ont besoin de 2 éléments au moins" : "Une liste a besoin de 2 points au moins";
   const editing = job.status !== "done" && !!version && !!draft;
   const comparing = compareWith !== null;
   const sketching = drawing && canDraw && !comparing;
@@ -635,7 +643,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       <Button size="sm" variant="ghost" onClick={() => follow(version.reel)}>
                         Annuler
                       </Button>
-                      <Button size="sm" variant="primary" onClick={apply} disabled={busy || working || old || listShort} title={listShort ? "Une liste a besoin de 2 points au moins" : undefined}>
+                      <Button size="sm" variant="primary" onClick={apply} disabled={busy || working || old || listShort} title={listShort ? listShortText : undefined}>
                         <Play className="size-3.5" /> Voir l&apos;aperçu
                       </Button>
                     </div>
@@ -644,7 +652,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                 {dirty && (
                   <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">
                     {listShort
-                      ? nb("Une liste a besoin de 2 points au moins : écris-les dans « Temps forts », ou choisis une autre mise en page, avant de voir l'aperçu.")
+                      ? nb(`${listShortText} : écris-les dans « Temps forts », ou choisis une autre mise en page, avant de voir l'aperçu.`)
                       : nb(`Modifications pas encore rendues : la vidéo montre encore la version ${version.n}. Clique sur « Voir l'aperçu » pour que le Mac la refasse (${aboutText(previewEstimate(worker, total))}, sans Claude).`)}
                   </p>
                 )}
@@ -786,6 +794,12 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       media={styleMedia}
                     />
                     <p className="text-[12px] text-ink-3">{"Une musique de Ressources → Musique, un morceau du dossier Musique de ton Mac, ou une musique composée pour cette vidéo."}</p>
+                    {/* Engine 2: the sound effects laid on the music's beats (left out of the plan: on). */}
+                    {video?.engine === 2 && (
+                      <div className="border-t border-line pt-3">
+                        <Toggle label="Bruitages calés sur les temps (whoosh, tic, impact…)" checked={draft.sfx !== false} onChange={(on) => edit({ ...draft, sfx: on ? undefined : false })} />
+                      </div>
+                    )}
                     <div className="flex flex-col gap-1.5 border-t border-line pt-3">
                       <span className="text-[12px] text-ink-2">Rythme</span>
                       <Segmented
@@ -798,7 +812,11 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                           { value: "fast", label: "Vif" },
                         ]}
                       />
-                      <p className="text-[12px] text-ink-3">Le rythme change la durée de tous les temps forts, sauf ceux dont tu as réglé la durée toi-même.</p>
+                      <p className="text-[12px] text-ink-3">
+                        {video?.engine === 2
+                          ? nb("Le rythme change la durée de toutes les scènes, sauf celles dont tu as réglé la durée toi-même ; la musique garde son tempo, chaque scène reste calée sur ses temps et ne descend jamais sous le temps de son animation.")
+                          : "Le rythme change la durée de tous les temps forts, sauf ceux dont tu as réglé la durée toi-même."}
+                      </p>
                     </div>
                   </div>
                 )}

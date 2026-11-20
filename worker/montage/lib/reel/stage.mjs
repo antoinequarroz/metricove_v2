@@ -34,7 +34,7 @@ function triplet(c, or) {
 export const safeJson = (v) => JSON.stringify(v).replace(/"(?:[^"\\]|\\.)*"/g, (s) => s.replace(/[<>&=:/'\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`));
 
 /** PRNG mulberry32 : le seul hasard de la vidéo, tiré dans Node depuis la graine. */
-function mulberry32(seed) {
+export function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -161,7 +161,7 @@ function chunk(type, data) {
   return Buffer.concat([len, td, crc]);
 }
 /** Tuile de grain (PNG en niveaux de gris, bruit tiré de la graine) : remplace la tuile SVG du design (pas d'http dans la page, moins cher à peindre). */
-function grainPng(size, rnd) {
+export function grainPng(size, rnd) {
   const rows = [];
   for (let y = 0; y < size; y++) {
     const row = Buffer.alloc(size + 1);
@@ -177,7 +177,7 @@ function grainPng(size, rnd) {
  * Le logo du look (data URL PNG, JPEG, WebP ou SVG, vérifié par ses premiers octets) : { buf, ext } ou null.
  * Un SVG (le logo de LivreMatch en est un) n'est posé que par <img> : il n'y exécute aucun script et ne charge rien.
  */
-function logoOf(look) {
+export function logoOf(look) {
   const m = /^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,([A-Za-z0-9+/=]+)$/.exec(String(look?.logo || ""));
   if (!m) return null;
   const buf = Buffer.from(m[2], "base64");
@@ -215,7 +215,7 @@ function copyGsap(cfg, assets, notes) {
 }
 
 /** Polices du style copiées à côté de la page : { css, display, body, load } (familles CSS avec repli générique seul). */
-async function copyFonts(cfg, look, assets, notes) {
+export async function copyFonts(cfg, look, assets, notes) {
   const key = FONTS[look.font] ? look.font : "grotesque";
   const F = FONTS[key];
   const generic = key === "serif" ? "serif" : "sans-serif";
@@ -251,7 +251,7 @@ async function copyFonts(cfg, look, assets, notes) {
 
 // ─── Page ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const CSP = "default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
+export const CSP = "default-src 'self' 'unsafe-inline' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
 
 /** Les couleurs du look : tokens CSS et pal des moments. */
 function palette(look) {
@@ -324,6 +324,8 @@ html,body{width:${W}px;height:${H}px;overflow:hidden;background:var(--bg)}
 export async function stagePage(cfg, plan, hfDir, { safe = false, notes = [] } = {}) {
   const video = plan?.video;
   if (!video || !Array.isArray(video.beats)) throw new Error("Plan vidéo illisible : aucun temps fort.");
+  // Engine 2 (Signature) : la bibliothèque de scènes, mise en scène par sig-stage.mjs.
+  if (Number(video.engine) === 2) return (await import("./sig-stage.mjs")).stageSignature(cfg, plan, hfDir, { safe, notes });
   const pace = RHYTHM[plan.pace] ? plan.pace : "normal";
   const timed = timeScore(video, { pace });
   const kept = timed.video.beats.filter((b) => !b.cut);

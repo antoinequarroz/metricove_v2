@@ -227,6 +227,9 @@ function videoMock({ atLeast, from: gateFrom }) {
   };
   // VOICE_OVER=1 (worker 0.19.0) : voix off, musique composée pour la vidéo et modèle Claude choisi.
   if (E.VOICE_OVER) job = { ...job, minWorker: "0.20.0", model: "claude-opus-5-5[1m]", effort: "high", motion: { ...job.motion, voice: { provider: "elevenlabs", voiceId: "testvoice01" }, track: "gen" } };
+  // SIGNATURE=1 (worker 0.22.0) : un job du nouveau site, la vidéo prend le moteur Signature (engine 2).
+  if (E.SIGNATURE) job = { ...job, minWorker: "0.22.0" };
+  state.engine = E.SIGNATURE && scenario !== "legacy" ? 2 : 1;
   const audioCalls = { tts: 0, music: 0 };
   const library = new Map();
   /** Un son de test : une note de `seconds` (ffmpeg), en WAV. */
