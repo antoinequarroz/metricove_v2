@@ -14,6 +14,10 @@ import { CaptionsEditor } from "./captions-editor";
 import { Segmented } from "./controls";
 import { TextGhost, TextPanel } from "./free-texts";
 import { fmtSec, JobStatus, Progress, WorkerBanner } from "./parts";
+import { useAudioSettings } from "../resources/music-maker";
+import { ClaudeSelects } from "./audio-fields";
+import { audioFor } from "@/lib/audio-ai";
+import { useProfiles } from "@/lib/use-profiles";
 import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
@@ -218,6 +222,13 @@ function Review({
     if (next) setEdl(next);
   };
 
+  // The Claude model of the next requests (the job's, else the one of Réglages).
+  const [model, setModel] = useState(job.model ?? "");
+  const [effort, setEffort] = useState(job.effort ?? "");
+  // Réglages with the choices of the job's style on top (the defaults shown beside the model and effort).
+  const { styles: allStyles } = useProfiles();
+  const styleMedia = job.projectId ? (allStyles?.[job.projectId]?.find((x) => x.id === job.styleId) ?? allStyles?.[job.projectId]?.[0])?.media : undefined;
+  const audioSettings = audioFor(useAudioSettings(), styleMedia);
   const call = async (body: object, ok: string) => {
     setBusy(true);
     try {
@@ -246,7 +257,7 @@ function Review({
   };
   /** A new version that handles the open review notes (and a few more words). */
   const revise = async (ids: string[], extra: string) => {
-    const ok = await call({ revise: extra, notes: ids }, ids.length ? `${ids.length} retour${ids.length > 1 ? "s" : ""} envoyé${ids.length > 1 ? "s" : ""} à Claude` : "Demande envoyée à Claude");
+    const ok = await call({ revise: extra, notes: ids, model, effort }, ids.length ? `${ids.length} retour${ids.length > 1 ? "s" : ""} envoyé${ids.length > 1 ? "s" : ""} à Claude` : "Demande envoyée à Claude");
     if (ok) void notes.reload();
     return ok;
   };
@@ -417,7 +428,7 @@ function Review({
           <span className="min-w-0 flex-1 text-pretty">
             <span className="font-medium text-danger">Le montage a échoué.</span> {job.error}
           </span>
-          <Button size="sm" onClick={() => call({ revise: job.feedback ?? "" }, "Nouvel essai demandé")}>
+          <Button size="sm" onClick={() => call({ revise: job.feedback ?? "", model, effort }, "Nouvel essai demandé")}>
             <RotateCcw className="size-3.5" /> Réessayer
           </Button>
         </div>
@@ -631,11 +642,17 @@ function Review({
                         onSend={revise}
                       />
                     )}
+                    {view === "claude" && job.status === "review" && (
+                      <label className="flex min-w-0 items-center gap-2 text-[12px] text-ink-2">
+                        <span className="shrink-0">Claude</span>
+                        <ClaudeSelects model={model} effort={effort} onModel={setModel} onEffort={setEffort} audio={audioSettings} className="flex-1" />
+                      </label>
+                    )}
                     {view === "claude" && job.status === "review" && <StyleRules job={job} notes={notes.notes} />}
 
                     {view === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
                     {view === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}
-                    {view === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
+                    {view === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} media={styleMedia} />}
                     {view === "text" && <TranscriptPanel edl={draft} time={time} onSeek={seek} edit={edit} onComment={canDraw ? (t, words) => void addNote({ t, text: `« ${words} » : ` }) : undefined} />}
                   </div>
                 </div>

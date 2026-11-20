@@ -67,7 +67,7 @@ type Job = {
   approved?: number;      // numéro de version validée
   mediaId?: string;       // vidéo finale dans la bibliothèque
   createdAt: string; updatedAt: string;
-  minWorker?: string;     // plus ancien worker qui peut prendre le job ("0.15.0" pour un reel vidéo)
+  minWorker?: string;     // plus ancien worker qui peut prendre le job (VIDEO_WORKER pour un reel vidéo : "0.15.0", puis "0.22.0" depuis engine 2)
   run?: JobRun;           // état vivant d'un job pris (voir « Reel vidéo continu »)
 };
 
@@ -330,6 +330,8 @@ Les deux écrans de montage (face caméra : `timeline.tsx` + `review-page.tsx` ;
 ### Reel vidéo continu (worker 0.15.0)
 
 > Contrat entre le site et le Mac pour METRI-16/17. Les types font foi dans `src/lib/montage.ts` et `src/lib/worker-version.ts` ; le nettoyage côté serveur dans `src/server/montage.ts` ; le moteur et la chaîne du Mac dans `worker/montage/lib/reel/`. Les anciens reels à scènes (sections précédentes) ne changent pas.
+>
+> Depuis le worker 0.22.0, un second moteur, « Signature » (`engine: 2`), écrit les nouvelles vidéos : voir la section *Reel vidéo « Signature » (engine 2, worker 0.22.0)*, en fin de document. Cette section décrit le moteur « Plateau » (`engine: 1`) et le contrat commun aux deux ; les valeurs qui ont changé avec engine 2 sont corrigées ici.
 
 Un reel vidéo est **un seul plan continu**, pas une suite de cartes. Claude écrit la *partition* (3 à 12 temps forts et la façon dont chacun naît du précédent) et au plus 3 *moments* HyperFrames sur mesure, enfermés dans un bac à sable. Le moteur du Mac (`worker/montage/lib/reel/`) compile le tout en une composition HyperFrames 1080×1920 à 30 i/s : une scène, une caméra, une timeline GSAP en pause. Il possède la typographie, la zone sûre, la marque, le déterminisme et la continuité. Un rendu moteur seul, sans moment, est toujours possible (plancher de repli).
 
@@ -339,7 +341,7 @@ Une version garde `reel: ReelPlan`. Un plan vidéo est un `ReelPlan` qui porte `
 
 ```ts
 type ReelVideo = {
-  engine: 1;                 // VIDEO_ENGINE : un plan d'un moteur plus récent est refusé, jamais deviné
+  engine: 1 | 2;             // VIDEO_ENGINES (1 Plateau, 2 Signature) : un plan d'un moteur plus récent est refusé, jamais deviné
   request: string;           // ≤ 4000, la demande d'Antoine
   source: "idea" | "script" | "post";
   target?: 15 | 30 | 45 | 60;// absent = Auto
@@ -361,8 +363,8 @@ type ReelBeat = {            // un repère de la vidéo : une idée
   items?: string[];          // layout list : 2 à 4 de ≤ 40
   emphasis?: string;         // ≤ 60, mots recopiés de text
   count?: boolean;           // layout number : le nombre compte
-  layout: "hero" | "stack" | "number" | "list" | "cta";
-  bridge: "rise" | "morph" | "carry" | "zoom" | "cut";   // naissance depuis le précédent (ignorée sur le premier)
+  layout: "hero" | "stack" | "number" | "list" | "cta";  // REEL_LAYOUTS_V1 (engine 2 : 10, REEL_LAYOUTS)
+  bridge: "rise" | "morph" | "carry" | "zoom" | "cut";   // REEL_BRIDGES_V1 (engine 2 : 10) ; naissance depuis le précédent (ignorée sur le premier)
   actor: "rest" | "dot" | "underline" | "highlight" | "bar" | "hidden";
   camera: "drift" | "push" | "still";
   seconds: number;           // durée voulue 1,5–10 (lire avec reelBeatSeconds)
@@ -381,7 +383,7 @@ type ReelMoment = {          // visuel sur mesure sur 1 à 3 temps forts conséc
 };
 ```
 
-Constantes partagées (`src/lib/montage.ts`) : `VIDEO_WORKER = "0.15.0"`, `VIDEO_ENGINE = 1`, les listes `REEL_LAYOUTS`, `REEL_BRIDGES`, `REEL_ACTORS`, `REEL_CAMERAS`, `REEL_ZONES`, `REEL_SHAPES`, `REEL_SOURCES`, `REEL_TARGETS` (une par ligne : `reel-vocab.test.mjs` les compare à `lib/reel/vocab.mjs`), `REEL_VIDEO` (limites de la demande, des temps forts, des durées), `READ_PACE`, `VIDEO_LIMITS` (longueurs des textes et du code), `VIDEO_BUDGETS` (caractères par layout à la taille de départ : hero 60 ; stack 90 + sub 160 ; number 40 + sub 120 ; list 50 + items de 40 ; cta 50 + sub 60), `VIDEO_BEAT_ID`, `VIDEO_MOMENT_ID`.
+Constantes partagées (`src/lib/montage.ts`) : `VIDEO_WORKER` (`"0.15.0"` à l'origine, `"0.22.0"` depuis engine 2), `VIDEO_ENGINE` (1, puis 2), les listes `REEL_LAYOUTS` et `REEL_BRIDGES` (celles d'engine 1 : `REEL_LAYOUTS_V1`, `REEL_BRIDGES_V1` depuis engine 2), `REEL_ACTORS`, `REEL_CAMERAS`, `REEL_ZONES`, `REEL_SHAPES`, `REEL_SOURCES`, `REEL_TARGETS` (une par ligne : `reel-vocab.test.mjs` les compare à `lib/reel/vocab.mjs`), `REEL_VIDEO` (limites de la demande, des temps forts, des durées), `READ_PACE`, `VIDEO_LIMITS` (longueurs des textes et du code), `VIDEO_BUDGETS` (caractères par layout à la taille de départ : hero 60 ; stack 90 + sub 160 ; number 40 + sub 120 ; list 50 + items de 40 ; cta 50 + sub 60), `VIDEO_BEAT_ID`, `VIDEO_MOMENT_ID`.
 
 Le choix se fait toujours sur `isVideoJob(job)` (`kind === "motion"` et `motion.mode === "video"` ou une version avec `reel.video`) et sur `v.reel.video`, jamais sur une forme devinée. Les anciens plans à scènes (art, layer, fx, dur) n'ont pas `video` : `cleanReel`, `renderPlan`, `reviseMotion`, `ReelReview` et `reelTimeline` les traitent comme avant. `MontageVersion.edl` reste `EMPTY_EDL` 9:16.
 
@@ -392,6 +394,7 @@ Le choix se fait toujours sur `isVideoJob(job)` (`kind === "motion"` et `motion.
 - mots = morceaux séparés par des espaces (espaces insécables compris, `\s`) qui contiennent au moins une lettre ou un chiffre (`/[\p{L}\p{N}]/u`) ; on compte ceux de `text`, `sub` et de chaque item ;
 - lecture minimale (`reelReadSeconds`) = (0,9 + 0,28 × mots + 0,6 si `count` + 0,3 × nombre d'items) × `READ_PACE[pace]` (calm 1,15, normal 1, fast 0,88) ;
 - durée = `fixed` ? `seconds` : max(`seconds`, lecture minimale), puis bornée à 1,5–10 s ; le dernier temps fort gardé fait au moins 2,5 s (`REEL_VIDEO.last`, aussi quand il est `fixed`) ; puis arrondie à l'image (`Math.round(s × 30) / 30`).
+- engine 2 : `reelBeatSeconds(beat, last, pace, fpb)` prend une autre lecture minimale (`reelSigReadSeconds`) puis pose la durée sur la grille du tempo : voir « Reel vidéo Signature ». `fpb` = 0 (engine 1) donne la formule ci-dessus, à l'octet près.
 
 `cleanScore` écrit dans `seconds` les durées après mise à l'échelle vers la cible : un recalcul sans cible redonne donc les mêmes temps. Les temps forts gardés se suivent bout à bout : start₀ = 0, endᵢ = arrondi à l'image de (startᵢ + durée), startᵢ₊₁ = endᵢ ; la durée de la vidéo est la fin du dernier.
 
@@ -401,7 +404,7 @@ Le choix se fait toujours sur `isVideoJob(job)` (`kind === "motion"` et `motion.
 #### Tâche
 
 - `job.motion` (vidéo) : `{ mode: "video", scenes: [], request, source, seconds?, pace?, direction?, music, track?, logo, look, project? }`. Le logo n'est jamais stocké : la route claim l'injecte dans `motion.look.logo`, comme aujourd'hui.
-- `job.minWorker = "0.15.0"` sur un job vidéo ; absent sur les autres (n'importe quel worker les prend).
+- `job.minWorker = VIDEO_WORKER` sur un job vidéo (`"0.15.0"` à l'origine, `"0.22.0"` depuis engine 2 ; `AUDIO_WORKER` s'il est plus haut et que la vidéo a une voix off ou une musique de la bibliothèque ou composée) ; absent sur les autres (n'importe quel worker les prend).
 - `job.regen` : la prochaine action `motion` écrit une nouvelle vidéo à partir de la demande (version n+1, nouvelle graine) au lieu de retoucher.
 - `job.run` (`JobRun`), état vivant d'un job pris, en heures du serveur ; `queue()` et `release()` l'effacent :
   `{ startedAt, by?, beatAt, phase?, phases?, phaseAt?, etaAt?, frames?: [i, n], beats?: [{ id, title, start, end }], board?: { v, n, frames: [{ id, t }] }, done?: [{ phase, s }] }`.
@@ -411,7 +414,7 @@ Le choix se fait toujours sur `isVideoJob(job)` (`kind === "motion"` et `motion.
 #### Contrats HTTP
 
 Page → serveur :
-- `POST /api/montage/jobs` `{ kind: "motion", mode: "video", request, source?, seconds?, pace?, direction?, music, track?, logo, look, projectId }` → 201. `videoJob()` stocke `motion` (ci-dessus, look sans logo), `minWorker: "0.15.0"`, `brief: { format: "9:16", seconds }`, `status: "queued"`, `action: "motion"`, titre « Reel animé : <première ligne de la demande, ≤ 60> ». Moins de 10 caractères → 400 « Écris ta demande (10 caractères au moins) ». `{ kind: "motion", scenes }` sans `mode` reste l'ancien chemin.
+- `POST /api/montage/jobs` `{ kind: "motion", mode: "video", request, source?, seconds?, pace?, direction?, music, track?, logo, look, projectId, sfx? }` → 201. `videoJob()` stocke `motion` (ci-dessus, look sans logo ; `sfx: false` seulement s'il est envoyé tel quel, engine 2), `minWorker` (voir Tâche), `brief: { format: "9:16", seconds }`, `status: "queued"`, `action: "motion"`, titre « Reel animé : <première ligne de la demande, ≤ 60> ». Moins de 10 caractères → 400 « Écris ta demande (10 caractères au moins) ». `{ kind: "motion", scenes }` sans `mode` reste l'ancien chemin.
 - `PATCH /api/montage/jobs/:id` :
   - `{ regenerate: true, request?, seconds? }` → 409 « Le Mac travaille déjà sur ce reel » si le job a une action, 400 si ce n'est pas une vidéo (ou une demande de moins de 10 caractères) ; sinon met à jour `motion.request` et `motion.seconds` (+ `brief.seconds`) s'ils sont donnés (`seconds` hors de 15/30/45/60, `null` compris = Auto), `regen = true`, efface `feedback`, `marks`, `range`, `base`, puis `queue("motion")`.
   - `{ stop: true }` → seulement un reel VIDÉO (`isVideoJob`) avec une action et une version `reel` + aperçu, sinon 400 « Rien à rétablir : annule plutôt ». Un reel vidéo sans action (le Mac a fini entre le clic, après le `confirm()`, et la requête) → 200 avec le job tel quel, comme `withdraw` ; fait `restoreReel`, `regen = undefined`, `release("review")`. Une première génération s'annule par `DELETE`. Un reel à scènes n'a pas `stop` : son worker ne s'arrête que sur un 404 (job supprimé), jamais sur `action: null` ; il garde `withdraw` et `cancel`.
@@ -436,15 +439,15 @@ Mac → serveur :
 - Ordre des routes d'écriture du worker (`PATCH`, `/board`, `/versions`, `/versions/:n/preview`) : le corps est lu EN ENTIER avant `getJob()`. Tout ce qui suit est synchrone (better-sqlite3, `fs.*Sync`), donc la vérification (`staleWrite`) et l'enregistrement (`saveJob`, un upsert) voient un arrêt, une annulation ou un `DELETE` arrivé pendant l'envoi du corps : une planche de 800 Ko en route pendant un `DELETE` ne recrée pas le job. Un corps JSON `null` (ou illisible) vaut `{}` (jamais de 500).
 
 Nettoyage côté serveur (`cleanReel` → `cleanVideo`) :
-- Depuis le Mac (sans base) : `engine === 1`, sinon « Moteur vidéo inconnu : mets le site à jour » ; textes bornés par `VIDEO_LIMITS`, listes forcées, `seconds` 1,5–10, `start`/`end` gardés si 0 ≤ start < end ≤ 61 ; ≤ 12 temps forts aux ids uniques ; ≤ 3 moments aux ids uniques dont `from`/`to` existent ; code au-delà de 12k/8k/12k par moment ou 60k en tout → « Code des animations trop long ». `scenes = []` et la règle « Garde au moins une scène » est sautée.
-- Depuis la page (avec base) : `engine`, `request`, `source`, `target`, `direction`, `title`, `shape`, `caption`, `seed`, `tools` et les champs réservés viennent TOUJOURS de `base.video` ; temps forts : seuls les ids de la base, champs modifiables `title`, `text`, `sub`, `items`, `emphasis`, `count`, `layout`, `bridge`, `actor`, `camera`, `seconds`, `fixed`, `cut` et l'ordre, `start`/`end` retirés ; moments : gardés seulement si la base a l'id ET que la page envoie `custom: true`, avec `brief`, `from`, `to`, `zone` et `code` de la base ; au moins 2 temps forts gardés, sinon « Garde au moins deux temps forts ». `duration` vient du Mac seulement.
+- Depuis le Mac (sans base) : `engine` 1 ou 2 (`VIDEO_ENGINES`, le nombre exactement), sinon « Moteur vidéo inconnu : mets le site à jour » (règles propres à engine 2 : voir « Reel vidéo Signature ») ; textes bornés par `VIDEO_LIMITS`, listes forcées, `seconds` 1,5–10, `start`/`end` gardés si 0 ≤ start < end ≤ 61 ; ≤ 12 temps forts aux ids uniques ; ≤ 3 moments aux ids uniques dont `from`/`to` existent ; code au-delà de 12k/8k/12k par moment ou 60k en tout → « Code des animations trop long ». `scenes = []` et la règle « Garde au moins une scène » est sautée.
+- Depuis la page (avec base) : `engine`, `request`, `source`, `target`, `direction`, `title`, `shape`, `caption`, `seed`, `tools`, les champs réservés (et pour engine 2 `fpb` et `drop`) viennent TOUJOURS de `base.video` ; temps forts : seuls les ids de la base, champs modifiables `title`, `text`, `sub`, `items`, `emphasis`, `count`, `layout`, `bridge`, `actor`, `camera`, `seconds`, `fixed`, `cut` et l'ordre (engine 2 : aussi `surface`, `screen`, `pick`, `label`), `start`/`end` retirés ; moments : gardés seulement si la base a l'id ET que la page envoie `custom: true`, avec `brief`, `from`, `to`, `zone` et `code` de la base ; au moins 2 temps forts gardés, sinon « Garde au moins deux temps forts ». `duration` vient du Mac seulement.
 - `pageReel` : `video.moments` sans `code`, avec `custom: !!code`. Le code ne va jamais au navigateur.
 
 #### Vie d'un reel vidéo
 
-1. **Création** (page) : `POST /api/montage/jobs` `{ kind: "motion", mode: "video", … }` → job `queued`, action `motion`, `minWorker: "0.15.0"`. La page suit le job avec `GET /api/montage/jobs/:id` (toutes les 2 s tant qu'il est en file ou en cours).
-2. **Attente** : un Mac plus ancien que 0.15.0, ou qui ne dit pas sa version, reçoit 204 ; le job attend, `ahead` donne sa place dans la file et `worker` dit pourquoi (hors ligne, occupé, trop ancien).
-3. **Réclamation** par un Mac ≥ 0.15.0 : `run = { startedAt, by, beatAt }`, `status: "working"`, `step: "Pris en charge par le Mac"` ; le job arrive avec `voice` et le logo.
+1. **Création** (page) : `POST /api/montage/jobs` `{ kind: "motion", mode: "video", … }` → job `queued`, action `motion`, `minWorker` (`VIDEO_WORKER`, `"0.22.0"` depuis engine 2 ; voir Tâche). La page suit le job avec `GET /api/montage/jobs/:id` (toutes les 2 s tant qu'il est en file ou en cours).
+2. **Attente** : un Mac plus ancien que `minWorker` (et que `VIDEO_WORKER`), ou qui ne dit pas sa version, reçoit 204 ; le job attend, `ahead` donne sa place dans la file et `worker` dit pourquoi (hors ligne, occupé, trop ancien).
+3. **Réclamation** par un Mac ≥ `minWorker` et ≥ `VIDEO_WORKER` (0.22.0 depuis engine 2, pour toute vidéo) : `run = { startedAt, by, beatAt }`, `status: "working"`, `step: "Pris en charge par le Mac"` ; le job arrive avec `voice` et le logo.
 4. **Écriture, vérification, relecture, rendu, finition, envoi** : `PATCH { step, progress, phase, phases, eta, frames?, beats?, done? }` au plus toutes les 1,5 s et toutes les 15 s au moins ; `beats` dès que la partition est connue (avant le rendu) ; `POST /board` après les premières images (vers 40 %).
 5. **Fin** : `POST /versions { reel, notes, upload }` → version `claude` avec aperçu, `release("review")`, `run` effacé, titre « Reel animé : <video.title> » à la première vidéo.
 6. **Ensuite**, depuis l'écran de retouche ou le Studio :
@@ -490,7 +493,7 @@ Paquet B (chaîne du worker) :
 - `lib/util.mjs` : `run(cmd, args, { …, timeoutMs, signal, onLine })` (ajouts seulement) : lancement detached, à l'expiration ou à l'annulation `kill(-pid, "SIGTERM")` puis `SIGKILL` 3 s plus tard, erreur en français ; `onLine` reçoit stdout découpé sur `\r` et `\n`, sans codes ANSI.
 - `lib/claude.mjs` : `askStream(cfg, prompt, schema, cwd, { tools, timeoutMs, signal, onDelta, effort })` → `structured_output` ; `claudeFlags(cfg)` (`--restricted`, `--tools`, stream-json ; mis en cache). `ask()` ne change pas.
 - `lib/api.mjs` : `step(id, s, p, extra = {})`, `board(id, image, frames)` (avale le 404), `claim(version, tracks, brolls, speed)`.
-- `lib/jobs.mjs` : aiguillage du bloc motion : `job.motion?.mode === "video" || v?.reel?.video` → `handleVideo` ; action `preview` → `renderVideo` (sans Claude) ; action `motion` → `makeVideo` (`job.regen` ou aucune version vidéo) ou `reviseVideo` (avec une base). Pas de `/final` pour une vidéo, pas de PATCH failed après une annulation. Un plan à `engine` > 1 → « Ce reel a été fait par un Mac plus récent : mets le Mac à jour ».
+- `lib/jobs.mjs` : aiguillage du bloc motion : `job.motion?.mode === "video" || v?.reel?.video` → `handleVideo` ; action `preview` → `renderVideo` (sans Claude) ; action `motion` → `makeVideo` (`job.regen` ou aucune version vidéo) ou `reviseVideo` (avec une base). Pas de `/final` pour une vidéo, pas de PATCH failed après une annulation. Un plan à `engine` > `ENGINE` (2) → « Ce reel a été fait par un Mac plus récent : mets le Mac à jour ».
 - `lib/reel/hf-cli.mjs` : `HF_TIMEOUTS` (lint 60 s, check 180 s, snapshot 120 s), `browserPath(cfg, { ensure })`, `renderTimeout(frames, maxFrameMs)` (120 s + images × maxFrameMs, 25 min au plus), `RENDER_PROGRESS`, `parseSummary(line)`, `hfEnv(cfg)` (variables `HYPERFRAMES_NO_TELEMETRY`, `…_NO_UPDATE_CHECK`, `…_NO_AUTO_INSTALL`, `…_SKIP_SKILLS` = 1, `HYPERFRAMES_BROWSER_PATH` = `workDir/chrome-offline.sh`), `offlineBrowser(cfg)`, `lint(cfg, dir, o)` et `check(cfg, dir, o)` → `{ blocking: Finding[], advice: Finding[] }`, `snapshot(cfg, dir, times, o)` → chemins des PNG, `render(cfg, dir, out, { onFrame, signal, timeoutMs })` → `{ summary }`, `blame(findings, momentIds)` → `{ engine: Finding[], moments: { [id]: Finding[] } }`. `o = { signal, timeoutMs }`.
 - `lib/reel/progress.mjs` : `new Progress(steps, cfg, job, { kind: "write" | "revise" | "edit" })` (phases prévues `PLANS`, durées par défaut `DEFAULTS`, textes `STEP`, fraction, eta, PATCH limités, battement de 15 s), `readStats`, `learnStats` et `speedOf(cfg)` (`reel-stats.json`, moyenne glissante α 0,3 ; `speed` de la réclamation).
 - `lib/reel/prompt.mjs` : `SCORE_SCHEMA`, `REVIEW_SCHEMA`, `REVISE_SCHEMA`, `writePrompt`, `reviewPrompt`, `revisePrompt`.
@@ -504,7 +507,7 @@ Paquet D : `src/components/montage/reel-studio.tsx`, `reel-progress.tsx`, `use-r
 
 #### Configuration et fichiers du Mac
 
-- `config.json` : `gsapFile`, `gsapDir` (obligatoire pour la vidéo : Chrome hors ligne ne joint aucun CDN), `fontsDir`, `hyperframesReference`, `reel: { review: true, effort: "", restricted: true, claudeWriteMin: 6, claudeReviewMin: 4, claudeReviseMin: 5, maxFrameMs: 400, jobMaxMin: 30, reviewWithinMin: 6 }` (`review: false` saute la relecture en images ; `restricted: false` est écrit par `--setup-reel` quand Claude refuse le mode restreint : écriture par l'ancien appel, sans relecture).
+- `config.json` : `gsapFile`, `gsapDir` (obligatoire pour la vidéo : Chrome hors ligne ne joint aucun CDN), `fontsDir`, `hyperframesReference`, `reel: { review: true, effort: "", restricted: true, claudeWriteMin: 6, claudeReviewMin: 4, claudeReviseMin: 5, maxFrameMs: 400, jobMaxMin: 30, reviewWithinMin: 6, engine: 2 }` (`engine: 1` : les nouvelles vidéos repassent au premier moteur, voir « Reel vidéo Signature » ; `review: false` saute la relecture en images ; `restricted: false` est écrit par `--setup-reel` quand Claude refuse le mode restreint : écriture par l'ancien appel, sans relecture).
 - `workDir/chrome-offline.sh` (Chrome sans DNS hors de la boucle locale), `workDir/reel-stats.json` (durées apprises), `workDir/worker.lock` (`{ pid, startedAt }`).
 - Installation (une fois) : `git pull`, `node montage.mjs --setup-reel` (gsap 3.14.2 local, navigateur hors ligne, rendu de mesure de 3 s rendu deux fois au même framemd5, test de `claude -p --restricted`), `node montage.mjs --check`, redémarrage. HyperFrames reste épinglé à 0.8.137 (`lint`, `check`, `snapshot`, `render` ; jamais `validate`, `add` ni `skills update`).
 
@@ -672,7 +675,45 @@ Une tâche `kind: "style"` (action `style`, `minWorker` 0.18.0) porte `job.style
 Réglages du Mac (`config.json`) : `ytDlp` (chemin de yt-dlp, `brew install yt-dlp`) et `ytDlpCookies` (navigateur dont
 yt-dlp prend les cookies, par ex. `"chrome"` : Instagram demande souvent d'être connecté).
 
-### Look vidéo d'un style (`look.video`, worker 0.19.0)
+## Voix, musique, modèle Claude et puissance (worker 0.20.0, METRI-38 à 41)
+
+**Clés et choix (Réglages → Voix et musique, Modèle Claude des vidéos).** Réglage `audioKeys` `{ elevenlabs?, google? }`
+(sinon `ELEVENLABS_API_KEY`, `GEMINI_API_KEY` ou `GOOGLE_API_KEY` du `.env`), jamais renvoyé à la page ni au Mac ;
+réglage `audioPrefs` `{ voiceProvider, voiceId?, voiceName?, musicProvider, claudeModel }`. Routes :
+`GET|PUT /api/settings/audio` (une clé est vérifiée auprès du fournisseur avant d'être gardée),
+`GET /api/audio/voices?provider=elevenlabs|google`, `POST /api/audio/tts { text, provider?, voiceId? }` → le son
+(MP3 ElevenLabs `eleven_multilingual_v2`, ou WAV 24 kHz Gemini TTS ; en-tête `X-Audio-Ext`),
+`POST /api/audio/music { prompt, seconds, provider?, name?, tags?, styles? }` → `{ item }` (ElevenLabs Music
+`/v1/music` instrumental à la durée exacte, ou Lyria par `generateContent`, la durée dans la consigne ; rangée dans la
+bibliothèque `kind: "music"`, Ressources → Musique). Modèles Google essayés dans l'ordre : `GEMINI_TTS_MODELS`,
+`LYRIA_MODELS` (variables du `.env`, listes séparées par des virgules) ; ElevenLabs : `ELEVENLABS_TTS_MODEL`,
+`ELEVENLABS_MUSIC_MODEL`.
+
+**Modèle Claude.** `job.model` (montage face cam, reel ; posé à la création ou par un PATCH de la page `{ model }`) ;
+la réclamation ajoute sinon `audioPrefs.claudeModel`. Le Mac lance tout le travail de la tâche dans `withModel()`
+(lib/claude.mjs) : chaque `claude -p` reçoit `--model <job.model>`, sinon `claude.model` de config.json. Un modèle
+inconnu donne une erreur claire (`code: "MODEL"`).
+
+**Pistes de musique.** `track` (EDL face cam, plan du reel) accepte aussi `lib:<id>` (une musique de la bibliothèque,
+téléchargée une fois dans `libraryCache`) et, pour un reel vidéo, `gen` : Claude écrit la consigne (`music`, en
+anglais, dans la partition) et, une fois la durée connue, le Mac demande `POST /api/audio/music` ; le plan rendu garde
+`lib:<id>` (une retouche ou une édition réutilise la même musique). Un Mac avant 0.20.0 ne reçoit jamais un reel avec
+voix off, `gen` ou `lib:` (`minWorker` : le plus haut de `AUDIO_WORKER` et `VIDEO_WORKER`, donc 0.22.0 depuis engine 2).
+
+**Voix off du reel.** `motion.voice { provider, voiceId, name? }` → `video.voiceOver`. Chaque temps fort porte `say`
+(300 caractères, exigé par le schéma quand la voix est demandée, à l'écriture et à la retouche). Avant la
+vérification, le Mac fait lire chaque phrase (`POST /api/audio/tts`, cache `voiceCache`
+~/Movies/Metricove/voix-cache), allonge le temps fort à phrase + 0,6 s au moins (`fixed`), puis au mixage
+(lib/reel/narration.mjs) pose chaque phrase 0,15 s après le début de son temps fort, baisse la musique dessous
+(sidechaincompress, musique à la moitié du volume choisi) et normalise à −14 LUFS.
+
+**Par style de projet (worker 0.21.0).** Un style peut porter `media` `{ voice?, voiceOn?, musicProvider?, musicStyle?,
+claudeModel?, claudeEffort? }` (Ressources → Styles, « Voix, musique et Claude des vidéos »). Ordre : choix de la vidéo,
+puis style, puis Réglages. La réclamation ajoute `model`/`effort` et `music { provider?, style? }` ; le Mac met le style
+de musique dans la consigne de Claude et à la fin de la consigne envoyée au compositeur. Les pages partent de
+`audioFor(Réglages, style.media)` (voix par défaut, voix off activée d'office, modèle et puissance affichés).
+
+### Look vidéo d'un style (`look.video`, worker 0.21.0)
 
 Un style peut porter un **look vidéo** : police Google Fonts (n'importe quelle famille), graisse, capitales, couleur du
 texte, contour, fond derrière la ligne ou le mot dit, ombre, type d'accroche (bandeau, gros texte, cadre blanc), place,
@@ -683,3 +724,131 @@ Styles (« Look des vidéos », avec un aperçu) et « Copier un créateur » le
 - À la création d'un montage, `captionsOf` met la place, l'apparition, la taille et la couleur du style dans `job.style`.
 - La copie garde 6 images clés des reels comme images d'inspiration du style ; un montage les reçoit (`voice.images`)
   et Claude les lit avant de proposer la mise en scène.
+
+## Reel vidéo « Signature » (engine 2, worker 0.22.0)
+
+> Second moteur du reel vidéo continu. Le contrat commun (tâche, routes, vie d'un reel, planche, édition à la main, porte de version) reste celui de « Reel vidéo continu (worker 0.15.0) » ; ici, ce qui change. Le vocabulaire a une seule source, `worker/montage/lib/reel/vocab.mjs` (`SIG_LAYOUTS`, `SIG_BRIDGES`, `SURFACES`, `SCREENS`, `FPB`, `FPB_RANGE`, `SIG_READ`, `SIG_MIN_BEATS`, `SIG_INFO`) ; `src/lib/montage.ts` en est le miroir (`TS_MIRROR`, vérifié par `test/reel-vocab.test.mjs`).
+
+Une vidéo Signature enchaîne des **scènes d'une bibliothèque**, chacune avec sa chorégraphie, toutes **calées sur le tempo de la musique** : chaque durée est un nombre entier de temps, une transition dure un temps, les bruitages tombent sur les temps, et la musique est recalée sur la grille de la vidéo, sa montée posée sur le moment fort. Claude n'écrit pas de moment sur mesure : `moments` est toujours vide.
+
+- `video.engine` ne change jamais pour une vidéo : une retouche et une édition à la main gardent le moteur de leur base (le Mac comme le serveur). Le Mac 0.22.0 choisit le moteur d'une nouvelle vidéo (création, régénération) avec `engineFor` (`lib/reel/index.mjs`) : engine 2 (`ENGINE_NEW`) seulement si le job porte `minWorker` ≥ 0.22.0 (posé par le site à jour) et si `config.json` → `reel.engine` ne vaut pas 1 ; sinon engine 1. Il rejoue toujours les vidéos engine 1.
+- La page décide tout sur `video.engine` : une vidéo engine 1 garde exactement ses listes, ses libellés et ses champs ; une vidéo engine 2 a ceux de Signature. Une valeur inconnue (plan d'un Mac plus récent) s'affiche telle quelle dans sa liste, sans planter ni être remplacée.
+
+#### Plan (ajouts aux types)
+
+```ts
+type ReelVideo = {
+  engine: 1 | 2;
+  fpb?: number;        // engine 2 : images par temps de musique, entier 12–20 (REEL_FPB_RANGE) ; absent en engine 1
+  drop?: string;       // engine 2 : id d'un temps fort gardé, la scène du moment fort (la musique y monte)
+  moments: ReelMoment[];   // engine 2 : toujours []
+  …                    // le reste comme engine 1
+};
+type ReelBeat = {
+  layout: ReelLayout;  // engine 2 : les 10 de REEL_LAYOUTS
+  bridge: ReelBridge;  // engine 2 : les 10 de REEL_BRIDGES
+  actor: ReelActor;    // mêmes valeurs ; engine 2 : la « marque » posée sur les mots d'emphase
+  surface?: "base" | "accent" | "ink" | "alt";  // engine 2 : arrière-plan de la scène (base par défaut)
+  screen?: "feed" | "app" | "chat" | "notifs";  // engine 2, phone seulement (app s'il a des items, sinon feed)
+  pick?: number;       // engine 2, phone à l'écran app : le choix que le doigt touche (0 ≤ pick < items.length)
+  label?: string;      // engine 2, phone / cards / cta : une ligne, ≤ 24 (VIDEO_LIMITS.beat.label)
+  …
+};
+type ReelPlan = { …; sfx?: boolean };        // engine 2 : false = sans bruitages ; absent = avec
+type MotionRequest = { …; sfx?: boolean };   // la même chose à la création ; le Mac la recopie dans le plan
+```
+
+Constantes (`src/lib/montage.ts`) : `VIDEO_WORKER = "0.22.0"`, `VIDEO_ENGINE = 2`, `VIDEO_ENGINES = [1, 2]` (site seulement), `REEL_LAYOUTS` (10) et `REEL_LAYOUTS_V1` (5), `REEL_BRIDGES` (10) et `REEL_BRIDGES_V1` (5), `REEL_SURFACES`, `REEL_SCREENS`, `REEL_FPB`, `REEL_FPB_RANGE`, `REEL_SIG_READ`, `REEL_SIG_ITEM_LAYOUTS` (les scènes qui montrent leurs items), `SIG_MUSIC_FADE` (fondus par défaut de la musique), `VIDEO_LIMITS.beat.label` (24) et les budgets des cinq nouvelles scènes dans `VIDEO_BUDGETS`. Fonctions : `reelSigReadSeconds`, `reelBeatSeconds(beat, last, pace, fpb = 0)`, `reelOnGrid`, `videoFpb`, `videoTimeline` (qui prend la grille de la vidéo). `count` ne sert pas en engine 2 : le chiffre tourne toujours comme un compteur (la page cache l'interrupteur).
+
+#### Scènes (`layout`)
+
+| Scène | Libellé | Quand | Budget (caractères) | Durée plancher (temps) |
+| --- | --- | --- | --- | --- |
+| `hero` | Héros | une phrase-choc seule, énorme : l'accroche idéale | text 60 | 4 |
+| `stack` | Pile | une phrase et sa précision (`sub`) | text 90, sub 160 | 4 |
+| `number` | Chiffre | un nombre dont les chiffres tournent comme un compteur et tombent sur les temps, puis sa légende ; sans nombre dans le texte, le Mac joue un héros | text 40, sub 120 | 6 |
+| `list` | Liste | un titre, puis 2 à 4 éléments cochés un par temps | text 50, items de 40 | 2,5 + 1 par item |
+| `cta` | Appel | la dernière scène : le nom de la marque (`label`, sinon le compte), une phrase (`text`), un bouton (`sub`) qu'un doigt touche | text 50, sub 60, label 24 | 6 |
+| `slot` | Machine à sous | un début de phrase fixe et un mot qui défile, un par temps ; le dernier item est la chute | text 30, items de 22 | 2,5 + 1 par item |
+| `phone` | Téléphone | un téléphone monte sous le titre et montre un écran (`screen`) | text 60, sub 60, 0 à 4 items de 34, label 24 | 3,5 + 1 par item |
+| `cards` | Cartes à swiper | 2 à 4 cartes swipées, puis le tampon (`label`, sinon une coche) tombe sur la dernière ; `sub` = la chute qui remplace `text` | text 50, sub 50, items de 40, label 24 | 5,5 + 1 par item |
+| `bubbles` | Bulles | un titre et 2 à 4 bulles (messages, avis, notifications) qui surgissent autour | text 50, items de 28 | 3 + 0,5 par item |
+| `wall` | Mur de mots | un mur de mots géants (les items) qui défile en diagonale, une phrase courte au centre | text 40, items de 22 | 6 |
+
+- `list`, `slot`, `cards`, `bubbles` et `wall` ont besoin de 2 items au moins : sinon le Mac prend une autre scène (list et cards → pile, bubbles → pile, slot et wall → héros), et la page refuse « Voir l'aperçu » tant qu'ils ne sont pas écrits.
+- Durée plancher (`SIG_MIN_BEATS`, le temps que la chorégraphie se joue) : ⌈base + par item × items⌉ temps, soit × `fpb` / 30 s, 10 s au plus. `cleanScore` l'écrit dans `seconds` des temps forts non `fixed` ; la page ne la calcule pas : une scène qui gagne des items dans la page prend sa durée au prochain aperçu.
+
+#### Transitions (`bridge`)
+
+| Transition | Libellé | Effet |
+| --- | --- | --- |
+| `rise` | Montée | les mots sortent par le haut, ceux de la scène suivante montent |
+| `morph` | Métamorphose | comme la montée, et la marque voyage d'une phrase à l'autre |
+| `carry` | Mot porté | un mot commun aux deux scènes voyage pendant que le reste change |
+| `zoom` | Plongée | la caméra plonge dans la marque, l'emphase ou l'écran du téléphone et ressort sur la scène suivante |
+| `cut` | Coupe sèche | changement instantané sur le temps ; 2 au plus par vidéo (au-delà : métamorphose) |
+| `flood` | Remplissage | la marque ou la tape du doigt grandit jusqu'à remplir l'écran de la scène suivante |
+| `wipe` | Volet | une bande de couleur balaie l'écran en diagonale : le changement de fond par défaut |
+| `whip` | Panoramique filé | la scène file vers la gauche avec un flou de vitesse |
+| `push` | Poussée | la scène suivante pousse la précédente vers le haut |
+| `flip` | Retournement | l'écran se retourne comme une carte (entre deux scènes téléphone : l'écran du téléphone) |
+
+Une transition dure un temps de la grille ; celle de la première scène est ignorée. `rise`, `morph` et `carry` demandent le même arrière-plan des deux côtés : sinon le Mac joue un volet (`cleanScore`). La règle d'engine 1 « une plongée suit une emphase » ne s'applique pas.
+
+#### Marque, arrière-plans et écrans du téléphone
+
+- Marque (`actor`, ce que la scène fait des mots d'emphase) : `highlight` Surligné, `underline` Souligné, `bar` Entouré, `dot` Point (un point de couleur ponctue la phrase), `rest` Couleur (les mots prennent la couleur de la marque), `hidden` Sans. Mêmes valeurs qu'engine 1 (`REEL_ACTORS`), autre sens ; la règle d'engine 1 « forme cachée une fois sur deux au plus » ne s'applique pas.
+- Arrière-plan (`surface`, pris dans le style du projet) : `base` Fond, `accent` Accent (la couleur d'accent en plein écran, texte contrasté : les moments forts), `ink` Encre (le négatif), `alt` Second fond (le deuxième fond du style, sinon une teinte profonde de l'accent).
+- Écran du téléphone (`screen`) : `feed` Fil d'actualité (un fil qui défile de plus en plus vite ; items = bulles autour du téléphone), `app` Application (items = choix ; `label` = le bouton ; le doigt touche `pick`, sinon le bouton s'il y a un `label`, sinon le premier choix), `chat` Messages (items = messages alternés reçu/envoyé ; `label` = le nom de la conversation, sinon la marque), `notifs` Notifications (items empilés sur l'écran verrouillé). Deux scènes téléphone de suite gardent le même téléphone.
+- `label` : le bouton de l'app, le nom de la conversation, le tampon des cartes (par exemple « MATCH »), le nom de la marque de l'appel. Il ne sert à rien sur les écrans `feed` et `notifs` (la page ne le montre pas).
+
+#### Grille du tempo (`fpb`)
+
+- `fpb` = images (à 30 i/s) par temps de musique ; tempo = 1800 / `fpb` BPM. Par rythme (`REEL_FPB`) : calm 18 (100 BPM), normal 15 (120 BPM), fast 14 (≈ 128,6 BPM) ; `REEL_FPB_RANGE` = 12 à 20 (150 à 90 BPM) pour une musique choisie.
+- Le Mac pose `fpb` à l'écriture et le garde ensuite (`cleanScore` : celui que l'appelant impose, sinon celui de la base à une relecture, une retouche ou une édition, sinon celui de la partition, sinon `REEL_FPB[pace]` ; toujours un entier de 12 à 20), puis recale la musique dessus à la finition (`sig-mix.mjs`).
+- `videoFpb(video)` (= `fpbOf` de `score.mjs`) : `video.fpb` pour engine 2 s'il est un entier de 12 à 20, sinon 0 (pas de grille : engine 1).
+- Lecture minimale d'engine 2 (`reelSigReadSeconds`, constantes `REEL_SIG_READ`, = `minSeconds` d'engine 2 dans `vocab.mjs`) : (0,8 + 0,2 × mots de `text` + 0,15 × mots de `sub` + 0,12 × mots des items lus + 0,25 × items lus) × `READ_PACE[pace]`. Seul ce que la scène montre compte : `sub` sur les scènes qui en ont un (`VIDEO_BUDGETS[layout].sub` : stack, number, phone, cards, cta), les items sur les scènes de `REEL_SIG_ITEM_LAYOUTS` (des items restés sur une autre scène après un changement de mise en page ne comptent pas, le Mac les retire). Items lus : tous, sauf `slot` et `cards` (le dernier seul) et `wall` (aucun) ; ces trois scènes ne comptent pas les 0,25 par item. Pas de `count`.
+- `reelBeatSeconds(beat, last, pace, fpb)` : la durée d'engine 1 calculée avec cette lecture (bornes 1,5–10 s, dernier temps fort ≥ 2,5 s, arrondi à l'image), puis posée sur la grille par `reelOnGrid(s, fpb, fixed, plancher)` : f = round(s × 30) ; n = `fixed` ? round(f / fpb) (le temps le plus proche) : ⌈f / fpb − 10⁻⁶⌉ (le temps suivant, jamais sous la lecture) ; n × fpb est ramené entre plancher × 30 et 300 images par temps entiers (plancher 2,5 s pour le dernier temps fort gardé, 1,5 s sinon) ; durée = n × fpb / 30. Exemple : 3,3 s à fpb 15 (un temps = 0,5 s) → 3,5 s, libre ou fixée ; à fpb 14 → 3,733 s libre (8 temps), 3,267 s fixée (7 temps).
+- `videoTimeline(plan)` pose les temps forts gardés bout à bout avec ces durées : exactement les images de `timeScore` (vérifié en égalité stricte sur les 10 scènes, `fpb` 0 et 12 à 20, les trois rythmes, durées libres ou fixées, avec ou sans dernier temps fort, et sur des plans sortis de `cleanScore`).
+- Une édition à la main garde le `fpb` de la base, sur le serveur (il ne le prend jamais de la page) comme sur le Mac : un changement de rythme dans la page ne change pas la grille (la musique garde son tempo). Comme en engine 1, la page met les durées voulues des temps forts non `fixed` à l'échelle (× `READ_PACE[nouveau]` / `READ_PACE[ancien]`, 1,5–10 s, au dixième en engine 1 et au millième en engine 2 : un temps de la grille n'est pas un multiple de 0,1 s, et un arrondi au dixième au-delà d'un temps ajouterait un temps entier à la scène, si bien qu'un rythme changé puis remis ne redonnerait pas la même durée) : les `seconds` écrits par `cleanScore` contiennent déjà la lecture de l'ancien rythme, donc sans cette mise à l'échelle « Vif » ne raccourcirait rien. La timeline du brouillon est alors celle que le Mac rendra, sauf pour deux règles que la page ne calcule pas (l'aperçu suivant les montre) : la durée plancher d'une scène (rythme plus vif, scène changée ou items ajoutés : le Mac remonte la scène à son plancher) et la règle « Vidéo trop courte : allongée » des deux moteurs (moins de 15 s après des coupes).
+
+#### Moment fort (`drop`)
+
+- `drop` = l'id du temps fort gardé où la musique « monte ». Claude le choisit dans la partition (la relecture et une retouche peuvent le déplacer) ; `cleanScore` le garde s'il désigne un temps fort gardé, sinon reprend celui de la base s'il l'est encore.
+- Le Mac y pose la montée : au tampon des cartes, à la fin du compteur d'un chiffre, sinon au début de la scène ; sans `drop`, sur la première scène `cards`, sinon `number`, sinon au début de la scène placée aux 55 % de la liste (jamais la première) ; le tout dans `sig-stage.mjs`, qui peut encore bouger.
+- Le serveur ne garde `drop` que s'il désigne un temps fort gardé : depuis le Mac, et à chaque édition de la page (la page ne le choisit pas ; il part avec son temps fort, coupé ou retiré).
+
+#### Bruitages (`sfx`)
+
+- Le Mac pose des bruitages sur la grille (whoosh, tic, pop, impact…, synthétisés par `sig-sfx.mjs`, sans fichier) aux transitions et aux gestes des scènes, puis les mélange sous la musique et la voix (`sig-mix.mjs`).
+- `ReelPlan.sfx === false` : sans bruitages ; absent (ou `true`) : avec. Le serveur garde `sfx` seulement s'il est booléen (`planFields`, depuis le Mac comme depuis la page) ; une vidéo engine 1 l'ignore.
+- À la création : `POST /api/montage/jobs { …, sfx: false }` → `motion.sfx = false`, que le Mac recopie dans le plan (le Studio ne l'envoie pas encore : avec bruitages par défaut). Dans l'écran de montage (onglet « Musique et rythme »), une vidéo engine 2 montre la case « Bruitages calés sur les temps (whoosh, tic, impact…) » : décochée, le plan envoyé (`PATCH { reel, from }`) porte `sfx: false`.
+
+#### Musique (`sig-tempo.mjs`, `sig-mix.mjs`)
+
+- Le Mac mesure le tempo de la musique (`analyzeMusic` : BPM et confiance, gardés par fichier) et l'étire de ±8 % au plus (`atempo`) pour qu'un temps de musique tombe sur chaque temps de la grille (ou un sur deux). Sous une confiance de 0,2 (`MIN_CONF` : nappe, piano sans attaque), ou trop loin de la grille, elle est posée telle quelle, avec une note qui dit pourquoi.
+- Départ : `cue.start` absent ou 0 = automatique, la plus forte montée de la musique tombe sur le moment fort (`drop`), au besoin après un silence de tête d'un temps au plus. Un départ choisi à la main (`cue.start` > 0) est gardé, recalé sur le temps de musique le plus proche, sans viser le moment fort. La page montre « Auto » pour un départ à 0 d'une vidéo engine 2.
+- Une musique plus courte que la vidéo est bouclée : calée, elle reprend un nombre entier de temps (par 4 dès 8 temps, `loopLen`) depuis son départ, et ses temps restent sur les coupes après la reprise ; sans grille (ou moins de 4 temps), le fichier est bouclé tel quel, avec une note.
+- Fondus : ceux de `cue`, sinon `SIG_MUSIC_FADE` (0,02 s à l'entrée, 1,2 s à la sortie ; la page les montre comme valeurs par défaut).
+- Mélange en flottant, mesuré (EBU R128), mis à −14 LUFS par un gain fixe (±24 dB au plus) puis tenu sous −2 dBFS par un limiteur : la montée garde sa dynamique. Sans voix, le volume de la musique règle le niveau de toute la vidéo : 70 % donne −14 LUFS, plus bas est plus doux (20 × log10(volume / 0,7) dB), plus haut ne monte pas au-delà. Avec une voix, il règle la musique sous la voix. Des bruitages seuls (sans musique) gardent un gain fixe.
+
+#### Nettoyage côté serveur (`cleanVideo`)
+
+- Depuis le Mac (sans base), engine 2 : `layout` dans `REEL_LAYOUTS` (sinon `stack`), `bridge` dans `REEL_BRIDGES` (sinon `morph`) ; `surface` dans `REEL_SURFACES` (sinon `base`) ; `screen` pour `phone` seulement, dans `REEL_SCREENS` (sinon `app` s'il a des items, sinon `feed`) ; `pick` pour `phone` à l'écran `app` seulement, entier, 0 ≤ pick < nombre d'items ; `label` pour `phone`, `cards` et `cta` seulement, une ligne sans espaces aux bouts, ≤ 24 ; `fpb` gardé si c'est un entier de 12 à 20, `drop` s'il désigne un temps fort gardé ; `moments` toujours `[]`.
+- Engine 1 : listes d'engine 1 (`REEL_LAYOUTS_V1`, `REEL_BRIDGES_V1` ; une valeur d'engine 2 devient `stack` ou `morph`), et aucun de `surface`, `screen`, `pick`, `label`, `fpb` ni `drop`.
+- Depuis la page (avec base) : le moteur, `fpb` et `drop` viennent de la base (`drop` seulement si son temps fort est encore gardé). Pour engine 2, `layout`, `bridge`, `surface` et `screen` invalides reprennent la valeur du temps fort de la base, sinon la valeur par défaut ; `pick` et `label` invalides, ou hors de leur scène, sont retirés ; `pick` suit son item quand la page envoie des items vides (retirés). Une vidéo engine 1 ne reçoit jamais ces quatre champs, ni une scène ou une transition d'engine 2 (celle du temps fort de la base à la place).
+- Les plans engine 1 déjà enregistrés ne changent pas : un aller-retour (Mac → serveur → page → serveur) les garde à l'identique.
+
+#### Écran de montage (`video-beats.tsx`, `video-review.tsx`)
+
+- Carte d'un temps fort engine 2 : « Mise en page » (les 10 scènes), « Enchaînement » (les 10 transitions ; l'info-bulle rappelle la règle du même arrière-plan), « Marque » (au lieu de « Forme »), « Caméra », « Arrière-plan », « Écran » (téléphone), « Le doigt touche » (téléphone à l'écran Application avec des choix : « Le bouton » ou « Le 1er choix » par défaut, ou l'un des choix).
+- Le champ du `label` se met à côté de l'emphase, nommé selon la scène : « Bouton » (app), « Conversation » (chat), « Tampon » (cartes), « Nom de la marque » (appel), 24 caractères au plus. Les items sont nommés selon la scène (« Mots qui défilent », « Cartes », « Bulles », « Mots du mur », « Choix », « Messages », « Notifications », « Bulles autour du téléphone ») ; le sous-texte aussi (« Texte du bouton » pour l'appel, « La chute, après le tampon » pour les cartes).
+- La durée affichée est celle de la timeline, calée sur la grille (une durée fixée à la main va au temps le plus proche).
+- Onglet « Musique et rythme » : la case des bruitages (voir `sfx`) ; « Rythme » met les durées voulues à l'échelle comme en engine 1 (sauf les durées fixées à la main), la musique garde son tempo et le Mac garde chaque scène sur ses temps, jamais sous son plancher.
+- Engine 1 : rien ne change (5 mises en page, 5 enchaînements, « Forme », « Le chiffre compte »).
+
+#### Porte de version et déploiement
+
+- Un job vidéo créé maintenant porte `minWorker` = `VIDEO_WORKER` (0.22.0), ou `AUDIO_WORKER` s'il est plus haut (voix off, musique de la bibliothèque ou composée). `claimJob` exige en plus `VIDEO_WORKER` pour tout job vidéo, même créé avant (une retouche d'une vidéo engine 1 aussi) : après la mise à jour du site, les vidéos attendent un Mac 0.22.0 et le Studio dit « Mac à mettre à jour (… → 0.22.0) ».
+- Ordre : le site d'abord, puis le Mac (voir « Déploiement et retour arrière » de la section 0.15.0) ; entre les deux, les vidéos attendent le Mac 0.22.0. Le Mac d'abord ne casse rien non plus : les jobs d'un site d'avant portent un `minWorker` plus bas (0.15.0 ou 0.20.0), le Mac 0.22.0 y écrit donc des vidéos engine 1 (`engineFor`). Le 400 « Moteur vidéo inconnu » (le job échoue avec « mets le site à jour ») n'arrive qu'après un retour arrière du site, sur un job créé par le nouveau site.
+- Vérifier : `cd worker/montage && node --test test/reel-vocab.test.mjs` (chaque constante de `TS_MIRROR`, dont celles d'engine 2, a la même valeur dans `src/lib/montage.ts`), puis `npx tsc --noEmit -p .` à la racine.

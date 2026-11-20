@@ -13,6 +13,7 @@
 //   MOCK=video [REQUEST=…] [SECONDS=20] node test/mock-server.mjs /tmp/mc/mock 3999
 // `node test/mock-server.mjs --fake-claude …` : faux `claude` (appelé par claude-spy.sh quand CLAUDE_FAKE est posé).
 import { createServer } from "node:http";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, appendFileSync, writeFileSync, renameSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -224,6 +225,15 @@ function videoMock({ atLeast, from: gateFrom }) {
     motion: { mode: "video", scenes: [], request: REQUEST, source: ["idea", "script", "post"].includes(E.SOURCE) ? E.SOURCE : "idea", ...(SECONDS ? { seconds: SECONDS } : {}), ...(["calm", "normal", "fast"].includes(E.PACE) ? { pace: E.PACE } : {}), music: true, logo: true, look: LOOK, project: "Test" },
     minWorker: "0.15.0", rushIds: [], versions: [], createdAt: iso, updatedAt: iso,
   };
+  // VOICE_OVER=1 (worker 0.19.0) : voix off, musique composée pour la vidéo et modèle Claude choisi.
+  if (E.VOICE_OVER) job = { ...job, minWorker: "0.20.0", model: "claude-opus-5-5[1m]", effort: "high", motion: { ...job.motion, voice: { provider: "elevenlabs", voiceId: "testvoice01" }, track: "gen" } };
+  // SIGNATURE=1 (worker 0.22.0) : un job du nouveau site, la vidéo prend le moteur Signature (engine 2).
+  if (E.SIGNATURE) job = { ...job, minWorker: "0.22.0" };
+  state.engine = E.SIGNATURE && scenario !== "legacy" ? 2 : 1;
+  const audioCalls = { tts: 0, music: 0 };
+  const library = new Map();
+  /** Un son de test : une note de `seconds` (ffmpeg), en WAV. */
+  const tone = (seconds, hz) => execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", `sine=frequency=${hz}:duration=${seconds.toFixed(2)}:sample_rate=44100`, "-f", "wav", "-"], { maxBuffer: 64 * 1024 * 1024 });
   if (scenario === "legacy") {
     job = { ...job, title: "Reel animé : Trois erreurs", minWorker: undefined, motion: { scenes: [{ title: "Trois erreurs", body: "qui font décrocher sur un reel" }, { title: "Abonne-toi", body: "pour la suite" }], look: LOOK, logo: false, music: true, project: "Test" } };
   }
@@ -320,6 +330,30 @@ function videoMock({ atLeast, from: gateFrom }) {
     const raw = await body(req);
     const json = () => { try { return JSON.parse(raw.toString() || "{}"); } catch { return {}; } };
     let m;
+    if (req.method === "POST" && p === "/api/audio/tts") {
+      const d = json();
+      audioCalls.tts++;
+      state.audio = { ...audioCalls, lastVoice: d.voiceId, lastText: d.text };
+      save();
+      const words = String(d.text || "").split(/\s+/).filter(Boolean).length;
+      jsonl("events.jsonl", { m: "POST", p, s: 200, note: `tts ${words} mots` });
+      res.writeHead(200, { "Content-Type": "audio/wav", "X-Audio-Ext": "wav" });
+      return res.end(tone(Math.max(0.6, words / 2.6), 440));
+    }
+    if (req.method === "POST" && p === "/api/audio/music") {
+      const d = json();
+      audioCalls.music++;
+      const id = `mus${String(audioCalls.music).padStart(9, "0")}`;
+      library.set(id, tone(Number(d.seconds) || 20, 220));
+      state.audio = { ...audioCalls, musicPrompt: d.prompt, musicSeconds: d.seconds };
+      save();
+      return reply(201, { item: { id, kind: "music", name: d.name || "Musique" } });
+    }
+    if (req.method === "GET" && (m = /^\/api\/library\/([a-z0-9]{12})\/file$/.exec(p)) && library.has(m[1])) {
+      res.writeHead(200, { "Content-Type": "audio/wav" });
+      return res.end(library.get(m[1]));
+    }
+
 
     if (req.method === "POST" && p === "/api/montage/rushes/scan") return reply(200, { count: (json().rushes || []).length });
     if (req.method === "POST" && p === "/api/montage/worker/claim") {
@@ -532,6 +566,10 @@ function fakeClaude(args) {
     answer = { notes: "J'ai renforcé le passage.", beats, moments: [] };
   } else if (/"ok"/.test(schema)) answer = { ok: true, notes: "", beats: [], moments: [] };
   else answer = { ...fx.raw, title: `${fx.raw.title}`.slice(0, 80) };
+  // Voix off et musique composée (worker 0.19.0) : les champs que le schéma demande.
+  if (/"say"/.test(schema) && Array.isArray(answer.beats)) answer = { ...answer, beats: answer.beats.map((b, i) => ({ ...b, say: b.say || `Phrase dite numéro ${i + 1}, assez longue pour tenir plusieurs secondes à voix haute.` })) };
+  if (/"music"/.test(schema) && !/"ok"/.test(schema)) answer = { ...answer, music: "Warm lo-fi beat, 90 BPM, soft piano, no vocals." };
+  if (process.env.CLAUDE_SPY_LOG) { const i = args.indexOf("--model"); const k = args.indexOf("--effort"); appendFileSync(`${process.env.CLAUDE_SPY_LOG}.model`, `${i >= 0 ? args[i + 1] : "(aucun)"} ${k >= 0 ? args[k + 1] : "(aucune)"}\n`); }
   const emit = (o) => process.stdout.write(JSON.stringify(o) + "\n");
   emit({ type: "system", subtype: "init" });
   if (process.env.CLAUDE_FAKE === "bad") { emit({ type: "result", subtype: "success", is_error: false, result: "pas de json ici" }); return; }

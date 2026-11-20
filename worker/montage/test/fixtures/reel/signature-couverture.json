@@ -1,0 +1,32 @@
+{
+  "_doc": ["Reel Signature (engine 2) de couverture : thème nuit, police serif (sans police variable), les scènes et transitions que sig-livrematch ne joue pas."],
+  "job": {
+    "id": "0b8e7f41-3c2d-4a59-b1e6-9f7a2c4d5e60",
+    "kind": "motion",
+    "motion": {
+      "mode": "video",
+      "request": "Idée : 3 erreurs qui tuent un reel Instagram, finir par Abonne-toi",
+      "source": "idea",
+      "music": true,
+      "logo": false,
+      "look": { "theme": "night", "accent": "#ff5a1f", "font": "serif", "fields": [], "grid": false, "align": "center", "valign": "middle", "grain": true, "numbers": true, "handle": "@metricove" }
+    }
+  },
+  "options": { "request": "Idée : 3 erreurs qui tuent un reel Instagram, finir par Abonne-toi", "source": "idea", "seed": 77123459, "engine": 2 },
+  "raw": {
+    "title": "3 erreurs qui tuent ton reel",
+    "shape": "orb",
+    "pace": "normal",
+    "beats": [
+      { "id": "accroche", "title": "Accroche", "text": "3 erreurs tuent ton reel", "emphasis": "tuent", "layout": "hero", "bridge": "rise", "actor": "underline", "camera": "push", "surface": "base", "seconds": 2.4 },
+      { "id": "trois", "title": "Trois erreurs", "text": "3 erreurs à éviter", "count": true, "layout": "number", "bridge": "rise", "actor": "dot", "camera": "drift", "surface": "base", "seconds": 2.6 },
+      { "id": "une", "title": "Erreur 1", "text": "Erreur 1 : parler de toi d'abord", "sub": "Personne ne te connaît encore. Commence par leur problème.", "emphasis": "parler de toi", "layout": "stack", "bridge": "morph", "actor": "highlight", "camera": "drift", "surface": "base", "seconds": 3 },
+      { "id": "mieux", "title": "À la place", "text": "Ce qui marche à la place", "items": ["Une question", "Un chiffre choc", "Une promesse"], "layout": "list", "bridge": "cut", "actor": "rest", "camera": "drift", "surface": "accent", "seconds": 3 },
+      { "id": "pensent", "title": "Ce qu'ils pensent", "text": "Ce qu'ils pensent en voyant ton reel", "emphasis": "pensent", "items": ["Encore une pub…", "Je zappe", "Trop long", "Bof"], "layout": "bubbles", "bridge": "flood", "actor": "underline", "camera": "drift", "surface": "ink", "seconds": 3 },
+      { "id": "message", "title": "Le message", "text": "Le message que tu veux recevoir", "emphasis": "recevoir", "layout": "phone", "screen": "chat", "items": ["Salut ! J'ai vu ton reel", "Merci, ravi qu'il t'ait plu", "Tu peux m'en dire plus ?"], "label": "Julie", "bridge": "wipe", "actor": "rest", "camera": "drift", "surface": "alt", "seconds": 3 },
+      { "id": "notifs", "title": "Les notifications", "text": "Et les notifications qui tombent", "layout": "phone", "screen": "notifs", "items": ["Nouvel abonné : @marie", "12 personnes ont aimé ton reel", "Ton reel a été partagé 8 fois"], "bridge": "push", "actor": "rest", "camera": "drift", "surface": "alt", "seconds": 3 },
+      { "id": "merite", "title": "Mieux", "text": "Tes reels méritent mieux", "emphasis": "mieux", "layout": "hero", "bridge": "zoom", "actor": "highlight", "camera": "drift", "surface": "base", "seconds": 2.6 },
+      { "id": "fin", "title": "Fin", "text": "Abonne-toi pour plus de reels", "emphasis": "Abonne-toi", "sub": "Suivre @metricove", "layout": "cta", "bridge": "carry", "actor": "highlight", "camera": "still", "surface": "base", "seconds": 3 }
+    ]
+  }
+}

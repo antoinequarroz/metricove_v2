@@ -16,6 +16,10 @@ import { captureFrame, putCover } from "./cover-capture";
 import { TextGhost, TextPanel } from "./free-texts";
 import { Toggle } from "./look-parts";
 import { MusicFields } from "./music-fields";
+import { useAudioSettings } from "../resources/music-maker";
+import { ClaudeSelects } from "./audio-fields";
+import { audioFor } from "@/lib/audio-ai";
+import { useProfiles } from "@/lib/use-profiles";
 import { fmtSec, JobStatus, WorkerBanner } from "./parts";
 import { Clamp, CompactRun, nb } from "./reel-progress";
 import { ReelTimeline } from "./reel-timeline";
@@ -31,7 +35,7 @@ const round1 = (s: number) => Math.round(s * 10) / 10;
 
 /**
  * Whether two plans make the same video, as far as the page can change it: the beats (without the times the Mac
- * wrote), which moments stay bespoke, the rhythm, the music, the free texts and the logo.
+ * wrote), which moments stay bespoke, the rhythm, the music, the sound effects (engine 2), the free texts and the logo.
  */
 export function sameVideo(a: ReelPlan, b: ReelPlan) {
   const key = (p: ReelPlan) =>
@@ -43,6 +47,7 @@ export function sameVideo(a: ReelPlan, b: ReelPlan) {
       p.volume ?? 0.7,
       p.track ?? "",
       p.cue ?? {},
+      p.sfx !== false,
       p.texts ?? [],
       !!p.logo,
     ]);
@@ -202,6 +207,13 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
     setSelected(null);
   };
 
+  // The Claude model of the next requests (the job's, else the one of Réglages).
+  const [model, setModel] = useState(job.model ?? "");
+  const [effort, setEffort] = useState(job.effort ?? "");
+  // Réglages with the choices of the job's style on top (the defaults shown beside the model and effort).
+  const { styles: allStyles } = useProfiles();
+  const styleMedia = job.projectId ? (allStyles?.[job.projectId]?.find((x) => x.id === job.styleId) ?? allStyles?.[job.projectId]?.[0])?.media : undefined;
+  const audioSettings = audioFor(useAudioSettings(), styleMedia);
   const call = async (body: object, ok: string, ask?: ReelAsk) => {
     setBusy(true);
     try {
@@ -235,7 +247,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
   const revise = async () => {
     if (!version) return;
     const what = range ? `Demande envoyée à Claude pour le passage ${fmtT(range[0])} – ${fmtT(range[1])}` : filled.length ? `Demande et ${filled.length} note${filled.length > 1 ? "s" : ""} envoyées à Claude` : "Demande envoyée à Claude";
-    if (await call({ revise: feedback, marks: filled.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n }, what, "retouch")) {
+    if (await call({ revise: feedback, marks: filled.filter((m) => m.version === version.n), range: range ?? undefined, from: version.n, model, effort }, what, "retouch")) {
       setFeedback("");
       setMarks([]);
       setRange(null);
@@ -250,7 +262,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
       setMarks([]);
     }
   };
-  const regenerate = () => call({ regenerate: true }, "Nouvelle version demandée : Claude repart de ta demande", "regen");
+  const regenerate = () => call({ regenerate: true, model, effort }, "Nouvelle version demandée : Claude repart de ta demande", "regen");
   const stop = () => {
     if (!confirm("Arrêter cette génération ? La version d'avant reste.")) return;
     call({ stop: true }, "Génération arrêtée");
@@ -344,12 +356,21 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
       let k = 0;
       return { beats: beats.map((b) => (b.cut ? b : order[k++])) };
     });
-  /** A new rhythm: the beats whose length is not set by hand follow it (their wanted length scales with the reading pace). */
+  /**
+   * A new rhythm: the beats whose length is not set by hand follow it (their wanted length scales with the reading pace).
+   * Engine 2 too: the lengths the Mac wrote already hold the reading time of the old rhythm, so without the scaling a
+   * faster rhythm would change nothing. The music keeps its tempo (`fpb` comes from the base) and the Mac keeps each
+   * scene on its beats and never under its floor (in music beats, not known here): the draft can be a little shorter
+   * than the next preview on a scene at its floor. Engine 2 keeps the milliseconds: a beat is not a multiple of 0.1 s,
+   * and a rounding past a beat would add a whole beat to the scene (a rhythm changed and changed back would not give
+   * the old length).
+   */
   const setPace = (pace: ReelPlan["pace"]) =>
     edit((d) => {
       if (!d?.video || d.pace === pace) return d;
       const k = READ_PACE[pace] / READ_PACE[d.pace];
-      return { ...d, pace, video: { ...d.video, beats: d.video.beats.map((b) => (b.fixed ? b : { ...b, seconds: Math.min(MAX_BEAT, Math.max(MIN_BEAT, round1(b.seconds * k))) })) } };
+      const r = Number(d.video.engine) === 2 ? (s: number) => Math.round(s * 1000) / 1000 : round1;
+      return { ...d, pace, video: { ...d.video, beats: d.video.beats.map((b) => (b.fixed ? b : { ...b, seconds: Math.min(MAX_BEAT, Math.max(MIN_BEAT, r(b.seconds * k))) })) } };
     });
 
   // The video on screen is the version as the Mac rendered it; with edits waiting, the timeline shows what they will give.
@@ -359,8 +380,9 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
   const canAsk = job.status === "review" && !!version?.preview && !dirty && !working;
   const canDraw = canAsk && compareWith === null;
   const keptCount = video ? video.beats.filter((b) => !b.cut).length : 0;
-  /** A list beat edited down to fewer than 2 points: the Mac would lay it out as a « Pile », so no preview until fixed. */
+  /** A list (engine 2: a slot, cards, bubbles, a wall) edited down to fewer than 2 points: the Mac would lay it out otherwise, so no preview until fixed. */
   const listShort = dirty && !!video?.beats.some(shortList);
+  const listShortText = video?.engine === 2 ? "Une liste, une machine à sous, des cartes, des bulles ou un mur de mots ont besoin de 2 éléments au moins" : "Une liste a besoin de 2 points au moins";
   const editing = job.status !== "done" && !!version && !!draft;
   const comparing = compareWith !== null;
   const sketching = drawing && canDraw && !comparing;
@@ -624,7 +646,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       <Button size="sm" variant="ghost" onClick={() => follow(version.reel)}>
                         Annuler
                       </Button>
-                      <Button size="sm" variant="primary" onClick={apply} disabled={busy || working || old || listShort} title={listShort ? "Une liste a besoin de 2 points au moins" : undefined}>
+                      <Button size="sm" variant="primary" onClick={apply} disabled={busy || working || old || listShort} title={listShort ? listShortText : undefined}>
                         <Play className="size-3.5" /> Voir l&apos;aperçu
                       </Button>
                     </div>
@@ -633,7 +655,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                 {dirty && (
                   <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">
                     {listShort
-                      ? nb("Une liste a besoin de 2 points au moins : écris-les dans « Temps forts », ou choisis une autre mise en page, avant de voir l'aperçu.")
+                      ? nb(`${listShortText} : écris-les dans « Temps forts », ou choisis une autre mise en page, avant de voir l'aperçu.`)
                       : nb(`Modifications pas encore rendues : la vidéo montre encore la version ${version.n}. Clique sur « Voir l'aperçu » pour que le Mac la refasse (${aboutText(previewEstimate(worker, total))}, sans Claude).`)}
                   </p>
                 )}
@@ -709,6 +731,10 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       placeholder={nb(range ? "Que faut-il changer dans ce passage ? Par ex. « plus lent », « une autre image pour ce chiffre », « enlève ce mot »" : "Par ex. « le chiffre passe trop vite », ou choisis un passage sur la timeline")}
                       className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60 disabled:opacity-60"
                     />
+                    <label className="mt-2 flex min-w-0 items-center gap-2 text-[12px] text-ink-2">
+                      <span className="shrink-0">Claude</span>
+                      <ClaudeSelects model={model} effort={effort} onModel={setModel} onEffort={setEffort} audio={audioSettings} className="flex-1" />
+                    </label>
                     <div className="mt-2 flex items-center gap-2">
                       <span className="min-w-0 flex-1 text-[11.5px] text-ink-3">
                         {dirty ? "Applique ou annule d'abord tes modifications à la main." : range || marks.length ? "Le reste de la vidéo ne bouge pas, sauf les enchaînements autour du passage." : "Sans passage choisi, Claude modifie les temps forts dont tu parles."}
@@ -767,8 +793,17 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       tracks={worker.tracks}
                       disabled={!draft.music}
                       auto="Le premier du dossier"
+                      duration={total}
+                      media={styleMedia}
+                      signature={video?.engine === 2}
                     />
-                    <p className="text-[12px] text-ink-3">{"Les morceaux sont ceux du dossier Musique de ton Mac. S'il est vide, la vidéo sort sans son."}</p>
+                    <p className="text-[12px] text-ink-3">{"Une musique de Ressources → Musique, un morceau du dossier Musique de ton Mac, ou une musique composée pour cette vidéo."}</p>
+                    {/* Engine 2: the sound effects laid on the music's beats (left out of the plan: on). */}
+                    {video?.engine === 2 && (
+                      <div className="border-t border-line pt-3">
+                        <Toggle label="Bruitages calés sur les temps (whoosh, tic, impact…)" checked={draft.sfx !== false} onChange={(on) => edit({ ...draft, sfx: on ? undefined : false })} />
+                      </div>
+                    )}
                     <div className="flex flex-col gap-1.5 border-t border-line pt-3">
                       <span className="text-[12px] text-ink-2">Rythme</span>
                       <Segmented
@@ -781,7 +816,11 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                           { value: "fast", label: "Vif" },
                         ]}
                       />
-                      <p className="text-[12px] text-ink-3">Le rythme change la durée de tous les temps forts, sauf ceux dont tu as réglé la durée toi-même.</p>
+                      <p className="text-[12px] text-ink-3">
+                        {video?.engine === 2
+                          ? nb("Le rythme change la durée de toutes les scènes, sauf celles dont tu as réglé la durée toi-même ; la musique garde son tempo, chaque scène reste calée sur ses temps et ne descend jamais sous le temps de son animation.")
+                          : "Le rythme change la durée de tous les temps forts, sauf ceux dont tu as réglé la durée toi-même."}
+                      </p>
                     </div>
                   </div>
                 )}

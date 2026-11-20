@@ -5,7 +5,7 @@ import { join, basename } from "node:path";
 import { ensureDir, assertSpace, themeFor, log, round } from "./util.mjs";
 import { localRushes } from "./rushes.mjs";
 import { transcribe, sentences } from "./transcribe.mjs";
-import { proposeEdit, proposeBroll, writeScript } from "./claude.mjs";
+import { proposeEdit, proposeBroll, writeScript, withModel } from "./claude.mjs";
 import { renderEdl } from "./render.mjs";
 import { makeStyle } from "./style.mjs";
 import { STAGE_KINDS, STAGE_ANIMS, BUILTIN_SFX } from "./stage.mjs";
@@ -50,7 +50,14 @@ export function sweepRuns(cfg) {
   return n;
 }
 
-export async function handle(api, cfg, { job, action, rushes = [], media }) {
+/** Une tâche, avec le modèle Claude et la puissance qu'elle demande (job.model, posé par Metricove depuis la vidéo ou Réglages). */
+export async function handle(api, cfg, claimed) {
+  const j = claimed?.job;
+  if (j?.model || j?.effort) log(`[${j.id.slice(0, 8)}] Claude : ${[j.model && `modèle ${j.model}`, j.effort && `puissance ${j.effort}`].filter(Boolean).join(", ")}`);
+  return withModel(j?.model, () => handleJob(api, cfg, claimed), j?.effort);
+}
+
+async function handleJob(api, cfg, { job, action, rushes = [], media }) {
   // Un reel vidéo travaille dans un dossier à lui par passage (<id>-r<suffixe>) : un passage abandonné (arrêté, repris
   // ailleurs, plafond atteint) qui finit seul ne peut ni écrire dans le dossier du passage suivant ni le supprimer.
   const video = job.kind === "motion" && isVideoJob(job);

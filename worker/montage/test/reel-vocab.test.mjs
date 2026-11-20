@@ -81,6 +81,17 @@ test("durées : beatSeconds suit les règles du contrat", () => {
   for (const s of [1.51, 2.333, 7.77]) assert.equal(Math.round(V.quantize(s) * 30), V.quantize(s) * 30);
 });
 
+test("engine 2 : la lecture ne compte que ce que la scène montre (sous-texte, items)", () => {
+  const sub = "un deux trois quatre cinq six sept huit neuf dix onze douze treize";
+  const items = ["La Cité des Cendres et du Vent", "Deux", "Trois", "Quatre"];
+  // Héros, liste, machine à sous, bulles et mur ne montrent pas de sous-texte : il ne rallonge pas la scène.
+  for (const layout of ["hero", "list", "slot", "bubbles", "wall"]) assert.equal(V.minSeconds({ layout, text: "Beaucoup de temps gagné", sub, items }, "normal", 2), V.minSeconds({ layout, text: "Beaucoup de temps gagné", items }, "normal", 2), layout);
+  for (const layout of ["stack", "number", "cta", "phone", "cards"]) assert.ok(V.minSeconds({ layout, text: "Beaucoup", sub }, "normal", 2) > V.minSeconds({ layout, text: "Beaucoup" }, "normal", 2), layout);
+  // Des items restés dans une scène sans items (la page, après un changement de mise en page) ne comptent pas.
+  for (const layout of ["hero", "stack", "number", "cta"]) assert.equal(V.minSeconds({ layout, text: "Le livre parfait", items }, "normal", 2), V.minSeconds({ layout, text: "Le livre parfait" }, "normal", 2), layout);
+  assert.ok(V.minSeconds({ layout: "list", text: "Le livre parfait", items }, "normal", 2) > V.minSeconds({ layout: "list", text: "Le livre parfait" }, "normal", 2));
+});
+
 test("graine : FNV-1a stable, différente par version", () => {
   assert.equal(V.seedOf("job-1"), V.seedOf("job-1"));
   assert.notEqual(V.seedOf("job-1"), V.seedOf("job-1", 2));

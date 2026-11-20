@@ -1,7 +1,7 @@
-// The libraries the videos draw from: illustrations and sound effects (the B-roll has its own sources).
+// The libraries the videos draw from: illustrations, sound effects and music (the B-roll has its own sources).
 // No "use client": the server checks with the same lists.
 
-export type AssetKind = "illustration" | "sfx";
+export type AssetKind = "illustration" | "sfx" | "music";
 
 export type LibraryItem = {
   id: string;
@@ -16,12 +16,12 @@ export type LibraryItem = {
   ext: string;
   size: number;
   /** Who made it: a file added by hand, or one Claude made. */
-  source: "upload" | "claude";
+  source: "upload" | "claude" | "elevenlabs" | "google";
   createdAt: string;
 };
 
-export const ASSET_KINDS: AssetKind[] = ["illustration", "sfx"];
-export const MAX_ASSET_BYTES: Record<AssetKind, number> = { illustration: 8_000_000, sfx: 8_000_000 };
+export const ASSET_KINDS: AssetKind[] = ["illustration", "sfx", "music"];
+export const MAX_ASSET_BYTES: Record<AssetKind, number> = { illustration: 8_000_000, sfx: 8_000_000, music: 25_000_000 };
 export const MAX_ASSETS = 2000;
 export const MAX_ASSET_NAME = 80;
 export const MAX_TAGS = 12;
@@ -30,10 +30,13 @@ export const MAX_TAG = 30;
 export const ASSET_ACCEPT: Record<AssetKind, string> = {
   illustration: "image/png,image/jpeg,image/webp,image/svg+xml,.svg",
   sfx: "audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.m4a",
+  music: "audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/x-m4a,.mp3,.wav,.ogg,.m4a",
 };
 
 /** Usual categories of sound effects, offered as tags. */
 export const SFX_TAGS = ["whoosh", "pop", "click", "thud", "swoosh", "ding", "glitch", "riser", "impact", "typing"];
+/** Moods of music, offered as tags. */
+export const MUSIC_TAGS = ["calme", "énergique", "lo-fi", "cinématique", "électro", "acoustique", "piano", "épique"];
 export const ILLUSTRATION_TAGS = ["tech", "icône", "personnage", "flèche", "fond", "logo", "emoji", "schéma"];
 
 /** "<projectId>:<styleId>", the key of a style in an item's `styles`. */

@@ -1,13 +1,14 @@
 "use client";
 
 import { Clapperboard, Crop, LayoutPanelTop, Megaphone, Music, MonitorSmartphone } from "lucide-react";
-import { DEFAULT_AUDIO, FORMATS, type AudioSettings, type Edl } from "@/lib/montage";
+import { DEFAULT_AUDIO, edlDuration, FORMATS, type AudioSettings, type Edl } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Row, Section, Segmented, Switch } from "./controls";
 import { MusicFields } from "./music-fields";
+import type { StyleMedia } from "@/lib/audio-ai";
 
 /** Hook, end card, sound, extra formats and framing of a version. */
-export function SettingsPanel({ edl, onChange, tracks }: { edl: Edl; onChange: (next: Edl) => void; tracks?: string[] }) {
+export function SettingsPanel({ edl, onChange, tracks, media }: { edl: Edl; onChange: (next: Edl) => void; tracks?: string[]; media?: StyleMedia }) {
   const set = (patch: Partial<Edl>) => onChange({ ...structuredClone(edl), ...patch });
   const audio = edl.audio ?? DEFAULT_AUDIO;
   const setAudio = (patch: Partial<AudioSettings>) => set({ audio: { ...audio, ...patch } });
@@ -68,7 +69,7 @@ export function SettingsPanel({ edl, onChange, tracks }: { edl: Edl; onChange: (
         {audio.music.on && (
           <>
             <div className="py-2">
-              <MusicFields value={audio.music} onChange={setMusic} tracks={tracks} auto="Claude choisit" />
+              <MusicFields value={audio.music} onChange={setMusic} tracks={tracks} auto="Claude choisit" duration={edlDuration(edl)} media={media} />
             </div>
             <Row label="Volume de la musique">
               <input

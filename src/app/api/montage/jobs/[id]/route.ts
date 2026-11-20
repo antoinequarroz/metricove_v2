@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cleanEffort, cleanModel } from "@/lib/audio-ai";
 import { isVideoJob, MAX_ASSET_COUNT, MAX_RULES, MAX_SENT_NOTES, REEL_TARGETS, REEL_VIDEO } from "@/lib/montage";
 import { findAsset } from "@/server/library";
 import { listProjects } from "@/server/db";
@@ -22,6 +23,10 @@ export async function GET(_req: Request, { params }: Ctx) {
 }
 
 type Body = {
+  /** The Claude model of the next requests to Claude (page). */
+  model?: unknown;
+  /** The thinking effort of the next requests (`claude --effort`). */
+  effort?: unknown;
   // From the page
   revise?: string;
   marks?: unknown;
@@ -79,6 +84,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const job = getJob(id);
   if (!job) return NextResponse.json({ error: "Montage introuvable" }, { status: 404 });
   const busy = job.action !== null;
+  // The Claude model of the next requests (face cam montage, reel), changed from the page; saved with what follows.
+  if (typeof b.model === "string") job.model = cleanModel(b.model) || undefined;
+  if (typeof b.effort === "string") job.effort = cleanEffort(b.effort) || undefined;
 
   // ---- Page ----
   if (b.cancel) {

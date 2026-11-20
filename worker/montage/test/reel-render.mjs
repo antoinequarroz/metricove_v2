@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Rendu d'une fixture du reel vidéo par le moteur seul, sans Claude (paquet A, plan de test 2) :
-//   node test/reel-render.mjs test/fixtures/reel/<f>.json <dossier de sortie> [--twice] [--no-render] [--keep]
+//   node test/reel-render.mjs test/fixtures/reel/<f>.json <dossier de sortie> [--twice] [--no-render] [--keep] [--music=<fichier>]
 // Étapes : partition (cleanScore si la fixture n'a que `raw`), bac à sable (checkMoment, sauf `sandbox: false`),
 // (expect : dropped = ids retirés par check, built = ids construits, why = { id: "expression" } raison du retrait)
 // stagePage, `hyperframes lint`, `hyperframes check` (un moment fautif est retiré et la page réécrite, comme produce()),
 // images aux instants posés et au milieu des liaisons + planche maison (sheet.jpg), rendu mp4 avec délai et arrêt du
-// groupe de processus, piste son muette, ffprobe, puis (--twice) un second rendu comparé image par image (framemd5).
+// groupe de processus, piste son (engine 2 : bruitages du moteur et, avec --music, la musique calée sur la grille par
+// signatureMix ; engine 1 : muette), ffprobe, puis (--twice) un second rendu comparé image par image (framemd5).
 // Vérifie aussi : aucune ligne « Fetched … » (aucune police téléchargée par HyperFrames), aucun Chrome orphelin, et
 // affiche les ms par image. Sortie : un résumé lisible puis une ligne JSON. Code de sortie 1 si une vérification échoue
 // (sauf `expect.fail` : la fixture doit échouer proprement).
@@ -18,13 +19,14 @@ import * as HF from "../lib/reel/hf-cli.mjs";
 import { checkMoments } from "../lib/reel/sandbox.mjs";
 import { cleanScore, timeScore } from "../lib/reel/score.mjs";
 import { stagePage } from "../lib/reel/stage.mjs";
+import { signatureMix } from "../lib/reel/sig-mix.mjs";
 import { FPS, H, HF_PACKAGE, RHYTHM, TOOLS, W } from "../lib/reel/vocab.mjs";
 
 const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith("--")));
 const [fixtureFile, outArg] = args.filter((a) => !a.startsWith("--"));
 if (!fixtureFile || !outArg) {
-  console.error("usage : node test/reel-render.mjs test/fixtures/reel/<f>.json <dossier de sortie> [--twice] [--no-render] [--keep]");
+  console.error("usage : node test/reel-render.mjs test/fixtures/reel/<f>.json <dossier de sortie> [--twice] [--no-render] [--keep] [--music=<fichier>]");
   process.exit(2);
 }
 const out = resolve(outArg);
@@ -143,8 +145,9 @@ async function main() {
     const t0 = Date.now();
     const c = await HF.check(cfg, hf);
     sum.checkMs = Date.now() - t0;
-    // Comme produce() : les constats de place pendant une liaison ne comptent pas (HF.heldOnly).
-    sum.advice = HF.heldOnly(c.advice, stage.marks, stage.settle, (RHYTHM[plan.pace] || RHYTHM.normal).bridge).map((f) => `${f.code} ${f.target}${f.message ? ` : ${String(f.message).slice(0, 160)}` : ""}`);
+    // Comme produce() : les constats de place pendant une liaison ne comptent pas (HF.heldOnly ; engine 2 : un temps).
+    const bridge = stage.fpb ? stage.fpb / FPS : (RHYTHM[plan.pace] || RHYTHM.normal).bridge;
+    sum.advice = HF.heldOnly(c.advice, stage.marks, stage.settle, bridge).map((f) => `${f.code} ${f.target}${f.message ? ` : ${String(f.message).slice(0, 160)}` : ""}`);
     const b = HF.blame(c.blocking, stage.momentIds);
     for (const f of c.blocking) say(`check : ${f.code} ${f.target} — ${f.message}`);
     const faulty = Object.keys(b.moments);
@@ -172,7 +175,8 @@ async function main() {
   const B = { calm: 0.9, normal: 0.7, fast: 0.5 }[plan.pace] || 0.7;
   const times = [];
   stage.marks.forEach((m, i) => {
-    if (i) times.push(Math.max(0, m.start - 0.25 * B));
+    // Engine 2 : le milieu visible de la transition (stage.mids) ; engine 1 : un quart de liaison avant le début.
+    if (i) times.push(stage.mids?.[i - 1] ? stage.mids[i - 1].t : Math.max(0, m.start - 0.25 * B));
     times.push(stage.settle[i]);
   });
   times.push(Math.max(0, stage.duration - 1 / FPS));
@@ -212,9 +216,13 @@ async function main() {
   const fetched = first.lines.filter((l) => /Fetched/.test(l));
   if (fetched.length) fail(`HyperFrames a téléchargé quelque chose : ${fetched[0].slice(0, 160)}`);
 
-  // f) Piste son muette (aac), faststart, puis ffprobe.
+  // f) Piste son (aac) : engine 2, bruitages et musique calée (signatureMix) ; sinon muette. Faststart, puis ffprobe.
   const final = join(out, `${name}.mp4`);
-  await run("ffmpeg", ["-v", "error", "-y", "-i", silent, "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v", "-map", "1:a",
+  const music = [...flags].find((f) => f.startsWith("--music="))?.slice(8) || "";
+  const mixNotes = [];
+  const mix = stage.fpb ? await signatureMix({ clips: new Map(), marks: stage.marks, track: music ? resolve(music) : null, cue: {}, volume: 0.7, sfx: stage.sfx, fpb: stage.fpb, duration: stage.duration, drop: stage.drop, seed: plan.video.seed, out: join(out, "son.wav"), notes: mixNotes }) : null;
+  if (mix) { sum.audio = { music: mix.music, sfx: mix.sfx, gainDb: mix.gainDb, notes: mixNotes }; say(`son : ${mix.sfx} bruitages${mix.music ? `, musique ${mix.music.why}` : ""}`); }
+  await run("ffmpeg", ["-v", "error", "-y", "-i", silent, ...(mix ? ["-i", mix.file] : ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]), "-map", "0:v", "-map", "1:a",
     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", f3(stage.duration), "-movflags", "+faststart", final], { timeoutMs: 120_000 });
   const pj = JSON.parse(await run("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames", "-of", "json", final], { timeoutMs: 20_000 }));
   const v = pj.streams.find((s) => s.codec_type === "video"), a = pj.streams.filter((s) => s.codec_type === "audio");

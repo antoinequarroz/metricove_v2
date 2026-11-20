@@ -1,6 +1,6 @@
 "use client";
 
-import { AudioLines, Clapperboard, Film, GalleryHorizontalEnd, Laptop, Library, Palette, Scissors, Shapes, Sparkles, Video } from "lucide-react";
+import { AudioLines, Clapperboard, Film, GalleryHorizontalEnd, Laptop, Library, Music, Palette, Scissors, Shapes, Sparkles, Video } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { MontageJob } from "@/lib/montage";
@@ -49,6 +49,7 @@ const RESOURCE_TABS = [
   { href: "/videos/ressources", label: "Styles", Icon: Palette },
   { href: "/videos/ressources/illustrations", label: "Illustrations", Icon: Shapes },
   { href: "/videos/ressources/bruitages", label: "Bruitages", Icon: AudioLines },
+  { href: "/videos/ressources/musique", label: "Musique", Icon: Music },
   { href: "/videos/ressources/broll", label: "B-roll", Icon: Film },
 ];
 

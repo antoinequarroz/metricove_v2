@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_CAPTIONS, type CaptionStyle } from "@/lib/montage";
 import { cleanLook, cleanRefs, DEFAULT_STYLE, emptyRefs, MAX_NOTES, MAX_REF_IMAGE_BYTES, MAX_REF_IMAGES, MAX_SKILL, MAX_STYLE_NAME, MAX_STYLES, MAX_TONE, noteLines, PRESETS, presetFor, type ProfileRefs, sameLook, STYLE_ID, starterProfile, type StyleProfile, type VideoLook } from "@/lib/profiles";
+import { cleanMedia, type StyleMedia } from "@/lib/audio-ai";
 import { MAX_STRATEGY } from "@/lib/strategy";
 import type { Project } from "@/lib/types";
 import { DATA_DIR, getSetting, listAccounts, listProjects, setSetting } from "./db";
@@ -58,6 +59,7 @@ export function profileOf(project: Project, styleId?: string): StyleProfile {
     strategy,
     ...strategySource,
     refs: storedRefs(saved.refs),
+    ...(cleanMedia(saved.media) ? { media: cleanMedia(saved.media) } : {}),
     saved: true,
   };
 }
@@ -113,6 +115,8 @@ export function saveProfile(project: Project, raw: unknown, styleId?: string): S
       return source ? { strategySource: source } : {};
     })(),
     refs: r.refs === undefined ? current.refs : cleanRefs(r.refs, current.refs),
+    // `media: null` goes back to Réglages; left out, it stays as it is.
+    ...((m) => (m ? { media: m } : {}))(r.media === undefined ? current.media : cleanMedia(r.media)),
     // Saving the tone or a skill alone does not make the starter look a choice.
     lookSet: !!current.lookSet || !sameLook(look, current.look),
     saved: true,
@@ -251,7 +255,7 @@ export function forgetProfile(projectId: string) {
 
 /** Colors and font of the Mac's video overlays (subtitles, opening hook, end card) and generic covers. */
 export type VideoTheme = { accent: string; ink: string; dark?: string; text?: string; font?: string; googleFont?: string; fontStretch?: string; design?: VideoDesign };
-/** How the Mac draws subtitles, hook and cards (worker 0.19.0; older workers ignore it). */
+/** How the Mac draws subtitles, hook and cards (worker 0.21.0; older workers ignore it). */
 export type VideoDesign = Pick<VideoLook, "weight" | "upper" | "stroke" | "strokeColor" | "box" | "boxColor" | "shadow" | "hook">;
 
 const luminance = (hex: string) => {
@@ -328,4 +332,10 @@ export function voiceOf(projectId: string | undefined, styleId?: string): Voice 
     ...(p.refs.images.length ? { images: p.refs.images.map((i) => `/api/profiles/${project.id}/images/${i.id}`) } : {}),
   };
   return Object.keys(voice).length ? voice : undefined;
+}
+
+/** What a style chooses for its videos (voice, music, Claude), or undefined: the claim puts it under Réglages. */
+export function mediaOf(projectId: string | undefined, styleId?: string): StyleMedia | undefined {
+  const project = projectId ? listProjects().find((p) => p.id === projectId) : undefined;
+  return project ? profileOf(project, styleId).media : undefined;
 }

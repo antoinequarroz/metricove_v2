@@ -4,11 +4,12 @@
 //
 //   node test/check-video-run.mjs <dossier-sortie>
 //       vérifie un passage déjà fait (state.json, patches.jsonl, reel-vN.json… écrits par le faux serveur) ;
-//   node test/check-video-run.mjs --run [scénario] [--root /tmp/mc] [--out <dossier>] [--port 3999] [--fake] [--minutes N] [--gsap <dist>]
+//   node test/check-video-run.mjs --run [scénario] [--root /tmp/mc] [--out <dossier>] [--port 3999] [--fake] [--signature] [--minutes N] [--gsap <dist>]
 //       prépare le bac à sable (dossiers, piste de musique, Chrome hors ligne, config dérivée de test/config.sandbox.json),
 //       lance le faux serveur puis le worker (node montage.mjs), attend la fin du scénario, arrête tout et vérifie.
 //       claude.bin est toujours le claude-spy.sh de ce dossier ; --gsap : le dossier dist de gsap@3.14.2 (npm pack), par
 //       défaut gsapDir de config.sandbox.json (le scénario refuse de tourner sans gsap.min.js).
+//       --signature : un job du nouveau site (minWorker 0.22.0), la vidéo prend le moteur Signature (engine 2).
 //       --minutes : délai du scénario ; par défaut suite 30 min avec --fake et 45 min avec le vrai Claude (une suite
 //       réelle dure plus de 30 min sur un conteneur Linux), les autres 15 min avec --fake et 20 min sans.
 //   node test/check-video-run.mjs --run server [--server http://localhost:3000] [--token <API_TOKEN>] [--slow] [--out <dossier>]
@@ -28,7 +29,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACTORS, BEAT_ID, BRIDGES, CAMERAS, ENGINE, FPS, HYPERFRAMES, LAYOUTS, MOMENT_ID, SHAPES, SOURCES, TARGETS, VIDEO_WORKER, ZONES } from "../lib/reel/vocab.mjs";
+import { ACTORS, BEAT_ID, BRIDGES, CAMERAS, FPS, HYPERFRAMES, LAYOUTS, MOMENT_ID, SCREENS, SHAPES, SIG_BRIDGES, SIG_LAYOUTS, SOURCES, SURFACES, TARGETS, VIDEO_WORKER, ZONES } from "../lib/reel/vocab.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKER = resolve(HERE, "..");
@@ -91,9 +92,9 @@ function imageSize(file) {
   } catch { return null; }
 }
 
-const PLAN_KEYS = new Set(["scenes", "look", "logo", "music", "volume", "track", "cue", "texts", "pace", "direction", "duration", "video"]);
-const VIDEO_KEYS = new Set(["engine", "request", "source", "target", "direction", "title", "shape", "beats", "moments", "caption", "seed", "tools", "captions", "voiceOver", "motionStyle"]);
-const BEAT_KEYS = new Set(["id", "title", "text", "sub", "items", "emphasis", "count", "layout", "bridge", "actor", "camera", "seconds", "fixed", "cut", "say", "start", "end"]);
+const PLAN_KEYS = new Set(["scenes", "look", "logo", "music", "volume", "track", "cue", "texts", "pace", "direction", "duration", "video", "sfx"]);
+const VIDEO_KEYS = new Set(["engine", "request", "source", "target", "direction", "title", "shape", "beats", "moments", "caption", "seed", "tools", "captions", "voiceOver", "motionStyle", "fpb", "drop"]);
+const BEAT_KEYS = new Set(["id", "title", "text", "sub", "items", "emphasis", "count", "layout", "bridge", "actor", "camera", "seconds", "fixed", "cut", "say", "start", "end", "surface", "screen", "pick", "label"]);
 const MOMENT_KEYS = new Set(["id", "brief", "from", "to", "zone", "code"]);
 const unknown = (o, keys) => Object.keys(o || {}).filter((k) => !keys.has(k));
 const sameish = (a, b, eps = 0.02) => Math.abs(a - b) <= eps;
@@ -102,9 +103,11 @@ const bare = (b) => { const c = { ...b }; delete c.start; delete c.end; return J
 
 /**
  * Forme d'un plan vidéo rendu par le Mac (POST /versions ou /versions/:n/preview), comme le contrat la décrit
- * (docs/MONTAGE.md « Reel vidéo continu ») et comme cleanVideo du serveur l'accepte. Renvoie la liste des écarts.
+ * (docs/MONTAGE.md « Reel vidéo continu ») et comme cleanVideo du serveur l'accepte. `engine` = le moteur attendu : 1
+ * pour les jobs du faux serveur (minWorker avant VIDEO_WORKER), 2 pour un job d'un site qui demande Signature.
+ * Renvoie la liste des écarts.
  */
-function planProblems(plan) {
+function planProblems(plan, engine = 1) {
   const p = [];
   if (!plan || typeof plan !== "object") return ["plan absent"];
   const v = plan.video;
@@ -112,7 +115,10 @@ function planProblems(plan) {
   if (!v) return [...p, "video absent"];
   if (unknown(plan, PLAN_KEYS).length) p.push(`champs inconnus du plan : ${unknown(plan, PLAN_KEYS)}`);
   if (unknown(v, VIDEO_KEYS).length) p.push(`champs inconnus de video : ${unknown(v, VIDEO_KEYS)}`);
-  if (v.engine !== ENGINE) p.push(`engine ${v.engine}`);
+  if (v.engine !== engine) p.push(`engine ${v.engine} (${engine} attendu)`);
+  const sig = v.engine === 2;
+  if (!sig && ["fpb", "drop"].some((k) => k in v)) p.push("fpb ou drop dans une vidéo engine 1");
+  if (sig && !(Number.isInteger(v.fpb) && v.fpb >= 12 && v.fpb <= 20)) p.push(`fpb ${v.fpb}`);
   if (typeof plan.look?.logo === "string" && plan.look.logo.length > 0) p.push("le logo (data URL) est resté dans look");
   if (!SOURCES.includes(v.source)) p.push(`source ${v.source}`);
   if (v.target !== undefined && !TARGETS.includes(v.target)) p.push(`target ${v.target}`);
@@ -125,9 +131,11 @@ function planProblems(plan) {
   const ids = new Set();
   for (const b of beats) {
     if (unknown(b, BEAT_KEYS).length) p.push(`temps fort ${b.id} : champs inconnus ${unknown(b, BEAT_KEYS)}`);
+    if (!sig && ["surface", "screen", "pick", "label"].some((k) => k in b)) p.push(`temps fort ${b.id} : champs Signature dans une vidéo engine 1`);
+    if (sig && (!SURFACES.includes(b.surface) || (b.screen !== undefined && !SCREENS.includes(b.screen)))) p.push(`temps fort ${b.id} : fond ou écran inconnu`);
     if (!BEAT_ID.test(b.id) || ids.has(b.id)) p.push(`id de temps fort ${b.id}`);
     ids.add(b.id);
-    if (!LAYOUTS.includes(b.layout) || !BRIDGES.includes(b.bridge) || !ACTORS.includes(b.actor) || !CAMERAS.includes(b.camera)) p.push(`temps fort ${b.id} : vocabulaire inconnu`);
+    if (!(sig ? SIG_LAYOUTS : LAYOUTS).includes(b.layout) || !(sig ? SIG_BRIDGES : BRIDGES).includes(b.bridge) || !ACTORS.includes(b.actor) || !CAMERAS.includes(b.camera)) p.push(`temps fort ${b.id} : vocabulaire inconnu`);
     if (!(b.text?.length > 0 && b.text.length <= 110) || !(b.title?.length > 0 && b.title.length <= 40)) p.push(`temps fort ${b.id} : texte ou titre hors bornes`);
     if (!(b.seconds >= 1.5 && b.seconds <= 10)) p.push(`temps fort ${b.id} : seconds ${b.seconds}`);
   }
@@ -245,8 +253,9 @@ function check(outDir, { orchestrator = {} } = {}) {
   /** Vérifie une version produite par le worker (plan + mp4 + planche + PATCH de son passage). */
   const version = (v, kind) => {
     const plan = reelOf(v.n);
-    const probs = planProblems(plan);
-    ok(!probs.length, `v${v.n} (${v.stage}) : plan vidéo conforme (scenes [], engine 1, temps forts contigus, ≤ 3 moments, champs connus)`, probs.slice(0, 6).join(" ; "));
+    const engine = state.engine === 2 ? 2 : 1;
+    const probs = planProblems(plan, engine);
+    ok(!probs.length, `v${v.n} (${v.stage}) : plan vidéo conforme (scenes [], engine ${engine}, temps forts contigus, ≤ 3 moments, champs connus)`, probs.slice(0, 6).join(" ; "));
     if (!plan?.video) return plan;
     const kept = plan.video.beats.filter((b) => !b.cut);
     info(`v${v.n} : « ${plan.video.title} », ${plan.duration} s, ${kept.length}/${plan.video.beats.length} temps forts (${kept.map((b) => `${b.layout}/${b.bridge}`).join(" ")}), ${plan.video.moments.length} moment(s), forme ${plan.video.shape}, rythme ${plan.pace}`);
@@ -558,7 +567,7 @@ async function orchestrate(args) {
   const logTo = (name) => { const f = join(out, name); writeFileSync(f, ""); return f; };
   const pipeTo = (child, file) => { const w = (d) => { try { writeFileSync(file, d, { flag: "a" }); } catch { /* */ } }; child.stdout.on("data", w); child.stderr.on("data", w); };
 
-  const mock = spawn(process.execPath, [join(HERE, "mock-server.mjs"), out, String(port)], { cwd: WORKER, env: { ...env, MOCK: "video", EXIT_WHEN_DONE: "1", ...ENV_OF[scenario] }, stdio: ["ignore", "pipe", "pipe"] });
+  const mock = spawn(process.execPath, [join(HERE, "mock-server.mjs"), out, String(port)], { cwd: WORKER, env: { ...env, MOCK: "video", EXIT_WHEN_DONE: "1", ...ENV_OF[scenario], ...(args.includes("--signature") ? { SIGNATURE: "1" } : {}) }, stdio: ["ignore", "pipe", "pipe"] });
   pipeTo(mock, logTo("mock.log"));
   let mockDone = false;
   mock.on("exit", () => (mockDone = true));

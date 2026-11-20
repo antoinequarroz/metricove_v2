@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from "
 import { join, basename, extname } from "node:path";
 import { createHash } from "node:crypto";
 import { run, ensureDir, home, log, round } from "./util.mjs";
+import { libraryAsset } from "./stage.mjs";
 
 const MUSIC_EXT = /\.(mp3|m4a|aac|wav|aiff?|flac|ogg|opus)$/i;
 
@@ -43,6 +44,26 @@ export function pickTrack(cfg, name, notes) {
     notes.push(`Morceau « ${name} » introuvable dans ${dir} : « ${list[0]} » à la place.`);
   }
   return join(dir, list[0]);
+}
+
+/**
+ * Fichier de musique d'une vidéo : une musique de la bibliothèque Metricove (« lib:<id> », téléchargée une fois puis
+ * gardée en cache), sinon un fichier du dossier du Mac (pickTrack). « gen » (musique à composer) doit avoir été
+ * remplacé avant par la musique composée : sinon la vidéo sort sans musique, avec une note.
+ */
+export async function resolveTrack(cfg, name, notes) {
+  const n = String(name || "");
+  if (n === "gen") { notes.push("La musique composée pour la vidéo n'a pas pu être faite : vidéo sans musique."); return null; }
+  const lib = /^lib:([a-z0-9]{12})$/.exec(n);
+  if (lib) {
+    try {
+      const f = await libraryAsset(cfg, lib[1]);
+      if (f) return f;
+    } catch (e) { log("musique de la bibliothèque :", e.message); }
+    notes.push("La musique choisie dans la bibliothèque est introuvable (supprimée ?) : vidéo sans musique.");
+    return null;
+  }
+  return pickTrack(cfg, n, notes);
 }
 
 /**
@@ -100,7 +121,7 @@ export async function buildAudio(cfg, { base, dir, audio, final, total, notes })
     v = d.file;
     log(`débruitage : ${d.how}`);
   }
-  const track = audio.music?.on ? pickTrack(cfg, audio.music.track, notes) : null;
+  const track = audio.music?.on ? await resolveTrack(cfg, audio.music.track, notes) : null;
   const mix = join(dir, final ? "mix.wav" : "son.wav");
   const out = join(dir, "son.wav");
   const tail = final ? "" : `,loudnorm=${LN}`; // aperçu : une seule passe

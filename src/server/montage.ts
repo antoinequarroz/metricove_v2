@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { BUILTIN_SFX, DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_SFX, MAX_STAGES, STAGE_ANIMS, STAGE_KINDS, type Sfx, type Stage, JOB_PHASES, MAX_TEXTS, MUSIC_FADE, REEL_ACTORS, REEL_BRIDGES, REEL_CAMERAS, REEL_LAYOUTS, REEL_SHAPES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, REEL_ZONES, VIDEO_BEAT_ID, VIDEO_BOARD, VIDEO_ENGINE, VIDEO_LIMITS, VIDEO_MOMENT_ID, VIDEO_WORKER, isVideoJob, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type JobPhase, type JobRun, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelBeat, type ReelCode, type ReelFx, type ReelMoment, type ReelPlan, type ReelScene, type ReelVideo, type Rush, type WorkerSpeed } from "@/lib/montage";
+import { BUILTIN_SFX, DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_SFX, MAX_STAGES, STAGE_ANIMS, STAGE_KINDS, type Sfx, type Stage, JOB_PHASES, MAX_TEXTS, MUSIC_FADE, REEL_ACTORS, REEL_BRIDGES, REEL_BRIDGES_V1, REEL_CAMERAS, REEL_FPB_RANGE, REEL_LAYOUTS, REEL_LAYOUTS_V1, REEL_SCREENS, REEL_SHAPES, REEL_SOURCES, REEL_SURFACES, REEL_TARGETS, REEL_VIDEO, REEL_ZONES, VIDEO_BEAT_ID, VIDEO_BOARD, VIDEO_ENGINES, VIDEO_LIMITS, VIDEO_MOMENT_ID, VIDEO_WORKER, isVideoJob, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type JobPhase, type JobRun, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelBeat, type ReelBridge, type ReelCode, type ReelEngine, type ReelFx, type ReelLayout, type ReelMoment, type ReelPlan, type ReelScene, type ReelVideo, type Rush, type WorkerSpeed } from "@/lib/montage";
 import { atLeast } from "@/lib/worker-version";
 import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db, setSetting } from "./db";
@@ -282,13 +282,15 @@ export function deleteJob(id: string) {
 const CLAIM_STALE = 15 * 60_000;
 /** Same for a video job held by a worker ≥ 0.15.0: it reports every 15 s, and workDir/worker.lock keeps it alone on its Mac. */
 const CLAIM_STALE_FAST = 90_000;
+/** The first worker whose video jobs report every 15 s (the first VIDEO_WORKER, which has moved on since: 0.22.0, engine 2). */
+const FAST_BEAT_WORKER = "0.15.0";
 
 /**
  * Does the worker that holds this job report every 15 s? Only a video job run by a worker ≥ 0.15.0 does (its own
  * progress heartbeat); every other path of that same worker (script, caption, post, cover, face-cam edit, reels of
  * scenes) and every older worker still report once a minute.
  */
-const fastBeat = (job: MontageJob) => isVideoJob(job) && atLeast(job.run?.by, VIDEO_WORKER);
+const fastBeat = (job: MontageJob) => isVideoJob(job) && atLeast(job.run?.by, FAST_BEAT_WORKER);
 
 /**
  * Gives the oldest waiting job to the worker of version `version`, skipping the jobs it is too old for (`minWorker`;
@@ -840,17 +842,41 @@ const pick = <T extends string>(v: unknown, among: readonly T[], fallback: T): T
 /** Free text that may keep its line breaks (request, direction, caption). */
 const para = (v: unknown, max: number) => (str(v, max * 2) ?? "").replace(/\r\n?/g, "\n").trim().slice(0, max);
 
-/** The texts and choices of a beat, bounded (shared by the Mac and the page). Undefined when it has no text at all. */
-function beatFields(x: Record<string, unknown>, fallback?: ReelBeat): Omit<ReelBeat, "id" | "start" | "end" | "say"> | undefined {
+/**
+ * The texts and choices of a beat, bounded (shared by the Mac and the page). Undefined when it has no text at all.
+ * `engine` gives the lists: engine 1 keeps REEL_LAYOUTS_V1 and REEL_BRIDGES_V1 and never has the fields of engine 2;
+ * engine 2 takes the whole library and keeps the background, the phone screen, the tapped choice and the label, as the
+ * Mac's cleanBeat does (worker/montage/lib/reel/score.mjs). A page edit falls back on the beat of its base.
+ */
+function beatFields(x: Record<string, unknown>, engine: ReelEngine, fallback?: ReelBeat): Omit<ReelBeat, "id" | "start" | "end" | "say"> | undefined {
   const L = VIDEO_LIMITS.beat;
   const text = line(x.text, L.text) || (fallback?.text ?? "");
   const title = line(x.title, L.title) || fallback?.title || text.slice(0, L.title);
   if (!text) return undefined;
   const sub = line(x.sub, L.sub);
-  const items = Array.isArray(x.items) ? (x.items as unknown[]).map((i) => line(i, L.item)).filter(Boolean).slice(0, L.items) : [];
+  // Empty items are dropped; `kept` remembers where each one was, for the choice the phone taps.
+  const kept = (Array.isArray(x.items) ? (x.items as unknown[]) : []).map((i, at) => ({ text: line(i, L.item), at })).filter((i) => i.text).slice(0, L.items);
+  const items = kept.map((i) => i.text);
   const emphasis = line(x.emphasis, L.emphasis);
   const seconds = num(x.seconds) ?? fallback?.seconds ?? 3;
   const [lo, hi] = REEL_VIDEO.seconds;
+  const sig = engine === 2;
+  const layouts: readonly ReelLayout[] = sig ? REEL_LAYOUTS : REEL_LAYOUTS_V1;
+  const bridges: readonly ReelBridge[] = sig ? REEL_BRIDGES : REEL_BRIDGES_V1;
+  const layout = pick(x.layout, layouts, pick(fallback?.layout, layouts, "stack"));
+  let scene: Pick<ReelBeat, "surface" | "screen" | "pick" | "label"> = {};
+  if (sig) {
+    const screen = layout === "phone" ? pick(x.screen, REEL_SCREENS, pick(fallback?.screen, REEL_SCREENS, items.length ? "app" : "feed")) : undefined;
+    const tap = num(x.pick);
+    const at = screen === "app" && tap !== undefined && Number.isInteger(tap) ? kept.findIndex((i) => i.at === tap) : -1;
+    const label = ["phone", "cards", "cta"].includes(layout) ? line(x.label, L.label).trim() : "";
+    scene = {
+      surface: pick(x.surface, REEL_SURFACES, pick(fallback?.surface, REEL_SURFACES, "base")),
+      ...(screen ? { screen } : {}),
+      ...(at >= 0 ? { pick: at } : {}),
+      ...(label ? { label } : {}),
+    };
+  }
   return {
     title,
     text,
@@ -858,10 +884,11 @@ function beatFields(x: Record<string, unknown>, fallback?: ReelBeat): Omit<ReelB
     ...(items.length ? { items } : {}),
     ...(emphasis ? { emphasis } : {}),
     ...(x.count === true ? { count: true } : {}),
-    layout: pick(x.layout, REEL_LAYOUTS, fallback?.layout ?? "stack"),
-    bridge: pick(x.bridge, REEL_BRIDGES, fallback?.bridge ?? "morph"),
+    layout,
+    bridge: pick(x.bridge, bridges, pick(fallback?.bridge, bridges, "morph")),
     actor: pick(x.actor, REEL_ACTORS, fallback?.actor ?? "rest"),
     camera: pick(x.camera, REEL_CAMERAS, fallback?.camera ?? "drift"),
+    ...scene,
     seconds: Math.min(hi, Math.max(lo, seconds)),
     ...(x.fixed === true ? { fixed: true } : {}),
     ...(x.cut === true ? { cut: true } : {}),
@@ -875,7 +902,7 @@ function reservedVideo(v: Record<string, unknown>): Pick<ReelVideo, "captions" |
   const style = line(v.motionStyle, 1000);
   return {
     ...(c && typeof c === "object" ? { captions: { on: c.on === true, ...(["karaoke", "pop", "simple"].includes(c.look as string) ? { look: c.look as "karaoke" | "pop" | "simple" } : {}) } } : {}),
-    ...(o && typeof o === "object" && o.provider === "elevenlabs" && line(o.voiceId, 100) ? { voiceOver: { provider: "elevenlabs" as const, voiceId: line(o.voiceId, 100) } } : {}),
+    ...(o && typeof o === "object" && (o.provider === "elevenlabs" || o.provider === "google") && /^[A-Za-z0-9_-]{1,100}$/.test(line(o.voiceId, 100)) ? { voiceOver: { provider: o.provider as "elevenlabs" | "google", voiceId: line(o.voiceId, 100) } } : {}),
     ...(style ? { motionStyle: style } : {}),
   };
 }
@@ -894,14 +921,17 @@ function videoCode(raw: unknown): ReelCode | "trop long" | undefined {
 /**
  * The `video` of a plan. From the Mac (`base` left out): the whole score, code of the moments included (bounded only:
  * the Mac is the safety boundary). From the page (`base` = the video of the version it starts from): the page edits
- * texts, choices, lengths, cuts and the order of the beats the base has; everything else (request, seed, moments and
- * their code…) comes from the base, and a moment survives only when the page still marks it `custom`.
+ * texts, choices, lengths, cuts and the order of the beats the base has; everything else (engine, request, seed, tempo
+ * grid, moments and their code…) comes from the base, and a moment survives only when the page still marks it `custom`.
+ * The engine (1 « Plateau », 2 « Signature ») decides the lists and fields of the beats; engine 2 has no moments.
  */
 export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
   if (!raw || typeof raw !== "object") return "Plan vidéo manquant";
   const v = raw as Record<string, unknown>;
-  const fromMac = !base;
-  if (fromMac && v.engine !== VIDEO_ENGINE) return "Moteur vidéo inconnu : mets le site à jour";
+  // From the Mac, an engine the site knows (compared strictly: never guessed); from the page, the engine of the base.
+  const engine: ReelEngine | undefined = base ? (base.engine === 2 ? 2 : 1) : VIDEO_ENGINES.find((e) => e === v.engine);
+  if (!engine) return "Moteur vidéo inconnu : mets le site à jour";
+  const sig = engine === 2;
 
   // Beats.
   const beats: ReelBeat[] = [];
@@ -912,13 +942,13 @@ export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
       // The page: only the beats of the base, each at most once; what it does not say well stays as in the base.
       const old = base.beats.find((b) => b.id === x.id);
       if (!old || seen.has(old.id)) continue;
-      const f = beatFields(x, old);
+      const f = beatFields(x, engine, old);
       if (!f) continue;
       seen.add(old.id);
       beats.push({ id: old.id, ...f, ...(old.say ? { say: old.say } : {}) });
       continue;
     }
-    const f = beatFields(x);
+    const f = beatFields(x, engine);
     if (!f) continue;
     // Ids are stable across versions: a bad or repeated one gets a new unique id (moments that pointed to it are dropped).
     let id = typeof x.id === "string" && VIDEO_BEAT_ID.test(x.id) && !seen.has(x.id) ? x.id : `b${i + 1}`;
@@ -934,13 +964,14 @@ export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
       ...(start !== undefined && end !== undefined && start >= 0 && start < end && end <= 61 ? { start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 } : {}),
     });
   }
-  if (beats.filter((b) => !b.cut).length < REEL_VIDEO.keep) return "Garde au moins deux temps forts";
+  const keptIds = new Set(beats.filter((b) => !b.cut).map((b) => b.id));
+  if (keptIds.size < REEL_VIDEO.keep) return "Garde au moins deux temps forts";
 
-  // Moments.
+  // Moments (engine 2 has none: the scenes of its library are the visuals).
   const ids = new Set(beats.map((b) => b.id));
   const moments: ReelMoment[] = [];
   let total = 0;
-  for (const x of Array.isArray(v.moments) ? (v.moments as Record<string, unknown>[]) : []) {
+  for (const x of !sig && Array.isArray(v.moments) ? (v.moments as Record<string, unknown>[]) : []) {
     if (!x || typeof x !== "object" || moments.length >= REEL_VIDEO.moments) continue;
     if (moments.some((m) => m.id === x.id)) continue;
     if (base) {
@@ -962,11 +993,11 @@ export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
   }
 
   if (base) {
-    // Everything the page cannot change.
-    const { beats: _b, moments: _m, ...head } = base;
+    // Everything the page cannot change (engine, tempo grid…); the drop stays only while its beat is kept.
+    const { beats: _b, moments: _m, drop, ...head } = base;
     void _b;
     void _m;
-    return { ...head, beats, moments };
+    return { ...head, beats, moments, ...(drop && keptIds.has(drop) ? { drop } : {}) };
   }
   const target = REEL_TARGETS.find((t) => t === v.target);
   const direction = para(v.direction, 1000);
@@ -975,8 +1006,11 @@ export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
   const tools = (v.tools && typeof v.tools === "object" ? v.tools : {}) as Record<string, unknown>;
   const worker = line(tools.worker, VIDEO_LIMITS.tools);
   const hyperframes = line(tools.hyperframes, VIDEO_LIMITS.tools);
+  // Engine 2: the tempo grid (frames per music beat) and the beat where the music drops, a kept one.
+  const fpb = num(v.fpb);
+  const drop = typeof v.drop === "string" ? v.drop : "";
   return {
-    engine: VIDEO_ENGINE,
+    engine,
     request: para(v.request, REEL_VIDEO.request),
     source: pick(v.source, REEL_SOURCES, "idea"),
     ...(target ? { target } : {}),
@@ -986,6 +1020,8 @@ export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
     beats,
     moments,
     ...(caption ? { caption } : {}),
+    ...(sig && fpb !== undefined && Number.isInteger(fpb) && fpb >= REEL_FPB_RANGE[0] && fpb <= REEL_FPB_RANGE[1] ? { fpb } : {}),
+    ...(sig && keptIds.has(drop) ? { drop } : {}),
     seed: seed !== undefined && Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff ? seed : 0,
     ...(worker || hyperframes ? { tools: { ...(worker ? { worker } : {}), ...(hyperframes ? { hyperframes } : {}) } } : {}),
     ...reservedVideo(v),
@@ -1040,7 +1076,10 @@ export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan |
   return { scenes, ...planFields(r, look, base) };
 }
 
-/** What a plan of scenes and a video plan share: look, logo, music, hand-placed texts, rhythm, rendered length. */
+/**
+ * What a plan of scenes and a video plan share: look, logo, music, hand-placed texts, rhythm, rendered length, and the
+ * sound effects of engine 2 (`sfx`, a boolean kept as sent; left out: on).
+ */
 function planFields(r: Record<string, unknown>, look: Look, base?: ReelPlan): Omit<ReelPlan, "scenes" | "video"> {
   const volume = num(r.volume);
   const duration = num(r.duration);
@@ -1054,6 +1093,7 @@ function planFields(r: Record<string, unknown>, look: Look, base?: ReelPlan): Om
     volume: volume === undefined ? (base?.volume ?? 0.7) : Math.min(1, Math.max(0, volume)),
     ...(track ? { track } : {}),
     ...(Object.keys(cue).length ? { cue } : {}),
+    ...(typeof r.sfx === "boolean" ? { sfx: r.sfx } : {}),
     ...(Array.isArray(r.texts) && r.texts.length ? { texts: cleanTexts(r.texts) } : {}),
     pace: PACES.find((p) => p === r.pace) ?? base?.pace ?? "normal",
     ...(base?.direction ? { direction: base.direction } : str(r.direction, 1000)?.trim() ? { direction: str(r.direction, 1000)!.trim() } : {}),

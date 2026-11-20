@@ -2,6 +2,7 @@
 // A project has a default style and may have others (a podcast, clips…): every carousel, photo post, text
 // and video made with one style comes out the same.
 // No "use client" here: the server validates profiles with the same lists.
+import type { StyleMedia } from "./audio-ai";
 
 export type LookTheme = "paper" | "night" | "accent" | "gradient" | "custom";
 
@@ -93,6 +94,8 @@ export type StyleProfile = {
   strategySource?: string;
   /** What Claude imitates and draws from: model posts, inspiration images, ideas. */
   refs: ProfileRefs;
+  /** Voice, music and Claude of the videos made with this style (left out: those of Réglages). */
+  media?: StyleMedia;
   /** True once Antoine chose the look himself (it differs from the starter style): only then it dresses the videos. */
   lookSet?: boolean;
   /** False while the project still uses its starter style untouched. */

@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp, Eye, EyeOff, Minus, Plus, Sparkles, Undo2 } from "lucide-react";
-import { REEL_ACTORS, REEL_BRIDGES, REEL_CAMERAS, REEL_LAYOUTS, REEL_VIDEO, VIDEO_BUDGETS, VIDEO_LIMITS, type ReelActor, type ReelBeat, type ReelBridge, type ReelCamera, type ReelLayout, type ReelMoment, type ReelVideo } from "@/lib/montage";
+import { REEL_ACTORS, REEL_BRIDGES, REEL_BRIDGES_V1, REEL_CAMERAS, REEL_LAYOUTS, REEL_LAYOUTS_V1, REEL_SCREENS, REEL_SURFACES, REEL_VIDEO, VIDEO_BUDGETS, VIDEO_LIMITS, type ReelActor, type ReelBeat, type ReelBridge, type ReelCamera, type ReelLayout, type ReelMoment, type ReelScreen, type ReelSurface, type ReelVideo } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { Switch } from "./controls";
 import { inputClass } from "./look-parts";
@@ -10,24 +10,80 @@ import { nb } from "./reel-progress";
 
 /* ---------- Names shown for the engine's choices ---------- */
 
-export const LAYOUT_LABEL: Record<ReelLayout, string> = { hero: "Héros", stack: "Pile", number: "Chiffre", list: "Liste", cta: "Appel" };
-export const BRIDGE_LABEL: Record<ReelBridge, string> = { rise: "Montée", morph: "Métamorphose", carry: "Mot porté", zoom: "Plongée", cut: "Coupe sèche" };
+/** Engine 1 (« Plateau »). */
+export const LAYOUT_LABEL: Record<(typeof REEL_LAYOUTS_V1)[number], string> = { hero: "Héros", stack: "Pile", number: "Chiffre", list: "Liste", cta: "Appel" };
+export const BRIDGE_LABEL: Record<(typeof REEL_BRIDGES_V1)[number], string> = { rise: "Montée", morph: "Métamorphose", carry: "Mot porté", zoom: "Plongée", cut: "Coupe sèche" };
 export const ACTOR_LABEL: Record<ReelActor, string> = { rest: "Repos", dot: "Point", underline: "Soulignement", highlight: "Surligné", bar: "Barre", hidden: "Cachée" };
 export const CAMERA_LABEL: Record<ReelCamera, string> = { drift: "Dérive", push: "Approche", still: "Fixe" };
+/** Engine 2 (« Signature »): the names of the Mac's scene library (worker/montage/lib/reel/vocab.mjs SIG_INFO). */
+export const SIG_LAYOUT_LABEL: Record<ReelLayout, string> = { hero: "Héros", stack: "Pile", number: "Chiffre", list: "Liste", cta: "Appel", slot: "Machine à sous", phone: "Téléphone", cards: "Cartes à swiper", bubbles: "Bulles", wall: "Mur de mots" };
+export const SIG_BRIDGE_LABEL: Record<ReelBridge, string> = { rise: "Montée", morph: "Métamorphose", carry: "Mot porté", zoom: "Plongée", cut: "Coupe sèche", flood: "Remplissage", wipe: "Volet", whip: "Panoramique filé", push: "Poussée", flip: "Retournement" };
+/** Engine 2: `actor` is the mark put on the emphasis (« marque »), strongest first. */
+const SIG_ACTORS: readonly ReelActor[] = ["highlight", "underline", "bar", "dot", "rest", "hidden"];
+export const SIG_ACTOR_LABEL: Record<ReelActor, string> = { highlight: "Surligné", underline: "Souligné", bar: "Entouré", dot: "Point", rest: "Couleur", hidden: "Sans" };
+export const SURFACE_LABEL: Record<ReelSurface, string> = { base: "Fond", accent: "Accent", ink: "Encre", alt: "Second fond" };
+export const SCREEN_LABEL: Record<ReelScreen, string> = { feed: "Fil d'actualité", app: "Application", chat: "Messages", notifs: "Notifications" };
 const LAYOUT_HINT: Record<ReelLayout, string> = {
   hero: "Une phrase seule, en grand",
   stack: "Une phrase et un sous-texte",
   number: "Un chiffre et ce qu'il veut dire",
   list: "Un titre et 2 à 4 points",
   cta: "L'appel final et son bouton",
+  slot: "Un début de phrase et 2 à 4 mots qui défilent, le dernier est la chute",
+  phone: "Un téléphone sous le titre : fil, application, messages ou notifications",
+  cards: "2 à 4 cartes swipées, puis le tampon tombe sur la dernière",
+  bubbles: "Un titre et 2 à 4 bulles qui surgissent tout autour",
+  wall: "Un mur de mots géants et une phrase courte au centre",
+};
+
+/** What the card offers for each engine: its lists, in the Mac's order, and their names. */
+type Vocab = {
+  layouts: readonly ReelLayout[];
+  layoutLabel: Partial<Record<ReelLayout, string>>;
+  bridges: readonly ReelBridge[];
+  bridgeLabel: Partial<Record<ReelBridge, string>>;
+  actors: readonly ReelActor[];
+  actorLabel: Record<ReelActor, string>;
+  actorName: string;
+  actorHint: string;
+};
+const VOCAB: Record<ReelVideo["engine"], Vocab> = {
+  1: { layouts: REEL_LAYOUTS_V1, layoutLabel: LAYOUT_LABEL, bridges: REEL_BRIDGES_V1, bridgeLabel: BRIDGE_LABEL, actors: REEL_ACTORS, actorLabel: ACTOR_LABEL, actorName: "Forme", actorHint: "Ce que fait la forme de marque pendant ce temps fort" },
+  2: { layouts: REEL_LAYOUTS, layoutLabel: SIG_LAYOUT_LABEL, bridges: REEL_BRIDGES, bridgeLabel: SIG_BRIDGE_LABEL, actors: SIG_ACTORS, actorLabel: SIG_ACTOR_LABEL, actorName: "Marque", actorHint: "Comment les mots d'emphase sont marqués" },
+};
+
+/** Layouts that need 2 items at least (engine 2 adds slot, cards, bubbles and wall); the phone's items are optional. */
+const NEEDS_ITEMS: readonly string[] = ["list", "slot", "cards", "bubbles", "wall"];
+const ITEM_LAYOUTS: readonly string[] = [...NEEDS_ITEMS, "phone"];
+/** How a card names the items of a layout (a phone: of its screen): the field, one item, and whether it is masculine. */
+const ITEM_NAMES: Partial<Record<ReelLayout | ReelScreen, [string, string, boolean]>> = {
+  list: ["Points", "point", true],
+  slot: ["Mots qui défilent", "mot", true],
+  cards: ["Cartes", "carte", false],
+  bubbles: ["Bulles", "bulle", false],
+  wall: ["Mots du mur", "mot", true],
+  feed: ["Bulles autour du téléphone", "bulle", false],
+  app: ["Choix", "choix", true],
+  chat: ["Messages (reçu, envoyé…)", "message", true],
+  notifs: ["Notifications", "notification", false],
+};
+/** Engine 2: what `label` is for a layout (a phone: for its screen), and its placeholder. */
+const LABEL_FOR: Partial<Record<ReelLayout | ReelScreen, [string, string]>> = {
+  app: ["Bouton", "Le bouton de l'app, par ex. « Essayer »"],
+  chat: ["Conversation", "Son nom ; sinon ta marque"],
+  cards: ["Tampon", "Par ex. « MATCH » ; sinon une coche"],
+  cta: ["Nom de la marque", "Écrit en grand ; sinon ton compte"],
 };
 
 const fmtT = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
 const [MIN_BEAT, MAX_BEAT] = REEL_VIDEO.seconds;
 
+/** The characters a layout holds; a layout this page does not know (from a newer Mac) counts as a « Pile ». */
+const budgetOf = (layout: string): { text: number; sub?: number; item?: number } => VIDEO_BUDGETS[layout as ReelLayout] ?? VIDEO_BUDGETS.stack;
+
 /** Characters a beat holds over the budget of its layout (text, sub-text or any item). */
 export function overBudget(b: ReelBeat) {
-  const B: { text: number; sub?: number; item?: number } = VIDEO_BUDGETS[b.layout];
+  const B = budgetOf(b.layout);
   if (b.text.trim().length > B.text) return true;
   if (B.sub && (b.sub ?? "").trim().length > B.sub) return true;
   if (B.item && (b.items ?? []).some((i) => i.trim().length > B.item!)) return true;
@@ -35,10 +91,11 @@ export function overBudget(b: ReelBeat) {
 }
 
 /**
- * A list beat with fewer than 2 points written: the server drops the empty points and the Mac then lays it out as a
- * « Pile ». The editing screen asks for the points before a new preview.
+ * A beat whose layout needs points (a list; engine 2: slot, cards, bubbles, wall) with fewer than 2 written: the server
+ * drops the empty ones and the Mac then lays it out otherwise (a « Pile » or a « Héros »). The editing screen asks for
+ * them before a new preview.
  */
-export const shortList = (b: ReelBeat) => !b.cut && b.layout === "list" && (b.items ?? []).filter((i) => i.trim()).length < 2;
+export const shortList = (b: ReelBeat) => !b.cut && NEEDS_ITEMS.includes(b.layout) && (b.items ?? []).filter((i) => i.trim()).length < 2;
 
 /** The moments that are still bespoke (the page only knows `custom`; left out: as the server sent it). */
 export const liveMoment = (m: ReelMoment) => m.custom ?? !!m.code;
@@ -119,6 +176,9 @@ export function VideoBeats({
 }) {
   const kept = video.beats.filter((b) => !b.cut).length;
   const firstKept = video.beats.find((b) => !b.cut)?.id;
+  // The lists and names of the engine that made the video (engine 1 keeps its own).
+  const sig = video.engine === 2;
+  const vocab = VOCAB[video.engine] ?? VOCAB[1];
   const fates = momentFates(video);
   // The badge « sur mesure » shows where the animation will really play at the next preview.
   const playing = video.moments.filter((m) => liveMoment(m) && fates.get(m.id)?.kind !== "removed");
@@ -138,6 +198,8 @@ export function VideoBeats({
             on={selected === b.id}
             under={current === b.id}
             canCut={b.cut || kept > REEL_VIDEO.keep}
+            sig={sig}
+            vocab={vocab}
             disabled={disabled}
             onSeek={onSeek}
             onSelect={onSelect}
@@ -171,6 +233,8 @@ function BeatCard({
   on,
   under,
   canCut,
+  sig,
+  vocab: V,
   disabled,
   onSeek,
   onSelect,
@@ -187,30 +251,45 @@ function BeatCard({
   on: boolean;
   under: boolean;
   canCut: boolean;
+  /** Engine 2 (« Signature »): background, phone screen, tapped choice and label too. */
+  sig: boolean;
+  vocab: Vocab;
   disabled?: boolean;
   onSeek?: (t: number) => void;
   onSelect: (id: string | null) => void;
   onBeat: (id: string, patch: Partial<ReelBeat>, key?: string) => void;
   onMove: (id: string, by: number) => void;
 }) {
-  const B: { text: number; sub?: number; item?: number } = VIDEO_BUDGETS[b.layout];
+  const B = budgetOf(b.layout);
   const L = VIDEO_LIMITS.beat;
   const set = (patch: Partial<ReelBeat>, key?: string) => onBeat(b.id, patch, key);
   const off = disabled || b.cut;
   const length = at ? at.end - at.start : b.seconds;
   const items = b.items ?? [];
+  const written = items.filter((x) => x.trim()).length;
   const changed = !!was && JSON.stringify({ ...was, start: 0, end: 0 }) !== JSON.stringify({ ...b, start: 0, end: 0 });
-  const subLabel = b.layout === "cta" ? "Texte du bouton" : b.layout === "number" ? "Ce que dit le chiffre" : "Sous-texte";
-  // A layout that needs a list starts it from the sub-text (or two empty points), and gives it back when it leaves.
+  const subLabel = b.layout === "cta" ? "Texte du bouton" : b.layout === "number" ? "Ce que dit le chiffre" : b.layout === "cards" ? "La chute, après le tampon" : "Sous-texte";
+  // Engine 2: a phone without a screen shows the Mac's default (the app when it has items, else the feed).
+  const screen: ReelScreen = b.screen ?? (written ? "app" : "feed");
+  const where = b.layout === "phone" ? screen : b.layout;
+  const names = sig || b.layout === "list" ? ITEM_NAMES[where] : undefined;
+  const fewest = NEEDS_ITEMS.includes(b.layout) ? 2 : 0;
+  const tag = sig ? LABEL_FOR[where] : undefined;
+  const tapping = sig && b.layout === "phone" && screen === "app" && items.length > 0;
+  const tapped = b.pick !== undefined && Number.isInteger(b.pick) && b.pick >= 0 && b.pick < items.length ? b.pick : undefined;
+  // A layout that needs points starts them from the sub-text when it shows none (or two empty points), and gives them back when it leaves.
   const setLayout = (layout: ReelLayout) => {
     if (layout === b.layout) return;
-    if (layout === "list" && items.length < 2) {
-      const from = (b.sub ?? "").split(/\s*[·•;\n]\s*|\s+[–-]\s+/).map((x) => x.trim()).filter(Boolean).slice(0, L.items);
-      return set({ layout, items: from.length >= 2 ? from.map((x) => x.slice(0, L.item)) : [...from, "", ""].slice(0, 2), sub: undefined });
+    if (NEEDS_ITEMS.includes(layout) && items.length < 2) {
+      const ownSub = budgetOf(layout).sub !== undefined;
+      const from = ownSub ? items : (b.sub ?? "").split(/\s*[·•;\n]\s*|\s+[–-]\s+/).map((x) => x.trim()).filter(Boolean).slice(0, L.items);
+      return set({ layout, items: from.length >= 2 ? from.map((x) => x.slice(0, L.item)) : [...from, "", ""].slice(0, 2), ...(ownSub ? {} : { sub: undefined }) });
     }
-    if (b.layout === "list" && layout !== "list" && items.length && !b.sub) return set({ layout, sub: items.filter(Boolean).join(" · ").slice(0, L.sub), items: undefined });
-    set({ layout });
+    if (ITEM_LAYOUTS.includes(b.layout) && !ITEM_LAYOUTS.includes(layout) && items.length && !b.sub) return set({ layout, sub: items.filter(Boolean).join(" · ").slice(0, L.sub), items: undefined });
+    set({ layout, ...(layout === "phone" && !b.screen ? { screen: written ? "app" : "feed" } : {}) });
   };
+  /** Removes item k; the choice the phone taps follows its item (back to the default when it is the one removed). */
+  const dropItem = (k: number) => set({ items: items.filter((_, j) => j !== k), ...(tapped !== undefined ? { pick: tapped === k ? undefined : tapped > k ? tapped - 1 : tapped } : {}) });
 
   return (
     <li
@@ -263,13 +342,13 @@ function BeatCard({
         <Field label="Texte" n={b.text.length} max={B.text}>
           <input aria-label={`Texte du temps fort ${i + 1}`} value={b.text} onChange={(e) => set({ text: e.target.value }, `text:${b.id}`)} maxLength={L.text} disabled={off} className={cn(inputClass, "h-8 font-medium")} />
         </Field>
-        {b.layout === "list" ? (
-          <Field label="Points" n={items.length} max={L.items} unit="">
+        {names && (
+          <Field label={names[0]} n={items.length} max={L.items} unit="">
             <div className="flex flex-col gap-1">
               {items.map((it, k) => (
                 <div key={k} className="flex items-center gap-1">
                   <input
-                    aria-label={`Point ${k + 1} du temps fort ${i + 1}`}
+                    aria-label={`${names[1].charAt(0).toUpperCase()}${names[1].slice(1)} ${k + 1} du temps fort ${i + 1}`}
                     value={it}
                     onChange={(e) => set({ items: items.map((x, j) => (j === k ? e.target.value : x)) }, `item:${b.id}:${k}`)}
                     maxLength={L.item}
@@ -277,54 +356,72 @@ function BeatCard({
                     className={cn(inputClass, "h-8 min-w-0 flex-1", B.item && it.trim().length > B.item && "border-warn/70")}
                   />
                   <span className={cn("tabular w-10 shrink-0 text-right font-mono text-[10.5px]", B.item && it.trim().length > B.item ? "text-warn" : "text-ink-3")}>
-                    {it.length}/{B.item}
+                    {it.length}/{B.item ?? L.item}
                   </span>
-                  <button onClick={() => set({ items: items.filter((_, j) => j !== k) })} disabled={off || items.length <= 2} aria-label="Retirer ce point" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink disabled:opacity-30">
+                  <button onClick={() => dropItem(k)} disabled={off || items.length <= fewest} aria-label={`Retirer ${names[2] ? "ce" : "cette"} ${names[1]}`} className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink disabled:opacity-30">
                     <Minus className="size-3.5" />
                   </button>
                 </div>
               ))}
               {items.length < L.items && (
                 <button onClick={() => set({ items: [...items, ""] })} disabled={off} className="press inline-flex items-center gap-1 self-start rounded-md px-1 py-0.5 text-[12px] font-medium text-ink-2 hover:text-ink disabled:opacity-40">
-                  <Plus className="size-3.5" /> Ajouter un point
+                  <Plus className="size-3.5" /> Ajouter {names[2] ? "un" : "une"} {names[1]}
                 </button>
               )}
             </div>
           </Field>
-        ) : (
-          B.sub !== undefined && (
-            <Field label={subLabel} n={(b.sub ?? "").length} max={B.sub}>
-              <textarea aria-label={`${subLabel} du temps fort ${i + 1}`} value={b.sub ?? ""} onChange={(e) => set({ sub: e.target.value || undefined }, `sub:${b.id}`)} maxLength={L.sub} rows={2} disabled={off} className={cn(inputClass, "resize-y py-1.5 leading-snug")} />
-            </Field>
-          )
+        )}
+        {B.sub !== undefined && (
+          <Field label={subLabel} n={(b.sub ?? "").length} max={B.sub}>
+            <textarea aria-label={`${subLabel} du temps fort ${i + 1}`} value={b.sub ?? ""} onChange={(e) => set({ sub: e.target.value || undefined }, `sub:${b.id}`)} maxLength={L.sub} rows={2} disabled={off} className={cn(inputClass, "resize-y py-1.5 leading-snug")} />
+          </Field>
         )}
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
           <Field label="Emphase" n={(b.emphasis ?? "").length} max={L.emphasis} className="min-w-[180px] flex-1" hint={b.emphasis && !b.text.toLowerCase().includes(b.emphasis.trim().toLowerCase()) ? "Des mots du texte" : undefined}>
             <input aria-label={`Mots mis en avant du temps fort ${i + 1}`} value={b.emphasis ?? ""} onChange={(e) => set({ emphasis: e.target.value || undefined }, `emph:${b.id}`)} maxLength={L.emphasis} disabled={off} placeholder="Mots du texte à mettre en avant" className={cn(inputClass, "h-8")} />
           </Field>
-          {b.layout === "number" && (
+          {tag && (
+            <Field label={tag[0]} n={(b.label ?? "").length} max={L.label} className="min-w-[160px] flex-1">
+              <input aria-label={`${tag[0]} du temps fort ${i + 1}`} value={b.label ?? ""} onChange={(e) => set({ label: e.target.value || undefined }, `label:${b.id}`)} maxLength={L.label} disabled={off} placeholder={nb(tag[1])} className={cn(inputClass, "h-8")} />
+            </Field>
+          )}
+          {/* Engine 2: the number always rolls like a counter, so no switch. */}
+          {b.layout === "number" && !sig && (
             <label className="flex h-8 items-center gap-2 text-[12px] text-ink-2">
               <Switch on={!!b.count} onChange={(count) => set({ count: count || undefined })} label="Le chiffre compte" />
               Le chiffre compte
             </label>
           )}
         </div>
-        {shortList(b) && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[11.5px] text-ink-2">{nb("Une liste a besoin de 2 points au moins : écris-les, ou choisis une autre mise en page.")}</p>}
+        {shortList(b) && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[11.5px] text-ink-2">{nb(b.layout === "list" ? "Une liste a besoin de 2 points au moins : écris-les, ou choisis une autre mise en page." : "Cette scène a besoin de 2 éléments au moins : écris-les, ou choisis une autre mise en page.")}</p>}
         {overBudget(b) && !b.cut && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[11.5px] text-ink-2">{nb("Trop long pour cette mise en page : le moteur réduira la taille. Raccourcis-le ou demande à Claude.")}</p>}
 
         {/* The engine's choices: two columns, four when the tools are wide. */}
         <div className="grid grid-cols-2 gap-x-2.5 gap-y-1.5 @min-[560px]:grid-cols-4">
-          <Choice label="Mise en page" value={b.layout} options={REEL_LAYOUTS} labels={LAYOUT_LABEL} onChange={setLayout} disabled={off} title={LAYOUT_HINT[b.layout]} />
+          <Choice label="Mise en page" value={b.layout} options={V.layouts} labels={V.layoutLabel} onChange={setLayout} disabled={off} title={LAYOUT_HINT[b.layout]} />
           {first ? (
             <div className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-ink-3">Enchaînement</span>
               <span className="flex h-8 items-center text-[12px] text-ink-3">Ouvre la vidéo</span>
             </div>
           ) : (
-            <Choice label="Enchaînement" value={b.bridge} options={REEL_BRIDGES} labels={BRIDGE_LABEL} onChange={(bridge) => set({ bridge })} disabled={off} title="Comment ce temps fort naît du précédent" />
+            <Choice label="Enchaînement" value={b.bridge} options={V.bridges} labels={V.bridgeLabel} onChange={(bridge) => set({ bridge })} disabled={off} title={sig ? "Comment la scène arrive après la précédente (Montée, Métamorphose et Mot porté : même arrière-plan, sinon un volet)" : "Comment ce temps fort naît du précédent"} />
           )}
-          <Choice label="Forme" value={b.actor} options={REEL_ACTORS} labels={ACTOR_LABEL} onChange={(actor) => set({ actor })} disabled={off} title="Ce que fait la forme de marque pendant ce temps fort" />
+          <Choice label={V.actorName} value={b.actor} options={V.actors} labels={V.actorLabel} onChange={(actor) => set({ actor })} disabled={off} title={V.actorHint} />
           <Choice label="Caméra" value={b.camera} options={REEL_CAMERAS} labels={CAMERA_LABEL} onChange={(camera) => set({ camera })} disabled={off} />
+          {sig && <Choice label="Arrière-plan" value={b.surface ?? "base"} options={REEL_SURFACES} labels={SURFACE_LABEL} onChange={(surface) => set({ surface })} disabled={off} title="La couleur de fond de la scène, prise dans le style" />}
+          {sig && b.layout === "phone" && <Choice label="Écran" value={screen} options={REEL_SCREENS} labels={SCREEN_LABEL} onChange={(s) => set({ screen: s })} disabled={off} title="Ce que montre le téléphone" />}
+          {tapping && (
+            <Choice
+              label="Le doigt touche"
+              value={tapped === undefined ? "" : String(tapped)}
+              options={["", ...items.map((_, k) => String(k))]}
+              labels={{ "": b.label?.trim() ? "Le bouton" : "Le 1er choix", ...Object.fromEntries(items.map((x, k) => [String(k), `${k + 1}. ${x.trim() || "(vide)"}`])) }}
+              onChange={(v) => set({ pick: v === "" ? undefined : Number(v) })}
+              disabled={off}
+              title="Le choix que le doigt touche sur l'écran de l'app"
+            />
+          )}
         </div>
 
         <label className="flex items-center gap-2 text-[12px] text-ink-2">
@@ -340,13 +437,16 @@ function BeatCard({
             aria-label={`Durée du temps fort ${i + 1}`}
             className="min-w-0 flex-1 accent-[var(--accent)]"
           />
-          <span className="tabular w-11 text-right font-mono text-[11.5px]">{fmtLen(b.fixed ? b.seconds : length)}</span>
+          {/* Engine 2: the length played, on the tempo grid of the music (a length set by hand goes to the nearest beat). */}
+          <span className="tabular w-11 text-right font-mono text-[11.5px]" title={sig ? "Calée sur les temps de la musique" : undefined}>
+            {fmtLen(b.fixed && !(sig && at) ? b.seconds : length)}
+          </span>
           {b.fixed ? (
             <button onClick={() => set({ fixed: undefined })} disabled={off} className="press w-9 text-[11.5px] text-ink-3 underline-offset-2 hover:text-ink hover:underline" title="Laisser le moteur calculer la durée d'après le texte et le rythme">
               Auto
             </button>
           ) : (
-            <span className="w-9 text-[11px] text-ink-3" title="Durée calculée d'après le texte et le rythme">
+            <span className="w-9 text-[11px] text-ink-3" title={sig ? "Durée calculée d'après le texte, la scène et les temps de la musique" : "Durée calculée d'après le texte et le rythme"}>
               auto
             </span>
           )}
@@ -374,14 +474,16 @@ function Field({ label, n, max, unit = "", hint, className, children }: { label:
   );
 }
 
-function Choice<T extends string>({ label, value, options, labels, onChange, disabled, title }: { label: string; value: T; options: readonly T[]; labels: Record<T, string>; onChange: (v: T) => void; disabled?: boolean; title?: string }) {
+/** One of the engine's choices. A value outside the list (a plan from a newer Mac) is shown as it is, never swapped for the first choice. */
+function Choice<T extends string>({ label, value, options, labels, onChange, disabled, title }: { label: string; value: T; options: readonly T[]; labels: Partial<Record<T, string>>; onChange: (v: T) => void; disabled?: boolean; title?: string }) {
+  const all = options.includes(value) ? options : [value, ...options];
   return (
     <label className="flex min-w-0 flex-col gap-1" title={title}>
       <span className="text-[11px] font-medium text-ink-3">{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value as T)} disabled={disabled} className={cn(inputClass, "h-8 px-2 text-[12.5px]")}>
-        {options.map((o) => (
+        {all.map((o) => (
           <option key={o} value={o}>
-            {labels[o]}
+            {labels[o] ?? o}
           </option>
         ))}
       </select>

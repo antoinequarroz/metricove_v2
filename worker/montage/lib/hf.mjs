@@ -68,7 +68,7 @@ export function overlayPage({ W, H, fps, dur, speechEnd, words, title, endCard, 
   const look = captions.look || "karaoke";
   const STRETCH = /^\d{2,3}%$/.test(theme.fontStretch || "") ? `font-stretch:${theme.fontStretch};` : "";
   const fontFaces = fontFaceCss(theme, (p) => `assets/${basename(p)}`);
-  // Look vidéo du style (worker 0.19.0) : graisse, capitales, contour, fond derrière la ligne ou le mot dit, accroche.
+  // Look vidéo du style (worker 0.21.0) : graisse, capitales, contour, fond derrière la ligne ou le mot dit, accroche.
   const D = theme.design || {};
   const hex = (v, or) => (/^#[0-9a-f]{6}$/i.test(v || "") ? v : or);
   const WEIGHT = D.weight >= 100 && D.weight <= 900 ? D.weight : 900;

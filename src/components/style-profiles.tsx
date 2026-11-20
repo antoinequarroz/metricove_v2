@@ -15,6 +15,8 @@ import { CHARTE_ACCEPT, type CharteResult } from "@/lib/strategy";
 import { JobProgress, OldWorkerNote, SourcePicker, startReading, useProjectJob, workerTooOld } from "./brand-reading";
 import { Button } from "./ui";
 import { VideoLookControls } from "./video-look";
+import { sameMedia, StyleMediaFields } from "./style-media";
+import type { StyleMedia } from "@/lib/audio-ai";
 
 /** Réglages → Styles: the styles now have their own page, with several styles per project. */
 export function StyleProfiles() {
@@ -35,8 +37,8 @@ export function StyleProfiles() {
 }
 
 type Texts = { id: string; text: string }[];
-type Draft = { name: string; notes: string; preset: StyleProfile["preset"]; look: Look; tone: string; skill: string; examples: Texts; ideas: Texts };
-const draftOf = (p: StyleProfile): Draft => ({ name: p.name, notes: p.notes, preset: p.preset, look: p.look, tone: p.tone, skill: p.skill, examples: p.refs.examples, ideas: p.refs.ideas });
+type Draft = { name: string; notes: string; preset: StyleProfile["preset"]; look: Look; tone: string; skill: string; examples: Texts; ideas: Texts; media?: StyleMedia };
+const draftOf = (p: StyleProfile): Draft => ({ name: p.name, notes: p.notes, preset: p.preset, look: p.look, tone: p.tone, skill: p.skill, examples: p.refs.examples, ideas: p.refs.ideas, media: p.media });
 const edited = (d: Draft, p: StyleProfile) =>
   d.name.trim() !== p.name ||
   d.notes.trim() !== p.notes.trim() ||
@@ -44,7 +46,8 @@ const edited = (d: Draft, p: StyleProfile) =>
   d.tone.trim() !== p.tone.trim() ||
   d.skill.trim() !== p.skill ||
   !sameTexts(d.examples, p.refs.examples) ||
-  !sameTexts(d.ideas, p.refs.ideas);
+  !sameTexts(d.ideas, p.refs.ideas) ||
+  !sameMedia(d.media, p.media);
 
 /** Everything a style holds, to change it: name, notes, look, tone, skill, references. */
 export function StyleEditor({ project, profile, fonts, hooks, actions }: { project: Project; profile: StyleProfile; fonts: Fonts | null; hooks: ReturnType<typeof useProfiles>; actions?: React.ReactNode }) {
@@ -76,7 +79,7 @@ export function StyleEditor({ project, profile, fonts, hooks, actions }: { proje
     try {
       const saved = await save(
         project.id,
-        { name: draft.name, notes: draft.notes, preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "", video: draft.look.video ?? null }, tone: draft.tone, skill: draft.skill, refs: { examples: draft.examples, ideas: draft.ideas } },
+        { name: draft.name, notes: draft.notes, preset: draft.preset, look: { ...draft.look, logo: draft.look.logo ?? "", video: draft.look.video ?? null }, tone: draft.tone, skill: draft.skill, media: draft.media && Object.keys(draft.media).length ? draft.media : null, refs: { examples: draft.examples, ideas: draft.ideas } },
         profile.id,
       );
       setDraft(draftOf(saved));
@@ -144,6 +147,7 @@ export function StyleEditor({ project, profile, fonts, hooks, actions }: { proje
               />
               <span className="text-[11.5px] text-ink-3">Le dossier d&apos;un skill sur ton Mac. Claude lit son fichier SKILL.md avant d&apos;écrire pour ce projet.</span>
             </Field>
+            <StyleMediaFields value={draft.media} onChange={(media) => setDraft((d) => ({ ...d, media }))} />
             <References project={project} profile={profile} draft={draft} setDraft={setDraft} hooks={hooks} />
             <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
               <label className="flex items-center gap-1.5 text-[12.5px] text-ink-2">

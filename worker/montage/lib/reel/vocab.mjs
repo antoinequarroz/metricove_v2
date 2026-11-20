@@ -1,4 +1,5 @@
-// Vocabulaire du moteur « Plateau » (reel vidéo continu, worker 0.15.0, engine 1).
+// Vocabulaire des moteurs du reel vidéo continu : « Plateau » (engine 1, worker 0.15.0) et « Signature » (engine 2,
+// worker 0.22.0 : bibliothèque de scènes calées sur le tempo de la musique, voir SIG plus bas).
 // Ce que Claude peut écrire dans une partition (mises en page, liaisons, états de la forme, caméra, zones des moments),
 // les limites et budgets de caractères, les cadres des zones, les préréglages de rythme et les constantes de mise en
 // scène du moteur. Une seule source pour score.mjs, sandbox.mjs, stage.mjs et stage-runtime.js (moteur), prompt.mjs
@@ -22,10 +23,13 @@ const frozen = (o) => {
 export const W = 1080, H = 1920, FPS = 30;
 /** Tout est quantifié à l'image : 1/30 s. */
 export const QUANTUM = 1 / FPS;
-/** Version du moteur écrite dans video.engine. Un plan d'engine supérieur vient d'un Mac plus récent : refusé. */
-export const ENGINE = 1;
-/** Version minimale du worker pour un job vidéo (job.minWorker, VIDEO_WORKER côté site). */
-export const VIDEO_WORKER = "0.15.0";
+/** Le moteur le plus récent que ce Mac sait jouer (video.engine) : 1 Plateau, 2 Signature. Un plan d'engine supérieur
+ * vient d'un Mac plus récent : refusé. Les nouvelles vidéos prennent ENGINE_NEW (config reel.engine pour revenir à 1). */
+export const ENGINE = 2;
+export const ENGINES = Object.freeze([1, 2]);
+export const ENGINE_NEW = 2;
+/** Version minimale du worker pour un job vidéo (job.minWorker, VIDEO_WORKER côté site) : celle qui joue engine 2. */
+export const VIDEO_WORKER = "0.22.0";
 /** HyperFrames est épinglé : lint, check, snapshot et render, jamais validate (déprécié), jamais add. */
 export const HYPERFRAMES = "0.8.137";
 export const HF_PACKAGE = `hyperframes@${HYPERFRAMES}`;
@@ -44,10 +48,33 @@ export const GSAP = frozen({
 
 // ─── Listes (les mêmes que REEL_* de src/lib/montage.ts) ────────────────────────────────────────────────────────────
 
-/** Mise en page d'un temps fort. */
+/** Mise en page d'un temps fort (engine 1 ; SIG_LAYOUTS pour engine 2). */
 export const LAYOUTS = frozen(["hero", "stack", "number", "list", "cta"]);
 /** Comment un temps fort naît du précédent (le bridge du premier est gardé mais ignoré : l'entrée de l'accroche est fixe). */
 export const BRIDGES = frozen(["rise", "morph", "carry", "zoom", "cut"]);
+/** Engine 2 (Signature) : les scènes de la bibliothèque (les cinq d'engine 1, rejouées, et cinq nouvelles). */
+export const SIG_LAYOUTS = frozen([...LAYOUTS, "slot", "phone", "cards", "bubbles", "wall"]);
+/** Engine 2 : les transitions (les cinq d'engine 1, rejouées, et cinq nouvelles). */
+export const SIG_BRIDGES = frozen([...BRIDGES, "flood", "wipe", "whip", "push", "flip"]);
+/** Engine 2 : la couleur de fond d'une scène, prise dans le style du projet. */
+export const SURFACES = frozen(["base", "accent", "ink", "alt"]);
+/** Engine 2 : l'écran du téléphone (layout phone). */
+export const SCREENS = frozen(["feed", "app", "chat", "notifs"]);
+/** Engine 2 : images par temps de musique selon le rythme (100, 120 et 128,6 BPM) ; 12 à 20 pour une musique choisie. */
+export const FPB = frozen({ calm: 18, normal: 15, fast: 14 });
+export const FPB_RANGE = frozen([12, 20]);
+/** Engine 2 : les grilles qui vont avec chaque rythme (pace suit fpb ; FPB[pace] est dedans). */
+export const SIG_PACE_FPB = frozen({ calm: frozen([17, 20]), normal: frozen([15, 16]), fast: frozen([12, 14]) });
+/** Engine 2 : les scènes qui montrent leurs items, et celles qui montrent un sous-texte (BUDGETS). */
+export const SIG_ITEM_LAYOUTS = frozen(["list", "slot", "phone", "cards", "bubbles", "wall"]);
+/** Engine 2 : les fondus de la musique quand la vidéo n'en choisit pas (une attaque nette sur le temps, une fin courte). */
+export const SIG_MUSIC_FADE = frozen({ in: 0.02, out: 1.2 });
+/** Engine 2 : la durée plancher d'une scène en temps de musique, [base, par item] (arrondie au temps suivant) : le
+ * temps que sa chorégraphie se joue (entrée, items un par temps, tampon des cartes, tape du doigt…). */
+export const SIG_MIN_BEATS = frozen({
+  hero: [4, 0], stack: [4, 0], number: [6, 0], list: [2.5, 1], cta: [6, 0],
+  slot: [2.5, 1], phone: [3.5, 1], cards: [5.5, 1], bubbles: [3, 0.5], wall: [6, 0],
+});
 /** État de la forme de marque (un seul #actor pour toute la vidéo) pendant un temps fort. */
 export const ACTORS = frozen(["rest", "dot", "underline", "highlight", "bar", "hidden"]);
 /** Mouvement de caméra en plus de la continuité pendant un temps fort. */
@@ -77,7 +104,7 @@ export const MOMENT_ID = /^[a-z][a-z0-9]{0,11}$/;
 
 /** Longueurs maximales (caractères) des champs écrits par Claude ou la page. items : nombre et longueur d'un item. */
 export const FIELDS = frozen({
-  title: 80, beatTitle: 40, text: 110, sub: 160, items: 4, item: 40, emphasis: 60,
+  title: 80, beatTitle: 40, text: 110, sub: 160, items: 4, item: 40, emphasis: 60, label: 24,
   caption: 2200, notes: 400, request: 4000, direction: 1000, brief: 200, tools: 40, versionNotes: 2000,
 });
 
@@ -89,6 +116,11 @@ export const BUDGETS = frozen({
   number: { text: 40, sub: 120 },
   list: { text: 50, item: 40 },
   cta: { text: 50, sub: 60 },
+  slot: { text: 30, item: 22 },
+  phone: { text: 60, sub: 60, item: 34 },
+  cards: { text: 50, sub: 50, item: 40 },
+  bubbles: { text: 50, item: 28 },
+  wall: { text: 40, item: 22 },
 });
 /** Nombre d'items d'une liste [min, max]. */
 export const LIST_ITEMS = frozen([2, 4]);
@@ -100,6 +132,13 @@ export const LIST_ITEMS = frozen([2, 4]);
  * (base + parMot × mots(text + sub + items) + compteur × count + parItem × nb items) × READ_PACE[pace].
  */
 export const READ = frozen({ base: 0.9, perWord: 0.28, count: 0.6, perItem: 0.3 });
+/**
+ * Engine 2 (Signature) : lecture plus nerveuse, les mots entrent un à un sur le tempo. base + parMot × mots(text) +
+ * parMotSub × mots(sub) + parItem × items lus + parMotItem × mots des items lus, × READ_PACE[pace]. Items lus : tous
+ * (list, bubbles, phone) ; le dernier seul pour slot et cards (les autres défilent, seul le gagnant se lit) ; aucun
+ * pour wall (un décor de mots). Le décompte du chiffre est dans le plancher de la scène (SIG_MIN_BEATS).
+ */
+export const SIG_READ = frozen({ base: 0.8, perWord: 0.2, subWord: 0.15, perItem: 0.25, itemWord: 0.12 });
 
 /** Règles de temps de cleanScore et timeScore. */
 export const TIMING = frozen({
@@ -297,7 +336,7 @@ export const VIDEO_LIMITS = frozen({
   title: FIELDS.title,
   caption: FIELDS.caption,
   tools: FIELDS.tools,
-  beat: { title: FIELDS.beatTitle, text: FIELDS.text, sub: FIELDS.sub, items: FIELDS.items, item: FIELDS.item, emphasis: FIELDS.emphasis },
+  beat: { title: FIELDS.beatTitle, text: FIELDS.text, sub: FIELDS.sub, items: FIELDS.items, item: FIELDS.item, emphasis: FIELDS.emphasis, label: FIELDS.label },
   moment: { brief: FIELDS.brief, html: CODE.html, css: CODE.css, js: CODE.js },
   code: CODE.total,
 });
@@ -306,9 +345,11 @@ export const VIDEO_LIMITS = frozen({
  * régulières comparées par leur source). */
 export const TS_MIRROR = frozen({
   VIDEO_WORKER, VIDEO_ENGINE: ENGINE,
-  REEL_LAYOUTS: LAYOUTS, REEL_BRIDGES: BRIDGES, REEL_ACTORS: ACTORS, REEL_CAMERAS: CAMERAS, REEL_ZONES: ZONES,
-  REEL_SHAPES: SHAPES, REEL_SOURCES: SOURCES, REEL_TARGETS: TARGETS, REEL_VIDEO: VIDEO, READ_PACE,
-  VIDEO_LIMITS, VIDEO_BUDGETS: BUDGETS, VIDEO_BEAT_ID: BEAT_ID, VIDEO_MOMENT_ID: MOMENT_ID,
+  REEL_LAYOUTS: SIG_LAYOUTS, REEL_LAYOUTS_V1: LAYOUTS, REEL_BRIDGES: SIG_BRIDGES, REEL_BRIDGES_V1: BRIDGES,
+  REEL_SURFACES: SURFACES, REEL_SCREENS: SCREENS, REEL_FPB: FPB, REEL_FPB_RANGE: FPB_RANGE,
+  REEL_ACTORS: ACTORS, REEL_CAMERAS: CAMERAS, REEL_ZONES: ZONES,
+  REEL_SHAPES: SHAPES, REEL_SOURCES: SOURCES, REEL_TARGETS: TARGETS, REEL_VIDEO: VIDEO, READ_PACE, REEL_SIG_READ: SIG_READ,
+  REEL_SIG_ITEM_LAYOUTS: SIG_ITEM_LAYOUTS, SIG_MUSIC_FADE, VIDEO_LIMITS, VIDEO_BUDGETS: BUDGETS, VIDEO_BEAT_ID: BEAT_ID, VIDEO_MOMENT_ID: MOMENT_ID,
 });
 
 /** Balises permises dans le html d'un moment (comparées sans casse). */
@@ -528,6 +569,63 @@ export const INFO = frozen({
   sources: { idea: { label: "Une idée" }, script: { label: "Un script" }, post: { label: "Un post" } },
 });
 
+/**
+ * Engine 2 (Signature) : libellé français (le même que l'écran de montage) et « quand l'utiliser » de chaque entrée de la
+ * bibliothèque. Les clés partagées avec engine 1 gardent leur libellé (layouts, bridges, cameras) ; actor devient la
+ * marque posée sur l'emphase, d'où ses libellés à part.
+ */
+export const SIG_INFO = frozen({
+  layouts: {
+    hero: { label: "Héros", use: "une phrase-choc seule, énorme : ses mots tombent un par demi-temps en gonflant, puis le texte respire sur chaque temps ; l'accroche idéale (lisible en 2 s)" },
+    stack: { label: "Pile", use: "une phrase et sa précision dessous (sub), le cas général entre deux scènes fortes" },
+    number: { label: "Chiffre", use: "un nombre énorme dont les chiffres tournent comme un compteur et tombent un par un sur les temps (flash au dernier), puis sa légende (le reste de text) et sub ; un moment fort possible" },
+    list: { label: "Liste", use: "un titre (text) puis 2 à 4 éléments courts (items) cochés un par temps : bénéfices, étapes, preuves" },
+    cta: { label: "Appel", use: "la dernière scène : le nom de la marque (label, sinon le @compte) écrit en grand avec son point, une phrase dessous (text), puis un bouton (sub : son texte, par exemple l'adresse du site) qui pulse et qu'un doigt touche" },
+    slot: { label: "Machine à sous", use: "un début de phrase fixe (text) et un mot qui défile comme une machine à sous, un par temps (items : 2 à 4 mots ou groupes courts ; le dernier est la chute, entouré à la main) ; idéal pour « trop de … », « fini les … »" },
+    phone: { label: "Téléphone", use: "un téléphone monte sous le titre (text, sub) et montre un écran (screen) : feed (un fil qui défile de plus en plus vite et floute, items = bulles de notifications autour du téléphone), app (l'app : items = 2 à 4 choix dont un est touché du doigt, pick = lequel, label = le bouton), chat (items = messages alternés reçu/envoyé), notifs (items = notifications qui s'empilent sur l'écran verrouillé) ; deux scènes téléphone de suite gardent le même téléphone, qui se retourne d'un écran à l'autre" },
+    cards: { label: "Cartes à swiper", use: "2 à 4 cartes (items = leurs titres) : les premières sont rejetées d'un swipe, la tension monte sur la dernière (le cœur bat), puis le tampon (label, par exemple « MATCH ») tombe avec flash, éclat et confettis ; text = la question au-dessus, sub = la chute qui remplace text après le tampon ; le moment fort idéal (une seule par vidéo)" },
+    bubbles: { label: "Bulles", use: "le titre (text) puis 2 à 4 bulles de messages, d'avis ou de notifications qui surgissent tout autour (items, sans emoji : chaque bulle a déjà son icône) : le bruit, le nombre, la preuve sociale" },
+    wall: { label: "Mur de mots", use: "un mur de mots géants (items répétés) qui défile en diagonale, une phrase courte (text) dans un encadré au centre, les couleurs s'inversent sur les temps : l'abondance, la promesse ; souvent juste avant la fin (une seule par vidéo)" },
+  },
+  bridges: {
+    rise: { label: "Montée", use: "les mots sortent par le haut et ceux de la scène suivante montent ; même fond (surface) seulement, sinon le moteur joue un volet" },
+    morph: { label: "Métamorphose", use: "comme la montée, et la marque (surligné ou point) voyage d'une phrase à l'autre ; même fond seulement" },
+    carry: { label: "Mot porté", use: "un mot commun aux deux scènes voyage d'une phrase à l'autre pendant que le reste change ; même fond et un mot commun" },
+    zoom: { label: "Plongée", use: "la caméra plonge dans la marque, l'emphase ou l'écran du téléphone et ressort sur la scène suivante : une révélation" },
+    cut: { label: "Coupe sèche", use: "changement instantané sur le temps, pour un choc ; 2 au plus par vidéo" },
+    flood: { label: "Remplissage", use: "la marque (surligné ou point) ou la tape du doigt sur le téléphone grandit jusqu'à remplir l'écran de la scène suivante ; idéal vers une scène sur l'accent" },
+    wipe: { label: "Volet", use: "une bande de couleur balaie l'écran en diagonale et dévoile la scène suivante : le changement de fond par défaut" },
+    whip: { label: "Panoramique filé", use: "toute la scène file vers la gauche avec un flou de vitesse et la suivante arrive : énergie, changement de sujet" },
+    push: { label: "Poussée", use: "la scène suivante monte et pousse la précédente vers le haut : une suite qui avance" },
+    flip: { label: "Retournement", use: "l'écran entier se retourne comme une carte ; entre deux scènes téléphone, c'est l'écran du téléphone qui se retourne" },
+  },
+  actors: {
+    highlight: { label: "Surligné", use: "une barre de couleur passe derrière les mots d'emphase, qui changent de couleur : le mot clé de la scène" },
+    underline: { label: "Souligné", use: "un trait tracé à la main sous les mots d'emphase" },
+    bar: { label: "Entouré", use: "les mots d'emphase sont entourés à la main" },
+    dot: { label: "Point", use: "un point de couleur ponctue la fin de la phrase, comme le point d'un logo" },
+    rest: { label: "Couleur", use: "les mots d'emphase prennent seulement la couleur de la marque" },
+    hidden: { label: "Sans", use: "aucune emphase visible" },
+  },
+  cameras: {
+    drift: { label: "Dérive", use: "lente avancée continue, par défaut" },
+    push: { label: "Approche", use: "avancée plus forte qui monte la tension" },
+    still: { label: "Fixe", use: "aucun mouvement en plus" },
+  },
+  surfaces: {
+    base: { label: "Fond", use: "le fond du style" },
+    accent: { label: "Accent", use: "la couleur d'accent en plein écran, texte contrasté : les moments forts" },
+    ink: { label: "Encre", use: "le négatif : fond de la couleur du texte" },
+    alt: { label: "Second fond", use: "le deuxième fond du style, sinon une teinte profonde de l'accent" },
+  },
+  screens: {
+    feed: { label: "Fil d'actualité", use: "un fil de publications qui défile de plus en plus vite ; items = bulles autour du téléphone" },
+    app: { label: "Application", use: "l'écran de l'app : items = choix, pick = celui qu'on touche, label = le bouton" },
+    chat: { label: "Messages", use: "une conversation : items = messages alternés reçu/envoyé" },
+    notifs: { label: "Notifications", use: "l'écran verrouillé où s'empilent les notifications (items)" },
+  },
+});
+
 const budgetText = (layout) => {
   const b = BUDGETS[layout];
   const parts = [`text ≤ ${b.text}`];
@@ -565,6 +663,49 @@ export function grammarLines() {
   return lines;
 }
 
+/**
+ * Engine 2 (Signature) : la bibliothèque pour le prompt, comme grammarLines pour engine 1. Une ligne par scène avec
+ * « quand l'utiliser » (SIG_INFO), ses budgets de caractères (BUDGETS ; label : FIELDS.label), ses items (LIST_ITEMS)
+ * et sa durée plancher en temps de musique (SIG_MIN_BEATS = [base, par item], arrondie au temps suivant, comme
+ * sigFloor de score.mjs), puis une ligne par transition, marque, caméra, fond et écran du téléphone. Renvoie des lignes
+ * de texte (prompt.mjs les assemble).
+ */
+export function sigGrammarLines() {
+  const fr = (x) => String(x).replace(".", ",");
+  // L'ordre de SIG_INFO (la marque la plus utile d'abord), puis ce qu'une liste aurait en plus sans libellé.
+  const keys = (list, info) => [...Object.keys(info).filter((k) => list.includes(k)), ...list.filter((k) => !info[k])];
+  const entry = (k, info) => (info[k] ? `- ${k} (${info[k].label}) : ${info[k].use}.` : `- ${k}.`);
+  // Les scènes qui portent un label (cleanScore le garde pour elles seules) ; phone peut se passer d'items (feed, app à bouton).
+  const LABELLED = ["phone", "cards", "cta"];
+  const budget = (k) => {
+    const b = BUDGETS[k] || BUDGETS.stack;
+    const parts = [`text ≤ ${b.text}${k === "number" ? " (contient le nombre)" : ""}`];
+    if (b.sub) parts.push(`sub ≤ ${b.sub}${k === "cta" ? " (le texte du bouton)" : ""}`);
+    if (b.item) parts.push(k === "phone" ? `items 0 à ${LIST_ITEMS[1]} de ≤ ${b.item} (selon l'écran)` : `items ${LIST_ITEMS[0]} à ${LIST_ITEMS[1]} de ≤ ${b.item}`);
+    if (LABELLED.includes(k)) parts.push(`label ≤ ${FIELDS.label}`);
+    return parts.join(", ");
+  };
+  const span = (k) => {
+    const [base, per] = SIG_MIN_BEATS[k] || SIG_MIN_BEATS.stack;
+    if (!per) return `${fr(base)} temps au moins`;
+    const lo = k === "phone" ? 0 : LIST_ITEMS[0];
+    return `${fr(base)} temps + ${fr(per)} par item au moins, arrondi au temps suivant (${lo} items : ${Math.ceil(base + per * lo)} temps ; ${LIST_ITEMS[1]} items : ${Math.ceil(base + per * LIST_ITEMS[1])} temps)`;
+  };
+  const lines = ["Scènes (layout ; durée plancher en temps de musique) :"];
+  for (const k of keys(SIG_LAYOUTS, SIG_INFO.layouts)) lines.push(`${entry(k, SIG_INFO.layouts)} ${budget(k)}. Durée : ${span(k)}.`);
+  lines.push("Transitions (bridge : comment la scène arrive après la précédente, sur un temps ; ignorée sur la première) :");
+  for (const k of keys(SIG_BRIDGES, SIG_INFO.bridges)) lines.push(entry(k, SIG_INFO.bridges));
+  lines.push("Marque (actor : ce que la scène fait des mots d'emphase, emphasis) :");
+  for (const k of keys(ACTORS, SIG_INFO.actors)) lines.push(entry(k, SIG_INFO.actors));
+  lines.push("Caméra (camera) :");
+  for (const k of keys(CAMERAS, SIG_INFO.cameras)) lines.push(entry(k, SIG_INFO.cameras));
+  lines.push("Fond (surface : la couleur de fond de la scène, prise dans le style du projet) :");
+  for (const k of keys(SURFACES, SIG_INFO.surfaces)) lines.push(entry(k, SIG_INFO.surfaces));
+  lines.push("Écran du téléphone (screen, scène phone seulement) :");
+  for (const k of keys(SCREENS, SIG_INFO.screens)) lines.push(entry(k, SIG_INFO.screens));
+  return lines;
+}
+
 // ─── Fonctions pures partagées (la même formule est dans src/lib/montage.ts reelBeatSeconds) ───────────────────────
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -575,9 +716,22 @@ export const quantize = (t) => Math.round((Number(t) || 0) * FPS) / FPS;
 /** Mots d'un texte : les morceaux séparés par des espaces (insécables comprises) qui contiennent une lettre ou un chiffre. */
 export const countWords = (s) => String(s ?? "").split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
-/** Durée de lecture minimale d'un temps fort (s, non quantifiée) au rythme `pace`. */
-export function minSeconds(beat, pace = "normal") {
+/**
+ * Durée de lecture minimale d'un temps fort (s, non quantifiée) au rythme `pace` ; `engine` 2 : SIG_READ (scènes
+ * Signature), sinon READ.
+ */
+export function minSeconds(beat, pace = "normal", engine = 1) {
   const items = Array.isArray(beat?.items) ? beat.items : [];
+  if (Number(engine) === 2) {
+    // Seulement ce que la scène montre : ses items (SIG_ITEM_LAYOUTS) et son sous-texte (BUDGETS[layout].sub).
+    const L = beat?.layout;
+    const shown = SIG_ITEM_LAYOUTS.includes(L) ? items : [];
+    const read = L === "wall" ? [] : L === "slot" || L === "cards" ? shown.slice(-1) : shown;
+    const per = L === "wall" || L === "slot" || L === "cards" ? 0 : read.length;
+    const sub = BUDGETS[L]?.sub ? countWords(beat?.sub) : 0;
+    const R = SIG_READ;
+    return (R.base + R.perWord * countWords(beat?.text) + R.subWord * sub + R.itemWord * countWords(read.join(" ")) + R.perItem * per) * (READ_PACE[pace] ?? 1);
+  }
   const words = countWords([beat?.text, beat?.sub, ...items].filter(Boolean).join(" "));
   return (READ.base + READ.perWord * words + (beat?.count ? READ.count : 0) + READ.perItem * items.length) * (READ_PACE[pace] ?? 1);
 }
@@ -588,11 +742,26 @@ export function minSeconds(beat, pace = "normal") {
  * écrit les seconds mis à l'échelle), timeScore et la timeline de la page calculent la même chose : un recalcul sans
  * cible donne les mêmes temps.
  */
-export function beatSeconds(beat, last, pace = "normal") {
+export function beatSeconds(beat, last, pace = "normal", fpb = 0) {
   const [lo, hi] = VIDEO.seconds;
   const want = Number.isFinite(beat?.seconds) ? beat.seconds : 0;
-  const d = clamp(beat?.fixed ? want : Math.max(want, minSeconds(beat, pace)), lo, hi);
-  return quantize(last ? Math.max(VIDEO.last, d) : d);
+  const d = clamp(beat?.fixed ? want : Math.max(want, minSeconds(beat, pace, fpb ? 2 : 1)), lo, hi);
+  const s = quantize(last ? Math.max(VIDEO.last, d) : d);
+  return fpb ? onGrid(s, fpb, !!beat?.fixed, last ? VIDEO.last : VIDEO.seconds[0]) : s;
+}
+
+/**
+ * Engine 2 : une durée posée sur la grille du tempo (fpb images par temps de musique). Une durée choisie à la main
+ * (fixed) va au temps le plus proche, une autre au temps suivant (jamais moins que la lecture) ; toujours dans
+ * floor–10 s (floor : 1,5 s, 2,5 s pour le dernier temps fort). Exactement reelBeatSeconds de src/lib/montage.ts avec fpb.
+ */
+export function onGrid(seconds, fpb, fixed = false, floor = VIDEO.seconds[0]) {
+  const f = Math.round(seconds * FPS);
+  const lo = Math.round(Math.max(VIDEO.seconds[0], floor) * FPS), hi = Math.round(VIDEO.seconds[1] * FPS);
+  let n = fixed ? Math.round(f / fpb) : Math.ceil(f / fpb - 1e-6);
+  if (n * fpb > hi) n = Math.floor(hi / fpb);
+  if (n * fpb < lo) n = Math.ceil(lo / fpb);
+  return (n * fpb) / FPS;
 }
 
 /** settle = start + min(1,2 ; 0,6 × durée) : l'instant où le temps fort est posé (reelSettle côté site), quantifié. */

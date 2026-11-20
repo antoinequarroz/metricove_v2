@@ -1,5 +1,6 @@
 // Propositions de Claude Code (abonnement du Mac) : choix des phrases, ordre, mots coupés, 3 accroches, fin, zooms,
 // mots clés, emojis, musique ; textes de prompteur. Read reste permis : Claude lit les images des notes dessinées.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { run, log, sleep, fmtDelay } from "./util.mjs";
 import { voiceRules } from "./voice.mjs";
 
@@ -59,13 +60,32 @@ const PROPOSAL_SCHEMA = {
   },
 };
 
+/** Le modèle et la puissance choisis pour la tâche en cours (job.model / job.effort, posés par withModel), sinon ceux de config.json. */
+const modelScope = new AsyncLocalStorage();
+const MODEL_OK = /^[a-z][a-z0-9.\-]*(\[1m\])?$/i;
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+/**
+ * Lance `fn` avec le modèle Claude de la tâche (`claude --model`) et sa puissance (`claude --effort`) : tous les
+ * appels faits dedans les utilisent.
+ */
+export const withModel = (model, fn, effort) =>
+  modelScope.run({ model: typeof model === "string" && MODEL_OK.test(model) && model.length <= 60 ? model : "", effort: EFFORTS.includes(effort) ? effort : "" }, fn);
+export const modelOf = (cfg) => modelScope.getStore()?.model || cfg.claude.model || "";
+export const effortOf = (cfg) => modelScope.getStore()?.effort || (EFFORTS.includes(cfg.claude.effort) ? cfg.claude.effort : "");
+const modelArgs = (cfg) => [...(modelOf(cfg) ? ["--model", modelOf(cfg)] : []), ...(effortOf(cfg) ? ["--effort", effortOf(cfg)] : [])];
+
 export async function ask(cfg, prompt, schema, cwd) {
   const args = ["-p", "--output-format", "json", "--disallowedTools", "Bash", "Edit", "Write", "WebFetch", "WebSearch", "NotebookEdit"];
   if (schema) args.push("--json-schema", JSON.stringify(schema));
-  if (cfg.claude.model) args.push("--model", cfg.claude.model);
-  const out = await run(cfg.claude.bin, args, { input: prompt, cwd });
+  args.push(...modelArgs(cfg));
+  let out;
+  try {
+    out = await run(cfg.claude.bin, args, { input: prompt, cwd });
+  } catch (e) {
+    throw badModel(cfg, e.message) || e;
+  }
   const j = JSON.parse(out);
-  if (j.is_error) throw new Error(`Claude : ${j.result || "erreur"}`);
+  if (j.is_error) throw badModel(cfg, j.result) || new Error(`Claude : ${j.result || "erreur"}`);
   if (!schema) return String(j.result || "").trim();
   if (j.structured_output) return j.structured_output;
   const m = String(j.result || "").match(/\{[\s\S]*\}/);
@@ -257,6 +277,14 @@ const TIMEOUT_TEXT = {
   revise: (d) => `Claude n'a pas fini la retouche en ${d} et a été arrêté. Réessaie avec une demande plus précise.`,
 };
 
+/** Le modèle demandé est inconnu de ce Claude Code (ou pas permis par l'abonnement) : une erreur claire, sinon null. */
+export function badModel(cfg, text) {
+  const m = modelOf(cfg);
+  const t = String(text || "");
+  if (!m || !/model/i.test(t) || !/not.?found|invalid|unknown|not available|does not exist|not supported|no access|not_found_error|issue with the selected model/i.test(t)) return null;
+  return Object.assign(new Error(`Le modèle Claude « ${m} » n'est pas disponible dans le Claude Code du Mac. Choisis-en un autre (Réglages → Modèle Claude des vidéos, ou dans la vidéo), ou mets Claude Code à jour.`), { code: "MODEL" });
+}
+
 /** Classe une erreur de Claude : connexion, limite de l'abonnement, erreur passagère (une nouvelle tentative) ou autre. */
 function claudeTrouble(text, rate) {
   const t = String(text || "");
@@ -304,7 +332,7 @@ export async function askStream(cfg, prompt, schema, cwd, { tools = "", timeoutM
   }
   const args = ["-p", "--output-format", "stream-json", "--verbose", ...(f.partial ? ["--include-partial-messages"] : []),
     "--json-schema", JSON.stringify(schema), "--restricted", ...(f.strictMcp ? ["--strict-mcp-config"] : []), ...(f.noSession ? ["--no-session-persistence"] : [])];
-  if (cfg.claude.model) args.push("--model", cfg.claude.model);
+  args.push(...modelArgs(cfg));
   if (effort && f.effort) args.push("--effort", effort.trim());
   args.push("--tools", tools);
   let result = null, rate = null, chars = 0;
@@ -332,6 +360,8 @@ export async function askStream(cfg, prompt, schema, cwd, { tools = "", timeoutM
   if (result) { stats.cost = result.total_cost_usd; }
   const trouble = result?.is_error || !result ? claudeTrouble(result?.result || result?.subtype || failure?.stderr || failure?.message, rate) : null;
   if (trouble) {
+    const bad = badModel(cfg, result?.result || failure?.stderr || failure?.message);
+    if (bad) throw bad;
     if (trouble.kind === "transient" && retry) {
       log(`Claude indisponible (${trouble.message.slice(0, 120)}) : nouvel essai dans ${Math.round(retryMs / 1000)} s`);
       await sleep(retryMs);
@@ -367,7 +397,7 @@ async function plainAsk(cfg, prompt, schema, cwd, { timeoutMs, signal, what, sta
   if (f.tools) args.push("--tools", tools);
   if (f.strictMcp) args.push("--strict-mcp-config");
   if (f.noSession) args.push("--no-session-persistence");
-  if (cfg.claude.model) args.push("--model", cfg.claude.model);
+  args.push(...modelArgs(cfg));
   let out;
   try {
     out = await run(cfg.claude.bin, args, { input: prompt, cwd, timeoutMs, signal });
@@ -375,13 +405,15 @@ async function plainAsk(cfg, prompt, schema, cwd, { timeoutMs, signal, what, sta
     if (e.code === "TIMEOUT") throw err((TIMEOUT_TEXT[what] || TIMEOUT_TEXT.write)(fmtDelay(timeoutMs)), "TIMEOUT");
     if (signal?.aborted) throw e;
     if (binMissing(e)) throw claudeMissing(cfg, binMissing(e));
+    const bad = badModel(cfg, e.message);
+    if (bad) throw bad;
     const t = claudeTrouble(e.message);
     throw err(t.message, t.kind === "auth" ? "AUTH" : t.kind === "limit" ? "LIMIT" : "CLAUDE");
   }
   stats.ms = Date.now() - t0;
   let j;
   try { j = JSON.parse(out); } catch { throw err("Claude n'a pas renvoyé de JSON.", "BAD_OUTPUT"); }
-  if (j.is_error) { const t = claudeTrouble(j.result); throw err(t.message, t.kind === "auth" ? "AUTH" : t.kind === "limit" ? "LIMIT" : "CLAUDE"); }
+  if (j.is_error) { const bad = badModel(cfg, j.result); if (bad) throw bad; const t = claudeTrouble(j.result); throw err(t.message, t.kind === "auth" ? "AUTH" : t.kind === "limit" ? "LIMIT" : "CLAUDE"); }
   stats.cost = j.total_cost_usd;
   return structured(j);
 }

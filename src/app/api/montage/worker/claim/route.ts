@@ -3,7 +3,8 @@ import { listMedia, listProjects } from "@/server/db";
 import { isVideoJob } from "@/lib/montage";
 import { claimJob, cleanSpeed, listRushes, saveMacBroll, workerSeen, type MacBroll } from "@/server/montage";
 import { assetsFor } from "@/server/library";
-import { profileOf, themeOf, voiceOf } from "@/server/profiles";
+import { audioPrefs } from "@/server/audio-ai";
+import { mediaOf, profileOf, themeOf, voiceOf } from "@/server/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,14 @@ export async function POST(req: Request) {
   // The illustrations and sound effects of the job's style (worker 0.16.0 uses them; older ones ignore them).
   const assets = (styled || claimed.kind === "motion") && claimed.projectId ? assetsFor(claimed.projectId, claimed.styleId) : undefined;
   // A montage also gets the inspiration images of its style (worker 0.19.0 shows them to Claude; older ones ignore them).
-  const job = { ...claimed, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill, ...(claimed.kind === "montage" && voice.images ? { images: voice.images } : {}) } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
+  // The Claude model: the job's own, else the one of its style, else the one of Réglages (passed to `claude --model`).
+  const chosen = mediaOf(claimed.projectId, claimed.styleId);
+  const model = claimed.model || chosen?.claudeModel || audioPrefs().claudeModel || undefined;
+  // The thinking effort the same way (passed to `claude --effort`; older workers ignore it).
+  const effort = claimed.effort || chosen?.claudeEffort || audioPrefs().claudeEffort || undefined;
+  // Who composes the music of the video and in what style (worker 0.21.0 sends both with its music request).
+  const music = chosen?.musicProvider || chosen?.musicStyle ? { music: { ...(chosen.musicProvider ? { provider: chosen.musicProvider } : {}), ...(chosen.musicStyle ? { style: chosen.musicStyle } : {}) } } : {};
+  const job = { ...claimed, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...music, ...(voice ? { voice: video ? voice : { tone: voice.tone, skill: voice.skill, ...(claimed.kind === "montage" && voice.images ? { images: voice.images } : {}) } } : {}), ...(theme ? { theme } : {}), ...(assets ? { assets } : {}) };
   const rushes = listRushes()
     .filter((r) => job.rushIds.includes(r.id))
     .map((r) => ({ ...r, thumb: undefined, url: r.origin === "upload" ? `/api/montage/rushes/${r.id}/file` : undefined }));

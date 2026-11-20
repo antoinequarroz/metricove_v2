@@ -56,6 +56,29 @@ export class Api {
     }
   }
 
+  /**
+   * Voix off (worker 0.19.0) : Metricove lit `text` avec la voix choisie (ElevenLabs ou Google, clés gardées sur le
+   * serveur). Renvoie { bytes (Buffer), ext ("mp3" | "wav") }.
+   */
+  async tts({ provider, voiceId, text }, { signal } = {}) {
+    const r = await this.req("POST", "/api/audio/tts", { json: { provider, voiceId, text }, raw: true, timeoutMs: 120_000, signal });
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      let msg = body.slice(0, 300);
+      try { msg = JSON.parse(body).error || msg; } catch { /* texte brut */ }
+      throw Object.assign(new Error(`Voix off : ${msg || r.status}`), { status: r.status });
+    }
+    const ext = r.headers.get("x-audio-ext") === "wav" || /wav/.test(r.headers.get("content-type") || "") ? "wav" : "mp3";
+    return { bytes: Buffer.from(await r.arrayBuffer()), ext };
+  }
+
+  /** Musique composée par Metricove (ElevenLabs Music ou Lyria) et rangée dans Ressources → Musique : renvoie l'élément { id, … }. */
+  async composeMusic({ prompt, provider, seconds, name, tags }, { signal } = {}) {
+    const r = await this.req("POST", "/api/audio/music", { json: { prompt, seconds, name, tags, ...(provider ? { provider } : {}) }, timeoutMs: 300_000, signal });
+    if (!r?.item?.id) throw new Error("Metricove n'a pas renvoyé la musique.");
+    return r.item;
+  }
+
   /** `speed` : { frameMs, writeS } appris par le Mac (reel vidéo) ; le site en tire « prête dans environ 5 min ». */
   claim(version, tracks, brolls, speed) { return this.req("POST", "/api/montage/worker/claim", { json: { worker: "mac", version, ...(tracks ? { tracks } : {}), ...(brolls ? { brolls } : {}), ...(speed ? { speed } : {}) } }); }
   patch(id, data) { return this.req("PATCH", `/api/montage/jobs/${id}`, { json: data }); }

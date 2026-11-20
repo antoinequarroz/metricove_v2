@@ -62,3 +62,6 @@ export function useLibrary() {
 }
 
 export const fileUrl = (item: LibraryItem) => `/api/library/${item.id}/file`;
+
+/** Reads the libraries again (a music composed by the server is added there). */
+export const reloadLibrary = () => load().then(() => undefined, () => undefined);
