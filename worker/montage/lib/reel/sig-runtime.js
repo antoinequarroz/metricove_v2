@@ -601,26 +601,32 @@
   /**
    * La boucle qui passe autour d'un groupe de lettres (demi-largeur a, demi-hauteur b, centre à l'abscisse ax de
    * l'image) sans en couper aucune, de demi-hauteur ry : la plus ronde qui les contient, ellipse pour un mot court,
-   * rectangle aux coins ronds tracé à la main (superellipse) pour un long. Elle reste dans l'image (x 40 à 1040, rayon
-   * jusqu'à ×1,1) ; null quand le groupe est trop large pour qu'une boucle l'entoure.
+   * rectangle aux coins ronds tracé à la main (superellipse) pour un long. Le tracé flotte autour de rx de −0,03 ry à
+   * +0,1 ry (loopPath) : il reste dans l'image (x 40 à 1040) et, quand `room` est donné (distance du centre aux lettres
+   * d'un mot voisin sur la même ligne, épaisseur du trait déduite), ne touche jamais ce voisin. null quand aucune
+   * boucle ne passe entre les lettres du groupe et ces limites.
    */
-  function fitLoop(a, b, ry, ax, size) {
-    var bound = Math.min(ax - 40, 1040 - ax) / 1.12;
-    var rx = Math.min(a + size * 0.4, Math.max(a + size * 0.02, bound));
-    var fit = function (e) { return Math.pow(a / (rx * 0.97), 2 / e) + Math.pow(b / (ry * 0.97), 2 / e) <= 1; };
+  function fitLoop(a, b, ry, ax, size, room) {
+    var out = ry * 0.1, inn = ry * 0.03;
+    var lim = Math.min(ax - 40, 1040 - ax) - out;
+    var rx = Math.min(a + size * 0.4, room > 0 ? room - out : Infinity, Math.max(a + size * 0.02, lim));
+    var fit = function (e) { var x = a / (rx - inn); return x > 0 && x < 1 && Math.pow(x, 2 / e) + Math.pow(b / (ry * 0.97), 2 / e) <= 1; };
     if (!fit(0.3)) return null;
     var lo = 0.3, hi = 1;
     if (fit(1)) lo = 1;
     else for (var it = 0; it < 12; it++) { var mid = (lo + hi) / 2; if (fit(mid)) lo = mid; else hi = mid; }
     return { rx: rx, ry: ry, e: lo };
   }
-  /** Une boucle dessinée à la main (1,1 tour, rayon qui flotte) en courbes de Bézier. */
+  /**
+   * Une boucle dessinée à la main (1,1 tour, rayon qui flotte) en courbes de Bézier. Le rayon flotte du même nombre de
+   * pixels en largeur et en hauteur (une part de ry) : une longue boucle reste près des lettres à ses deux bouts.
+   */
   function loopPath(cx, cy, rx, ry, rnd, e) {
     var pts = [], n = 24, a0 = -2.6, sq = function (v) { return (v < 0 ? -1 : 1) * Math.pow(Math.abs(v), e || 1); };
     for (var i = 0; i <= n; i++) {
       var p = i / n, a = a0 + p * Math.PI * 2 * 1.1;
-      var k = 1 + (rnd() - 0.5) * 0.06 + p * 0.07;
-      pts.push([cx + sq(Math.cos(a)) * rx * k, cy + sq(Math.sin(a)) * ry * k]);
+      var k = (rnd() - 0.5) * 0.06 + p * 0.07;
+      pts.push([cx + sq(Math.cos(a)) * (rx + ry * k), cy + sq(Math.sin(a)) * ry * (1 + k)]);
     }
     var d = "M" + f1(pts[0][0]) + "," + f1(pts[0][1]);
     for (var j = 0; j < pts.length - 1; j++) {
@@ -691,8 +697,18 @@
           // La boucle passe autour des lettres (capitales et bas de casse du groupe, avec une marge, fitLoop). Un
           // groupe trop large pour l'image n'a pas de boucle qui l'entoure sans couper ses lettres : souligné.
           var bl = baselineOf(M.ems[0] || blk.ws[0].w, blk.el);
-          var lcx = g.x + g.w / 2;
-          loop = fitLoop(g.w / 2 + size * 0.04, size * 0.47, size * 0.62, M.base.x + lcx, size);
+          var lcx = g.x + g.w / 2, mid = g.y + g.h / 2, room = Infinity;
+          // Un mot voisin sur la même ligne (« les lecteurs ») borne la boucle : elle passe dans l'espace entre eux.
+          settled(blk.ws.map(function (x) { return x.w; }), function () {
+            blk.ws.forEach(function (x) {
+              if (M.ems.indexOf(x.w) >= 0 || blk.groups[0].contains(x.w)) return;
+              var r = off(x.w, blk.el);
+              if (r.y > mid || r.y + r.h < mid) return;
+              if (r.x + r.w <= lcx) room = Math.min(room, lcx - r.x - r.w);
+              else if (r.x >= lcx) room = Math.min(room, r.x - lcx);
+            });
+          });
+          loop = fitLoop(g.w / 2 + size * 0.04, size * 0.47, size * 0.62, M.base.x + lcx, size, room - Math.max(8, Math.round(size * 0.06)) / 2 - 3);
           if (loop) { loop.cx = lcx; loop.cy = bl - size * 0.33; } else { kind = "underline"; M.kind = kind; }
         }
         var sw = Math.max(8, Math.round(size * (kind === "bar" ? 0.06 : 0.07)));
@@ -1872,17 +1888,21 @@
     var down = kr ? ws.filter(function (w) { return off(w).y > kr.y + kr.h * 0.5; }) : [];
     if (down.length) {
       ws = ws.filter(function (w) { return down.indexOf(w) < 0; });
-      tl.to(down, { yPercent: 125, duration: 0.28, ease: "power3.in", stagger: st }, t);
+      tl.to(down.slice().reverse(), { yPercent: 125, duration: 0.28, ease: "power3.in", stagger: st }, t);
     }
     if (ws.length) tl.to(ws, { yPercent: -125, duration: 0.28, ease: "power3.in", stagger: st }, t);
     if (A.rest.length) tl.to(A.rest, { y: "-=40", autoAlpha: 0, duration: 0.28, ease: "power2.in" }, t);
     if (!A.keepMark) markOut(tl, A.mark, t, { down: !!(A.mark && A.mark.ems && A.mark.ems.some(function (w) { return down.indexOf(w) >= 0; })) });
   }
-  /** Avant un remplissage : la moitié des mots part en haut, l'autre en bas ; la marque reste si elle devient l'écran. */
+  /**
+   * Avant un remplissage : la moitié des mots part en haut, l'autre en bas ; la marque reste si elle devient l'écran.
+   * Chaque mot sort par le côté où il part, le plus proche du bord d'abord (le haut dans l'ordre de lecture, le bas en
+   * partant du dernier mot) : un mot qui glisse ne passe jamais sur la ligne voisine, déjà en route.
+   */
   function exitSplit(tl, A, t) {
     var ws = A.exitWords, half = Math.ceil(ws.length / 2);
     if (half) tl.to(ws.slice(0, half), { yPercent: -125, duration: 0.3, ease: "power3.in", stagger: 0.03 }, t);
-    if (ws.length > half) tl.to(ws.slice(half), { yPercent: 125, duration: 0.26, ease: "power3.in", stagger: 0.03 }, t + 0.12);
+    if (ws.length > half) tl.to(ws.slice(half).reverse(), { yPercent: 125, duration: 0.26, ease: "power3.in", stagger: 0.03 }, t + 0.12);
     if (A.rest.length) tl.to(A.rest, { autoAlpha: 0, duration: 0.25, ease: "power2.in" }, t);
     if (!A.keepMark) markOut(tl, A.mark, t);
   }
