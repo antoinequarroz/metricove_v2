@@ -183,7 +183,8 @@ function choreograph(B, ctx) {
   const room = Math.max(0.3, B.exit - B.enter); // le temps de jeu de la scène
   // Le premier geste de la scène tombe sur un demi-temps : celui de l'entrée, ou celui juste avant quand l'entrée le
   // suit de peu (métamorphose, mot porté, plongée : la scène part sur le temps fort lui-même, sans trou après la sortie).
-  const t0 = Math.max(B.enter - 0.06, Math.min(HB(B.enter - 0.06), B.exit - 0.3));
+  // L'ouverture part de 0 : son premier mot est déjà là sur la première image (la vignette de la grille Instagram).
+  const t0 = B.k === 0 ? 0 : Math.max(B.enter - 0.06, Math.min(HB(B.enter - 0.06), B.exit - 0.3));
   const punch = (t, a) => (B.camera === "still" ? null : { t: r3(t), a });
   const punches = [];
   const cue = { t0: r3(t0) };
@@ -337,7 +338,8 @@ function choreograph(B, ctx) {
       if (stamp > B.exit - g * 1.4) stamp = Math.max(lastSw + h, HB(B.exit - g * 1.4));
       cue.swipes = swipes;
       cue.stamp = r3(stamp);
-      swipes.forEach((t) => { fx(t - 0.1, "buzz", 0.45); fx(t, "whoosh", 0.55, { d: 0.32, peak: 0.45, p: -0.2 }); });
+      // La carte penche puis part entre t + 0,27 et t + 0,4 (power3.in) : le souffle culmine quand elle s'envole.
+      swipes.forEach((t) => { fx(t - 0.1, "buzz", 0.45); fx(t, "whoosh", 0.55, { d: 0.42, peak: 0.68, p: -0.2 }); });
       // La tension : battements de cœur et montée avant le tampon.
       cue.tension = r3(Math.min(stamp - h, lastSw + h));
       const beatsT = [];
@@ -394,17 +396,28 @@ function choreograph(B, ctx) {
       const tw = cue.words[cue.words.length - 1] ?? t0;
       cue.button = r3(Math.min(HB(tw + h), B.exit - g * 1.5));
       fx(cue.button, "pop", 0.75, { f: 0.9 });
-      cue.rings = [];
-      for (let t = GB(cue.button + g * 0.9); t < B.exit - g * 0.4; t += g) cue.rings.push(r3(t));
-      cue.rings.forEach((t) => fx(t, "thump", 0.32));
       cue.shine = r3(cue.button + g * 1.5);
       if (cue.shine < B.exit - h) fx(cue.shine, "shimmer", 0.6, { d: 0.5 });
       cue.tap = r3(Math.max(cue.button + h, HB(B.exit - g * 1.25)));
-      if (cue.tap < B.exit - 0.2) { fx(cue.tap - 0.01, "tap", 1); fx(cue.tap + 0.05, "impact", 0.3, { big: 0.25 }); }
-      else cue.tap = null;
-      // Une fin longue : le reflet repasse sur le bouton toutes les 4 temps, jusqu'au temps qui précède la tape.
+      if (cue.tap >= B.exit - 0.2) cue.tap = null;
+      // Une fin longue (plus de 6 temps du bouton à la tape) ne reste pas figée : le doigt tape une première fois deux
+      // temps après le bouton, et le reflet repasse tous les 2 temps (sinon tous les 4), jusqu'au temps d'avant la tape.
+      const long = cue.tap !== null && cue.tap - cue.button > 6 * g;
+      cue.taps = [];
+      if (long) cue.taps.push(r3(GB(cue.button + 2 * g)));
+      if (cue.tap !== null) cue.taps.push(cue.tap);
+      cue.taps.forEach((t) => {
+        const end = t === cue.tap;
+        fx(t - 0.01, "tap", end ? 1 : 0.8);
+        fx(t + 0.05, "impact", end ? 0.3 : 0.25, { big: end ? 0.25 : 0.2 });
+      });
+      // Le bouton bat sur chaque temps, sauf à moins d'un temps d'une tape (le doigt l'enfonce, il rebondit déjà).
+      cue.rings = [];
+      for (let t = GB(cue.button + g * 0.9); t < B.exit - g * 0.4; t += g) if (cue.taps.every((x) => Math.abs(x - t) >= g - 1e-6)) cue.rings.push(r3(t));
+      cue.rings.forEach((t) => fx(t, "thump", 0.32));
       cue.shines = [];
-      for (let t = cue.shine + 4 * g; t < (cue.tap ?? B.exit) - g; t += 4 * g) { cue.shines.push(r3(t)); fx(t, "shimmer", 0.35, { d: 0.5 }); }
+      const every = long ? 2 : 4;
+      for (let t = (long ? cue.taps[0] : cue.shine) + every * g; t < (cue.tap ?? B.exit) - g; t += every * g) { cue.shines.push(r3(t)); fx(t, "shimmer", 0.35, { d: 0.5 }); }
       break;
     }
     default: break;

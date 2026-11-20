@@ -58,7 +58,7 @@
       var cs = cls.split(" ");
       for (var i = 0; i < cs.length; i++) if (OVER[cs[i]]) { e.setAttribute("data-layout-allow-overflow", ""); break; }
     }
-    if (text !== undefined && text !== null) e.textContent = text;
+    if (text !== undefined && text !== null) e.textContent = spaces(text);
     if (parent) parent.appendChild(e);
     return e;
   }
@@ -376,6 +376,28 @@
   var CUR = null;
   /** Lettres qui descendent sous la ligne de base (le surligneur les couvre, la ligne suivante s'écarte d'autant). */
   var DESC = /[gjpqyçµQ,;]/;
+  /** La profondeur (en em) de t sous la ligne de base, à l'encre, dans la police des titres : 0,15 pour « chaque ». */
+  var INK = null;
+  function inkBelow(t) {
+    if (!INK) {
+      var p = make("span", "tx disp", $("stage"));
+      var cs = getComputedStyle(p);
+      INK = { c: document.createElement("canvas").getContext("2d"), up: cs.textTransform === "uppercase" };
+      INK.c.font = cs.fontStyle + " " + cs.fontWeight + " 100px " + cs.fontFamily;
+      p.parentNode.removeChild(p);
+    }
+    t = String(t);
+    var m = INK.c.measureText(INK.up ? t.toUpperCase() : t);
+    return Math.max(0, (m.actualBoundingBoxDescent || 0) / 100);
+  }
+  /**
+   * Où passe le soulignement sous la ligne de base (en em) : à 0,13, ou plus bas quand les mots soulignés ont des
+   * jambages (« chaque », « argent »), pour que la vague (amplitude et demi-trait : 0,07) les laisse libres. La
+   * ponctuation finale ne compte pas : le trait s'arrête avant elle.
+   */
+  function ulDrop(t) {
+    return Math.max(0.13, inkBelow(String(t).replace(/[\s\u00A0\u202F]*[»"”’')\].,;:…!?]+$/, "")) + 0.12);
+  }
   /**
    * La place (en em) que la marque de la scène demande autour du premier groupe d'emphase : sur les côtés (le
    * surligneur et la boucle débordent du mot), au-dessus et en dessous (la ligne du groupe s'écarte de ses voisines :
@@ -388,27 +410,18 @@
     if (!em) return null;
     var k = CUR.B.mark;
     if (k === "highlight") return { side: 0.13, top: 0.1, bot: DESC.test(em) ? 0.14 : 0.04 };
-    if (k === "underline") return { side: 0, top: 0, bot: 0.16 };
+    if (k === "underline") return { side: 0, top: 0, bot: ulDrop(em) + 0.03 };
     if (k === "bar") return { side: 0.2, top: 0.26, bot: 0.26 };
     return null;
   }
-  /** L'espace fine insécable (« 37 % », « 10 jours ? ») vaut presque zéro dans certaines polices de titre : là, elle
-   *  devient une espace insécable ordinaire (mesuré une fois, dans la police des titres). */
-  var NNBSP_OK = null;
+  /**
+   * L'espace fine insécable (« 37 % », « 10 jours ? ») manque aux polices fournies (sous-ensembles Google) :
+   * Chrome en dessine une demi-espace que l'interlettrage des titres mange (« jours? »). Elle devient partout une
+   * espace insécable ordinaire, que toutes ces polices portent (make() passe tous les textes par ici).
+   */
   function spaces(t) {
     t = String(t);
-    if (t.indexOf(" ") < 0) return t;
-    if (NNBSP_OK === null) {
-      var p = make("span", "disp", $("stage"));
-      p.style.cssText = "position:absolute;left:0;top:0;visibility:hidden;font-size:100px;white-space:pre";
-      p.textContent = "0 0";
-      var a = p.offsetWidth;
-      p.textContent = "00";
-      var b = p.offsetWidth;
-      p.parentNode.removeChild(p);
-      NNBSP_OK = a - b >= 9;
-    }
-    return NNBSP_OK ? t : t.replace(/ /g, " ");
+    return t.indexOf("\u202F") < 0 ? t : t.replace(/\u202F/g, "\u00A0");
   }
   function block(parent, toks, o) {
     o = o || {};
@@ -429,7 +442,7 @@
       if (i && (!tok.em || host.childNodes.length)) host.appendChild(document.createTextNode(" "));
       var wm = make("span", "wm", host);
       var w = make("span", "w" + (tok.em ? " em" : "") + (VF && !o.body ? " vf" : ""), wm);
-      var t = o.body ? String(tok.t) : spaces(tok.t);
+      var t = spaces(tok.t);
       var m = o.q && i === toks.length - 1 ? /^(.*?)([?!]+)$/.exec(t) : null;
       if (m && m[1]) { w.appendChild(document.createTextNode(m[1])); blk.q = make("span", "q", w, m[2]); }
       else { w.textContent = t; if (m) blk.q = w; }
@@ -535,6 +548,9 @@
       var t = times && times.length ? times[Math.min(i, times.length - 1)] : num(o.t, NaN) + i * (o.step || 0.05);
       x.at = t;
       if (x.carry || !Number.isFinite(t)) return;
+      // Le mot qui entre à 0 (le premier de l'accroche) est déjà là sur la première image : c'est elle que la grille
+      // Instagram montre quand la vidéo n'a pas de couverture.
+      if (t < 0.01) return;
       var from = { yPercent: rot ? 135 : 125 }, to = { yPercent: 0, duration: o.d || 0.6, ease: o.ease || "expo.out" };
       if (rot) { from.rotation = (i % 2 ? 1 : -1) * rot; to.rotation = 0; }
       if (o.scale) { from.scale = o.scale; to.scale = 1; }
@@ -544,6 +560,19 @@
       }
       tl.fromTo(x.w, from, to, t);
     });
+  }
+  /**
+   * La précision sous le titre. Un mot à trait d'union (« va-t-on », « peut-être ») ne se coupe jamais à la ligne :
+   * la typographie française l'interdit (pas de U+2011 : les polices fournies ne l'ont pas).
+   */
+  function subEl(parent, text) {
+    var s = make("div", "sub", parent);
+    spaces(text).split(/ +/).forEach(function (t, i) {
+      if (i) s.appendChild(document.createTextNode(" "));
+      if (t.indexOf("-") > 0) make("span", "", s, t).style.whiteSpace = "nowrap";
+      else s.appendChild(document.createTextNode(t));
+    });
+    return s;
   }
   function fadeUp(tl, el, t, d) {
     if (!Number.isFinite(t)) return;
@@ -713,10 +742,11 @@
         }
         var sw = Math.max(8, Math.round(size * (kind === "bar" ? 0.06 : 0.07)));
         if (kind === "underline") {
-          var y0 = baselineOf(M.ems[0] || blk.ws[0].w, blk.el) + size * 0.13;
+          // Sous les jambages des mots soulignés (ulDrop) : la vague ne traverse jamais un q ou un g.
+          var inU = M.ems.filter(function (w) { return blk.groups[0].contains(w); });
+          var y0 = baselineOf(M.ems[0] || blk.ws[0].w, blk.el) + size * ulDrop(inU.map(function (w) { return w.textContent; }).join(" "));
           var x0 = g.x - size * 0.03, x1 = g.x + g.w + size * 0.03;
           // Comme la barre : le trait s'arrête avant la ponctuation qui ferme le dernier mot (« 14 h 30, »).
-          var inU = M.ems.filter(function (w) { return blk.groups[0].contains(w); });
           var tu = inU.length ? tailOf(last(inU)) : { w: 0, x: 0 };
           if (tu.w > 0) x1 = Math.max(x0 + size * 0.5, Math.min(x1, off(last(inU), blk.el).x + tu.x - size * 0.02));
           path = wave(x0, x1, y0, size * 0.035, size * 0.5);
@@ -980,7 +1010,7 @@
     decoGrid(tl, R);
     var box = zone(R, { x: 90, y: 300, w: 900, h: 1120 });
     var blk = block(R.pin, B.words, { left: LEFT, carry: R.carryTo });
-    var sub = B.sub ? make("div", "sub", R.pin, B.sub) : null;
+    var sub = B.sub ? subEl(R.pin, B.sub) : null;
     blk.el.style.width = box.w + "px";
     if (sub) { sub.style.width = box.w + "px"; sub.style.textAlign = LEFT ? "left" : "center"; }
     var gap = 44;
@@ -1025,7 +1055,7 @@
     var markLow = B.words.length > lead && (hasEm(B.words.slice(lead)) || !hasEm(B.words.slice(0, lead)));
     var leadBlk = lead ? block(R.pin, B.words.slice(0, lead), { plain: markLow }) : null;
     var blk = B.words.length > lead ? block(R.pin, B.words.slice(lead), { carry: R.carryTo, plain: !markLow }) : null;
-    var sub = B.sub ? make("div", "sub", R.pin, B.sub) : null;
+    var sub = B.sub ? subEl(R.pin, B.sub) : null;
     if (leadBlk) leadBlk.el.style.width = box.w + "px";
     if (blk) blk.el.style.width = box.w + "px";
     if (sub) { sub.style.width = box.w + "px"; sub.style.textAlign = "center"; }
@@ -1237,7 +1267,7 @@
     decoGrid(tl, R, shared);
     var box = zone(R, { x: 90, y: 196, w: 900, h: 410 });
     var blk = block(R.pin, B.words, { carry: R.carryTo });
-    var sub = B.sub ? make("div", "sub", R.pin, B.sub) : null;
+    var sub = B.sub ? subEl(R.pin, B.sub) : null;
     blk.el.style.width = box.w + "px";
     if (sub) { sub.style.width = box.w + "px"; sub.style.textAlign = "center"; }
     var total = function () { return blk.el.offsetHeight + (sub ? 22 + sub.offsetHeight : 0); };
@@ -1600,6 +1630,9 @@
       if (isMatch) {
         var st = make("div", "stamp disp", card);
         st.style.color = stampC;
+        // Le tampon a sa propre plaque (la couleur qui se lit sur mk) : la carte et la montagne sombre dessous ne le
+        // noient jamais, quelle que soit la teinte du match.
+        st.style.background = rgba(surf.onMk, 0.9);
         if (B.label) {
           st.textContent = B.label;
           var ss = 120;
@@ -1862,12 +1895,14 @@
       [c.shine].concat(c.shines || []).filter(Number.isFinite).forEach(function (t) {
         tl.fromTo(shine, { x: -160, opacity: 1 }, { x: but.offsetWidth + 60, opacity: 1, duration: 0.6, ease: "power2.inOut", immediateRender: false }, t);
       });
-      if (Number.isFinite(c.tap)) {
-        tap(tl, R.fly, 540 + but.offsetWidth / 2 - (but.classList.contains("two") ? 40 : 50) - 26, parseFloat(but.style.top) + bh / 2 + 2, c.tap);
-        tl.to(but, { scale: 0.95, duration: 0.07, ease: "power2.in" }, c.tap - 0.04);
-        tl.to(but, { scale: 1, duration: 0.5, ease: "elastic.out(1, 0.4)" }, c.tap + 0.04);
-        if (dot) tl.fromTo(dot, { scale: 1.35 }, { scale: 1, duration: 0.4, ease: "expo.out", immediateRender: false }, c.tap + 0.5);
-      }
+      // Le doigt tape le bouton (deux fois sur une fin longue : c.taps), la dernière tape fait battre le point.
+      var tapX = 540 + but.offsetWidth / 2 - (but.classList.contains("two") ? 40 : 50) - 26, tapY = parseFloat(but.style.top) + bh / 2 + 2;
+      (c.taps && c.taps.length ? c.taps : [c.tap]).filter(Number.isFinite).forEach(function (t) {
+        tap(tl, R.fly, tapX, tapY, t);
+        tl.to(but, { scale: 0.95, duration: 0.07, ease: "power2.in" }, t - 0.04);
+        tl.to(but, { scale: 1, duration: 0.5, ease: "elastic.out(1, 0.4)" }, t + 0.04);
+      });
+      if (dot && Number.isFinite(c.tap)) tl.fromTo(dot, { scale: 1.35 }, { scale: 1, duration: 0.4, ease: "expo.out", immediateRender: false }, c.tap + 0.5);
       R.rest.push(but);
     }
     R.exitWords = blk.ws.map(function (x) { return x.w; }).concat(chars);

@@ -334,8 +334,9 @@ export function cleanScore(raw, { target, pace, base, seed, request, source, dir
     const before = sum();
     const last = lastKept();
     if (sig) {
-      // Engine 2 : la fin (l'appel à l'action) prend au plus 2 s de plus (jamais une fin figée 8 s), puis un temps à la
-      // fois aux scènes libres hors accroche, les plus chargées d'abord : chacune reste sur la grille, total juste.
+      // Engine 2 : la fin (l'appel à l'action) prend d'abord au plus 2 s de plus, puis un temps à la fois va aux scènes
+      // libres hors accroche (la fin comprise), les plus chargées d'abord : chacune reste sur la grille, total juste.
+      // Une longue fin reste vivante (sig-stage : deux tapes, reflet tous les 2 temps).
       const step = fpb / FPS;
       if (!last.fixed) last.seconds = quantize(Math.min(VIDEO.seconds[1], last.seconds + Math.ceil(Math.min(2, VIDEO.total[0] - before) / step - 1e-6) * step));
       const hook = kept()[0];
