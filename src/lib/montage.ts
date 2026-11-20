@@ -187,6 +187,8 @@ export const TEXT_SIZE = { s: 44, m: 64, l: 92, xl: 128 } as const;
 /** Where the music starts in its file, and its fades (seconds). Left out: from the start, short fades. */
 export type MusicCue = { start?: number; fadeIn?: number; fadeOut?: number };
 export const MUSIC_FADE = { in: 0.5, out: 1.5, maxIn: 5, maxOut: 8, maxStart: 600 };
+/** Engine 2: the fades of the music when the cue leaves them out (a clean start on the beat, a short end). Same values as the Mac (worker/montage/lib/reel/vocab.mjs). */
+export const SIG_MUSIC_FADE = { in: 0.02, out: 1.2 } as const;
 
 export const DEFAULT_AUDIO: AudioSettings = { denoise: true, silences: "tight", music: { on: false, volume: 0.15, duck: true } };
 
@@ -299,6 +301,8 @@ export const REEL_VIDEO = { request: 4000, minRequest: 10, beats: [3, 12], keep:
 export const READ_PACE = { calm: 1.15, normal: 1, fast: 0.88 } as const;
 /** Engine 2: reading time of a scene (reelSigReadSeconds), the words entering one by one on the tempo. */
 export const REEL_SIG_READ = { base: 0.8, perWord: 0.2, subWord: 0.15, perItem: 0.25, itemWord: 0.12 } as const;
+/** Engine 2: the layouts that show their items (the Mac drops the items of the others). */
+export const REEL_SIG_ITEM_LAYOUTS = ["list", "slot", "phone", "cards", "bubbles", "wall"] as const;
 /** Longest texts and code of a video plan (characters). The server cuts texts and refuses code beyond them; the Mac checks again. `code`: all moments together. `beat.label`: the button, stamp or brand name of engine 2. */
 export const VIDEO_LIMITS = {
   title: 80,
@@ -440,17 +444,21 @@ export function reelReadSeconds(b: Pick<ReelBeat, "text" | "sub" | "items" | "co
 
 /**
  * Engine 2: minimum reading time of a scene, before the 1.5–10 s bounds (REEL_SIG_READ): the words of `text`, of `sub`
- * and of the items read, plus each item read. Items read: all of them, the last one only for slot and cards (the others
- * roll by), none for wall (a backdrop of words); slot, cards and wall add nothing per item. The count of a number is in
- * the scene's own floor on the Mac. Same formula as the Mac (worker/montage/lib/reel/vocab.mjs minSeconds, engine 2).
+ * and of the items read, plus each item read. Only what the scene shows counts: its items on a layout of
+ * REEL_SIG_ITEM_LAYOUTS (items left on another layout after a change of layout are not shown), its `sub` where the
+ * layout has one (VIDEO_BUDGETS). Items read: all of them, the last one only for slot and cards (the others roll by),
+ * none for wall (a backdrop of words); slot, cards and wall add nothing per item. The count of a number is in the
+ * scene's own floor on the Mac. Same formula as the Mac (worker/montage/lib/reel/vocab.mjs minSeconds, engine 2).
  */
 export function reelSigReadSeconds(b: Pick<ReelBeat, "text" | "sub" | "items" | "layout">, pace: ReelPlan["pace"] = "normal") {
-  const items = b.items ?? [];
   const layout: string = b.layout;
-  const read = layout === "wall" ? [] : layout === "slot" || layout === "cards" ? items.slice(-1) : items;
+  const shown = (REEL_SIG_ITEM_LAYOUTS as readonly string[]).includes(layout) ? (b.items ?? []) : [];
+  const read = layout === "wall" ? [] : layout === "slot" || layout === "cards" ? shown.slice(-1) : shown;
   const per = layout === "wall" || layout === "slot" || layout === "cards" ? 0 : read.length;
+  const budget: { text: number; sub?: number } | undefined = VIDEO_BUDGETS[layout as ReelLayout];
+  const sub = budget?.sub ? readWords(b.sub) : 0;
   const R = REEL_SIG_READ;
-  return (R.base + R.perWord * readWords(b.text) + R.subWord * readWords(b.sub) + R.itemWord * readWords(read.join(" ")) + R.perItem * per) * (READ_PACE[pace] ?? 1);
+  return (R.base + R.perWord * readWords(b.text) + R.subWord * sub + R.itemWord * readWords(read.join(" ")) + R.perItem * per) * (READ_PACE[pace] ?? 1);
 }
 
 /**

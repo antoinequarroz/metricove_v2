@@ -5,7 +5,8 @@
 import {
   ACTORS, BEAT_ID, BRIDGES, BUDGETS, CAMERAS, DEFAULTS, ENGINE_NEW, ENGINES, FIELDS, FINDING_CODES, FPB, FPB_RANGE, FPS,
   LAYOUTS, LIST_ITEMS, MOMENT, MOMENT_ID, PACES, QUANTUM, RULES, SCREENS, SHAPES, SIG_BRIDGES, SIG_LAYOUTS, SIG_MIN_BEATS,
-  SOURCES, SURFACES, TARGETS, TIMING, VIDEO, ZONE_FRAMES, ZONES, beatSeconds, countWords, minSeconds, quantize, settleAt,
+  SIG_PACE_FPB, SOURCES, SURFACES, TARGETS, TIMING, VIDEO, ZONE_FRAMES, ZONES, INFO, beatSeconds, countWords, minSeconds,
+  quantize, settleAt,
 } from "./vocab.mjs";
 
 /** Engine 2 : les images par temps de musique d'une vidéo (fpb), ou 0 pour engine 1. */
@@ -108,7 +109,9 @@ function cleanBeat(b, i, fix, sig = false) {
   const sub = screen(b.sub, FIELDS.sub, () => (emoji = true));
   let layout = pick(b.layout, L);
   if (!layout) { if (b.layout !== undefined) fix(`Temps fort « ${label} » : mise en page « ${line(b.layout, 20)} » inconnue, ${DEFAULTS.layout} à la place.`); layout = DEFAULTS.layout; }
-  const items = (Array.isArray(b.items) ? b.items : []).map((x) => screen(x, FIELDS.item, () => (emoji = true))).filter(Boolean).slice(0, LIST_ITEMS[1]);
+  // Les items gardés, avec leur place d'origine : pick (engine 2) désigne un item de la liste écrite, vides compris.
+  const keptItems = (Array.isArray(b.items) ? b.items : []).map((x, at) => ({ t: screen(x, FIELDS.item, () => (emoji = true)), at })).filter((x) => x.t).slice(0, LIST_ITEMS[1]);
+  const items = keptItems.map((x) => x.t);
   if (layout === "list" && items.length < LIST_ITEMS[0]) { fix(`Temps fort « ${label} » : une liste a besoin de ${LIST_ITEMS[0]} éléments au moins, mise en page pile à la place.`); layout = "stack"; }
   if (sig && NEEDS_ITEMS[layout] && items.length < LIST_ITEMS[0]) { fix(`Temps fort « ${label} » : cette scène a besoin de ${LIST_ITEMS[0]} éléments au moins, une autre mise en page à la place.`); layout = NEEDS_ITEMS[layout]; }
   if (sig && layout === "number" && !hasNumber(text)) { fix(`Temps fort « ${label} » : aucun nombre dans le texte, mise en page héros à la place.`); layout = "hero"; }
@@ -132,7 +135,8 @@ function cleanBeat(b, i, fix, sig = false) {
     out.surface = pick(b.surface, SURFACES) ?? "base";
     if (layout === "phone") out.screen = pick(b.screen, SCREENS) ?? (items.length ? "app" : "feed");
     const p = num(b.pick);
-    if (layout === "phone" && out.screen === "app" && items.length && Number.isInteger(p) && p >= 0 && p < items.length) out.pick = p;
+    const at = Number.isInteger(p) ? keptItems.findIndex((x) => x.at === p) : -1;
+    if (layout === "phone" && out.screen === "app" && at >= 0) out.pick = at;
     const tag = screen(b.label, FIELDS.label, () => (emoji = true));
     if (tag && ["phone", "cards", "cta"].includes(layout)) out.label = tag;
   }
@@ -169,7 +173,14 @@ export function cleanScore(raw, { target, pace, base, seed, request, source, dir
   // Engine 2 : la grille du tempo (images par temps de musique), celle du rythme sauf si l'appelant en impose une.
   // Celle imposée par l'appelant, sinon celle de la base (relecture, retouche, édition), sinon celle de Claude.
   const okFpb = (v) => v !== null && v !== undefined && v !== "" && Number.isInteger(Number(v)) && Number(v) >= FPB_RANGE[0] && Number(v) <= FPB_RANGE[1];
-  const fpb = sig ? Number([fpbIn, base?.fpb, raw.fpb].find(okFpb) ?? FPB[rhythm]) : 0;
+  let fpb = sig ? Number([fpbIn, base?.fpb, raw.fpb].find(okFpb) ?? FPB[rhythm]) : 0;
+  // Rythme imposé, partition neuve : la grille de Claude doit être une grille de ce rythme (sinon la lecture suivrait
+  // le rythme imposé, la musique et les gestes un autre tempo). Une base garde sa grille : sa musique y est calée.
+  const imposed = pick(pace, PACES);
+  if (sig && imposed && !okFpb(fpbIn) && !okFpb(base?.fpb) && (fpb < SIG_PACE_FPB[imposed][0] || fpb > SIG_PACE_FPB[imposed][1])) {
+    fix(`Rythme imposé (${INFO.paces[imposed].label.toLowerCase()}) : grille de ${fpb} images par temps hors de ce rythme, ${FPB[imposed]} à la place.`);
+    fpb = FPB[imposed];
+  }
   const goal = TARGETS.includes(Number(target)) ? Number(target) : TARGETS.includes(Number(base?.target)) && target === undefined ? Number(base.target) : undefined;
 
   // ── Temps forts ──
@@ -195,10 +206,12 @@ export function cleanScore(raw, { target, pace, base, seed, request, source, dir
   kept().forEach((b, k, ks) => {
     if (k === 0) return;
     const prev = ks[k - 1];
-    if (b.bridge === "cut" && ++cuts > RULES.cutsMax) { b.bridge = "morph"; fix(`Temps fort « ${b.title} » : plus de ${RULES.cutsMax} coupes sèches, métamorphose à la place.`); }
-    if (b.bridge === "carry" && !commonWord(prev.text, b.text)) { b.bridge = "morph"; fix(`Temps fort « ${b.title} » : aucun mot commun avec le précédent à porter, métamorphose à la place.`); }
+    // Engine 2 : la liaison de remplacement entre deux fonds différents est un volet (plus bas), la note le dit.
+    const soft = () => (sig && b.surface !== prev.surface ? ["wipe", "volet"] : ["morph", "métamorphose"]);
+    if (b.bridge === "cut" && ++cuts > RULES.cutsMax) { const [k, w] = soft(); b.bridge = k; fix(`Temps fort « ${b.title} » : plus de ${RULES.cutsMax} coupes sèches, ${w} à la place.`); }
+    if (b.bridge === "carry" && !commonWord(prev.text, b.text)) { const [k, w] = soft(); b.bridge = k; fix(`Temps fort « ${b.title} » : aucun mot commun avec le précédent à porter, ${w} à la place.`); }
     if (!sig && b.bridge === "zoom" && !prev.emphasis) { b.bridge = "rise"; fix(`Temps fort « ${b.title} » : la plongée a besoin d'une emphase sur le temps fort d'avant, montée à la place.`); }
-    // Engine 2 : montée, métamorphose et mot porté gardent le même fond ; un fond qui change passe par un rideau.
+    // Engine 2 : montée, métamorphose et mot porté gardent le même fond ; un fond qui change passe par un volet.
     if (sig && ["rise", "morph", "carry"].includes(b.bridge) && b.surface !== prev.surface) b.bridge = "wipe";
   });
 
@@ -283,14 +296,34 @@ export function cleanScore(raw, { target, pace, base, seed, request, source, dir
     if (loose > 0) {
       const want = (goal - fixed) / loose;
       const k = clamp(want, TIMING.scale[0], TIMING.scale[1]);
-      for (const b of free()) b.seconds = quantize(clamp(Math.max(floor(b), b.seconds * k), VIDEO.seconds[0], VIDEO.seconds[1]));
+      const start = sum();
+      for (const b of free()) {
+        const s = clamp(Math.max(floor(b), b.seconds * k), VIDEO.seconds[0], VIDEO.seconds[1]);
+        // Engine 2, à la baisse : au temps de grille le plus proche (BS arrondit au temps suivant : une scène de 6 temps
+        // ou moins reprendrait sinon toute sa durée), jamais sous le plancher.
+        b.seconds = quantize(sig && k < 1 ? Math.max(floor(b), (Math.round((s * FPS) / fpb) * fpb) / FPS) : s);
+      }
+      if (sig && k < 1) {
+        // Puis un temps à la fois, à la scène qui a le plus de marge au-dessus de son plancher, tant que la vidéo dépasse
+        // la cible de plus de 15 %, sans descendre sous ×0,85 de sa durée.
+        const step = fpb / FPS, least = start * TIMING.scale[0];
+        const at = (b) => BS(b, b === lastKept());
+        for (let n = 0; n < 200 && sum() > goal * (1 + TIMING.tolerance) + 1e-9 && sum() - step >= least - 1e-9; n++) {
+          const room = free().filter((b) => at(b) - step >= Math.max(floor(b), VIDEO.seconds[0]) - 1e-9).sort((x, y) => (at(y) - floor(y)) - (at(x) - floor(x)));
+          if (!room.length) break;
+          room[0].seconds = quantize(at(room[0]) - step);
+        }
+      }
       const got = sum();
       if (Math.abs(got - goal) > goal * TIMING.tolerance) {
         // La vraie raison, dite pour Antoine (les notes sont lues dans le Studio) : l'étirement plafonné (×1,35) ralentirait
         // la vidéo, 10 s au plus par temps fort ; plus longue, c'est toujours le temps de lire (réduction plafonnée à ×0,85).
+        // Engine 2, plus longue : le temps de lire seulement si chaque scène libre est à son plancher ; sinon la
+        // réduction plafonnée (×0,85).
+        const atFloor = !sig || free().every((b) => BS(b, b === lastKept()) - fpb / FPS < Math.max(floor(b), VIDEO.seconds[0]) - 1e-9);
         const why = got < goal
           ? (want > TIMING.scale[1] ? "plus long, le rythme deviendrait lent : ajoute de la matière à la demande" : `${VIDEO.seconds[1]} s au plus par temps fort`)
-          : "pour garder le temps de lire tous les textes";
+          : atFloor ? "pour garder le temps de lire tous les textes" : `raccourcie de ${Math.round((1 - TIMING.scale[0]) * 100)} % au plus, pour garder le rythme de la partition`;
         // « seulement » pour une vidéo restée plus courte que la cible ; plus longue, elle « garde » sa durée.
         fix(got < goal ? `Durée visée ${goal} s : ${frSec(got)} s seulement (${why}).` : `Durée visée ${goal} s : la vidéo garde ${frSec(got)} s (${why}).`);
       }
@@ -363,9 +396,10 @@ export function cleanScore(raw, { target, pace, base, seed, request, source, dir
     gridTrim();
     if (sum() > VIDEO.total[1]) {
       // Encore trop long au temps de lecture : les sous-textes partent, les plus longs d'abord (pas ceux des temps
-      // forts fixés : leur durée ne dépend pas de la lecture, la vidéo n'en serait pas plus courte).
+      // forts fixés : leur durée ne dépend pas de la lecture, la vidéo n'en serait pas plus courte). Engine 2 : seulement
+      // les sous-textes montrés (BUDGETS[layout].sub) ; les autres ne comptent pas dans la lecture.
       let gone = 0;
-      for (const b of [...kept()].filter((x) => x.sub && x.layout !== "cta" && !x.fixed).sort((x, y) => y.sub.length - x.sub.length)) {
+      for (const b of [...kept()].filter((x) => x.sub && x.layout !== "cta" && !x.fixed && (!sig || BUDGETS[x.layout]?.sub)).sort((x, y) => y.sub.length - x.sub.length)) {
         if (sum() <= VIDEO.total[1]) break;
         delete b.sub;
         gone++;

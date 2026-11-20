@@ -361,13 +361,16 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
    * Engine 2 too: the lengths the Mac wrote already hold the reading time of the old rhythm, so without the scaling a
    * faster rhythm would change nothing. The music keeps its tempo (`fpb` comes from the base) and the Mac keeps each
    * scene on its beats and never under its floor (in music beats, not known here): the draft can be a little shorter
-   * than the next preview on a scene at its floor.
+   * than the next preview on a scene at its floor. Engine 2 keeps the milliseconds: a beat is not a multiple of 0.1 s,
+   * and a rounding past a beat would add a whole beat to the scene (a rhythm changed and changed back would not give
+   * the old length).
    */
   const setPace = (pace: ReelPlan["pace"]) =>
     edit((d) => {
       if (!d?.video || d.pace === pace) return d;
       const k = READ_PACE[pace] / READ_PACE[d.pace];
-      return { ...d, pace, video: { ...d.video, beats: d.video.beats.map((b) => (b.fixed ? b : { ...b, seconds: Math.min(MAX_BEAT, Math.max(MIN_BEAT, round1(b.seconds * k))) })) } };
+      const r = Number(d.video.engine) === 2 ? (s: number) => Math.round(s * 1000) / 1000 : round1;
+      return { ...d, pace, video: { ...d.video, beats: d.video.beats.map((b) => (b.fixed ? b : { ...b, seconds: Math.min(MAX_BEAT, Math.max(MIN_BEAT, r(b.seconds * k))) })) } };
     });
 
   // The video on screen is the version as the Mac rendered it; with edits waiting, the timeline shows what they will give.
@@ -792,6 +795,7 @@ export function VideoReview({ job, worker, refresh }: { job: MontageJob; worker:
                       auto="Le premier du dossier"
                       duration={total}
                       media={styleMedia}
+                      signature={video?.engine === 2}
                     />
                     <p className="text-[12px] text-ink-3">{"Une musique de Ressources → Musique, un morceau du dossier Musique de ton Mac, ou une musique composée pour cette vidéo."}</p>
                     {/* Engine 2: the sound effects laid on the music's beats (left out of the plan: on). */}

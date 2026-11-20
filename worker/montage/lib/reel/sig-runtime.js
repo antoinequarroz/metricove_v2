@@ -23,7 +23,7 @@
   var VF = null;
   if (S.fonts && S.fonts.vf && S.fonts.vf.wght) {
     var v0 = S.fonts.vf;
-    VF = { w: v0.w, lo: Math.min(v0.w - 100, v0.wght[0] + 40), dip: Math.round(Math.max(v0.wght[0] + 120, v0.w * 0.7)), wd: v0.wd || 0, wdLo: v0.wdth ? v0.wdth[0] : 0, wdHi: v0.wdth ? v0.wdth[1] : 0 };
+    VF = { w: v0.w, lo: Math.min(v0.w - 100, v0.wght[0] + 40), dip: Math.round(Math.max(v0.wght[0] + 120, v0.w * 0.84)), wd: v0.wd || 0, wdLo: v0.wdth ? v0.wdth[0] : 0, wdHi: v0.wdth ? v0.wdth[1] : 0 };
   }
   var WHIP = "expo.inOut";
   /** Le « non » des cartes (rouge universel, indépendant de la marque). */
@@ -103,16 +103,26 @@
    * La largeur de la ponctuation qui ferme le mot w (« » », « , », « . », « … »), à mesurer avant toute transformation
    * du mot (sa largeur de mise en page × la part de la ponctuation dans sa boîte). 0 sans ponctuation finale.
    */
-  function tailWidth(w) {
+  function tailWidth(w) { return tailOf(w).w; }
+  /**
+   * La ponctuation qui ferme le mot w : { w : sa largeur, espaces d'avant compris ; x : le bord gauche de son premier
+   * signe, depuis le bord gauche du mot }, en unités de mise en page. { w: 0 } sans ponctuation finale.
+   */
+  function tailOf(w) {
     var tn = w && w.lastChild;
-    if (!tn || tn.nodeType !== 3) return 0;
-    var m = /[\s  ]*[»"”’')\].,;:…]+$/.exec(tn.nodeValue);
-    if (!m || m[0].length >= tn.nodeValue.length) return 0;
+    if (!tn || tn.nodeType !== 3) return { w: 0, x: 0 };
+    var m = /([\s  ]*)([»"”’')\].,;:…]+)$/.exec(tn.nodeValue);
+    if (!m || m[0].length >= tn.nodeValue.length) return { w: 0, x: 0 };
+    var len = tn.nodeValue.length, wr = w.getBoundingClientRect();
+    if (!(wr.width > 0)) return { w: 0, x: 0 };
+    var k = w.offsetWidth / wr.width;
     var r = document.createRange();
-    r.setStart(tn, tn.nodeValue.length - m[0].length);
-    r.setEnd(tn, tn.nodeValue.length);
-    var a = r.getBoundingClientRect().width, b = w.getBoundingClientRect().width;
-    return b > 0 ? (a / b) * w.offsetWidth : 0;
+    r.setStart(tn, len - m[0].length);
+    r.setEnd(tn, len);
+    var g = document.createRange();
+    g.setStart(tn, len - m[2].length);
+    g.setEnd(tn, len);
+    return { w: r.getBoundingClientRect().width * k, x: (g.getBoundingClientRect().left - wr.left) * k };
   }
   /** Le hasard de la scène k, tiré de la graine (mulberry32). */
   function prng(k) {
@@ -137,6 +147,19 @@
   }
   function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
   function chroma(h) { var c = rgbOf(h); return Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]); }
+  /** La teinte d'une couleur (degrés, 0 à 360). */
+  function hueOf(h) {
+    var c = rgbOf(h), mx = Math.max(c[0], c[1], c[2]), d = mx - Math.min(c[0], c[1], c[2]);
+    if (!d) return 0;
+    var x = mx === c[0] ? ((c[1] - c[2]) / d) % 6 : mx === c[1] ? (c[2] - c[0]) / d + 2 : (c[0] - c[1]) / d + 4;
+    return (x * 60 + 360) % 360;
+  }
+  /** L'écart de teinte de deux couleurs (0 à 180°), 0 si l'une est presque grise. */
+  function hueDist(a, b) {
+    if (chroma(a) < 24 || chroma(b) < 24) return 0;
+    var x = Math.abs(hueOf(a) - hueOf(b));
+    return Math.min(x, 360 - x);
+  }
   function onColor(bg) { return contrast(bg, "#ffffff") >= contrast(bg, "#15161f") ? "#ffffff" : "#15161f"; }
   function rgba(h, a) { var c = rgbOf(h); return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")"; }
   /** L'accent posé sur un écran clair d'application (assombri s'il s'y perd). */
@@ -483,12 +506,13 @@
     if (top !== null && blk.el.children.length > 1) check();
     return bad;
   }
-  function fitBlock(blk, box, sizes, id) {
+  function fitBlock(blk, box, sizes, id, steps) {
     blk.el.style.width = Math.floor(box.w) + "px";
     fitAll([{ el: blk.el, max: sizes[0], min: sizes[1] }], function () { return blk.el.offsetHeight <= box.h && within(blk, box.w); }, id);
-    // Un petit mot seul sur sa ligne : jusqu'à 4 crans plus petit pour le recoller à ses voisins (sinon, la taille d'avant).
+    // Un petit mot seul sur sa ligne : jusqu'à 4 crans plus petit (`steps`) pour le recoller à ses voisins (sinon, la
+    // taille d'avant). L'accroche n'en perd que 2 : un titre d'ouverture grand compte plus qu'un mot seul.
     var s0 = parseFloat(blk.el.style.fontSize), s = s0;
-    for (var k = 0; k < 4 && lonely(blk) && s > sizes[1]; k++) { s = Math.max(sizes[1], Math.round(s * 0.94)); blk.el.style.fontSize = s + "px"; }
+    for (var k = 0; k < (steps || 4) && lonely(blk) && s > sizes[1]; k++) { s = Math.max(sizes[1], Math.round(s * 0.94)); blk.el.style.fontSize = s + "px"; }
     if (s !== s0 && lonely(blk)) blk.el.style.fontSize = s0 + "px";
     freeze(blk);
   }
@@ -574,13 +598,29 @@
     for (var i = 0; i < n; i++) d += " Q" + f1(x0 + step * (i + 0.5)) + "," + f1(y + (i % 2 ? a : -a) * 2) + " " + f1(x0 + step * (i + 1)) + "," + f1(y);
     return d;
   }
+  /**
+   * La boucle qui passe autour d'un groupe de lettres (demi-largeur a, demi-hauteur b, centre à l'abscisse ax de
+   * l'image) sans en couper aucune, de demi-hauteur ry : la plus ronde qui les contient, ellipse pour un mot court,
+   * rectangle aux coins ronds tracé à la main (superellipse) pour un long. Elle reste dans l'image (x 40 à 1040, rayon
+   * jusqu'à ×1,1) ; null quand le groupe est trop large pour qu'une boucle l'entoure.
+   */
+  function fitLoop(a, b, ry, ax, size) {
+    var bound = Math.min(ax - 40, 1040 - ax) / 1.12;
+    var rx = Math.min(a + size * 0.4, Math.max(a + size * 0.02, bound));
+    var fit = function (e) { return Math.pow(a / (rx * 0.97), 2 / e) + Math.pow(b / (ry * 0.97), 2 / e) <= 1; };
+    if (!fit(0.3)) return null;
+    var lo = 0.3, hi = 1;
+    if (fit(1)) lo = 1;
+    else for (var it = 0; it < 12; it++) { var mid = (lo + hi) / 2; if (fit(mid)) lo = mid; else hi = mid; }
+    return { rx: rx, ry: ry, e: lo };
+  }
   /** Une boucle dessinée à la main (1,1 tour, rayon qui flotte) en courbes de Bézier. */
-  function loopPath(cx, cy, rx, ry, rnd) {
-    var pts = [], n = 24, a0 = -2.6;
+  function loopPath(cx, cy, rx, ry, rnd, e) {
+    var pts = [], n = 24, a0 = -2.6, sq = function (v) { return (v < 0 ? -1 : 1) * Math.pow(Math.abs(v), e || 1); };
     for (var i = 0; i <= n; i++) {
       var p = i / n, a = a0 + p * Math.PI * 2 * 1.1;
       var k = 1 + (rnd() - 0.5) * 0.06 + p * 0.07;
-      pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+      pts.push([cx + sq(Math.cos(a)) * rx * k, cy + sq(Math.sin(a)) * ry * k]);
     }
     var d = "M" + f1(pts[0][0]) + "," + f1(pts[0][1]);
     for (var j = 0; j < pts.length - 1; j++) {
@@ -617,11 +657,11 @@
     if (kind === "dot") {
       var lw = last(blk.ws);
       if (!lw || /[.!?…:;,»"')\]]$/.test(lw.t)) return null;
-      // Le masque a la largeur finale du mot (figée par freeze) ; le mot lui-même peut être encore dans son état de
-      // départ (police variable maigre et serrée) quand la scène se construit.
-      var r = off(lw.wm, blk.el);
+      // Le mot mesuré au repos (police variable grasse et large) : il peut être encore dans son état de départ quand la
+      // scène se construit, et son masque a une marge à droite. Le point se pose juste après lui, comme un point final.
+      var r = settled([lw.w], function () { return off(lw.w, blk.el); });
       var d = Math.max(14, Math.round(size * 0.2));
-      var x = r.x + r.w + size * 0.09, y = baselineOf(lw.w, blk.el) - d;
+      var x = r.x + r.w + size * 0.03, y = baselineOf(lw.w, blk.el) - d;
       var dot = make("i", "dotm", blk.el);
       dot.style.cssText = "left:" + px(x) + ";top:" + px(y) + ";width:" + d + "px;height:" + d + "px";
       M.els = [dot];
@@ -634,8 +674,10 @@
         // La barre couvre les lettres du groupe (jambages compris : un « q » ne sort pas de la barre) et s'arrête avant
         // la ponctuation qui ferme le dernier mot (« lire » », « dimanche, ») : elle reste dehors, dans sa couleur.
         var inG = M.ems.filter(function (w) { return blk.groups[0].contains(w); });
-        var tail = inG.length ? tailWidth(last(inG)) : 0;
+        var tb = inG.length ? tailOf(last(inG)) : { w: 0, x: 0 }, tail = tb.w;
         var bx = g.x - size * 0.16, by = g.y + size * 0.02, bw = g.w + size * 0.32 - tail, bh = size * 0.86;
+        // Son bout arrondi s'arrête avant le premier signe de la ponctuation (« lire » » : le chevron reste entier).
+        if (tail > 0) bw = Math.max(size * 0.5, Math.min(bw, off(last(inG), blk.el).x + tb.x - size * 0.02 - bx));
         if (DESC.test(inG.map(function (w) { return w.textContent; }).join(" "))) bh = Math.max(bh, Math.round(baselineOf(inG[0], blk.el) + size * 0.26 - by));
         M.radius = Math.round(size * 0.155);
         var bar = make("i", "hl", blk.el);
@@ -644,19 +686,28 @@
         M.local = { x: bx, y: by, w: bw, h: bh };
         M.emBoxes = settled(blk.ws.map(function (x) { return x.w; }), function () { return M.ems.map(function (w) { return off(w, blk.el); }); });
       } else {
+        var path, loop = null;
+        if (kind === "bar") {
+          // La boucle passe autour des lettres (capitales et bas de casse du groupe, avec une marge, fitLoop). Un
+          // groupe trop large pour l'image n'a pas de boucle qui l'entoure sans couper ses lettres : souligné.
+          var bl = baselineOf(M.ems[0] || blk.ws[0].w, blk.el);
+          var lcx = g.x + g.w / 2;
+          loop = fitLoop(g.w / 2 + size * 0.04, size * 0.47, size * 0.62, M.base.x + lcx, size);
+          if (loop) { loop.cx = lcx; loop.cy = bl - size * 0.33; } else { kind = "underline"; M.kind = kind; }
+        }
         var sw = Math.max(8, Math.round(size * (kind === "bar" ? 0.06 : 0.07)));
-        var path;
         if (kind === "underline") {
           var y0 = baselineOf(M.ems[0] || blk.ws[0].w, blk.el) + size * 0.13;
           var x0 = g.x - size * 0.03, x1 = g.x + g.w + size * 0.03;
+          // Comme la barre : le trait s'arrête avant la ponctuation qui ferme le dernier mot (« 14 h 30, »).
+          var inU = M.ems.filter(function (w) { return blk.groups[0].contains(w); });
+          var tu = inU.length ? tailOf(last(inU)) : { w: 0, x: 0 };
+          if (tu.w > 0) x1 = Math.max(x0 + size * 0.5, Math.min(x1, off(last(inU), blk.el).x + tu.x - size * 0.02));
           path = wave(x0, x1, y0, size * 0.035, size * 0.5);
           M.local = { x: x0, y: y0 - sw * 2, w: x1 - x0, h: sw * 4 };
         } else {
-          // La boucle (1,1 tour, rayon jusqu'à ×1,1) reste dans l'image : x 40 à 1040 au plus.
-          var cx = g.x + g.w / 2, cy = g.y + size * 0.47, ry = size * 0.62;
-          var ax = M.base.x + cx, rx = Math.min(g.w / 2 + size * 0.24, Math.max(g.w / 2, (Math.min(ax - 40, 1040 - ax)) / 1.12));
-          path = loopPath(cx, cy, rx, ry, R.rnd);
-          M.local = { x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2 };
+          path = loopPath(loop.cx, loop.cy, loop.rx, loop.ry, R.rnd, loop.e);
+          M.local = { x: loop.cx - loop.rx, y: loop.cy - loop.ry, w: loop.rx * 2, h: loop.ry * 2 };
         }
         var st = stroke(blk.el, path, sw, blk.el.offsetWidth, blk.el.offsetHeight);
         M.els = [st.svg];
@@ -716,12 +767,14 @@
     }
     growMark(tl, R, t);
   }
-  function markOut(tl, M, t) {
+  function markOut(tl, M, t, o) {
     if (!M || M.travelled || !Number.isFinite(t)) return;
+    o = o || {};
     if (M.kind === "highlight") {
-      // La barre se replie vers le haut au rythme des mots qui sortent par le haut (jamais une barre vide qui reste).
-      tl.set(M.els[0], { transformOrigin: "50% 0%" }, t);
-      tl.to(M.els[0], { scaleY: 0, duration: 0.24, ease: "power3.in" }, t);
+      // La barre se replie du côté où partent ses mots (en haut, ou en bas sous un mot porté), à leur vitesse :
+      // jamais une barre vide qui reste, ni une barre qui remonte quand ses mots descendent.
+      tl.set(M.els[0], { transformOrigin: o.down ? "50% 100%" : "50% 0%" }, t);
+      tl.to(M.els[0], { scaleY: 0, duration: o.d || 0.24, ease: "power3.in" }, t);
     } else if (M.kind === "dot") tl.to(M.els[0], { scale: 0, duration: 0.22, ease: "power2.in" }, t);
     else tl.to(M.els[0], { opacity: 0, duration: 0.2, ease: "power1.in" }, t);
   }
@@ -889,7 +942,7 @@
     decoDust(tl, R);
     var box = zone(R, { x: 90, y: 300, w: 900, h: 940 });
     var blk = block(R.pin, B.words, { left: LEFT, q: true, carry: R.carryTo });
-    fitBlock(blk, box, SZ.hero, B.id);
+    fitBlock(blk, box, SZ.hero, B.id, 2);
     place(blk.el, box.x, box.y + Math.max(0, (box.h - blk.el.offsetHeight) * 0.45));
     R.blk = blk;
     R.mark = makeMark(R, blk);
@@ -1017,6 +1070,13 @@
     tl.to(rays.r, { opacity: 0.32, duration: 1.2, ease: "power2.out" }, tf + 0.08);
     tl.fromTo(rays.w, { rotation: 0 }, { rotation: 30, duration: 1.4, ease: "expo.out", immediateRender: false }, tf);
     tl.fromTo(ring, { scale: 0.8, opacity: 0.8 }, { scale: 2.2, opacity: 0, duration: 0.9, ease: "expo.out", immediateRender: false }, tf);
+    // Un chiffre qui reste : il repulse sur les temps (c.pulses), l'anneau repart et les rayons se ravivent.
+    (c.pulses || []).forEach(function (t) {
+      tl.fromTo(numEl, { scale: 1.05 }, { scale: 1, duration: 0.6, ease: "expo.out", immediateRender: false }, t);
+      tl.fromTo(ring, { scale: 0.85, opacity: 0.55 }, { scale: 2, opacity: 0, duration: 0.9, ease: "expo.out", immediateRender: false }, t);
+      tl.to(rays.r, { opacity: 0.6, duration: 0.08 }, t);
+      tl.to(rays.r, { opacity: 0.32, duration: 0.8, ease: "power2.out" }, t + 0.08);
+    });
     // La marque, mesurée avant l'entrée des mots : leur état de départ (police variable maigre et serrée) fausserait
     // sa place.
     var mb = markLow ? blk : leadBlk;
@@ -1139,8 +1199,9 @@
       var ls = spans[n - 1];
       var rx = box.x + ls.offsetLeft, rw = ls.offsetWidth;
       var cx = rx + rw / 2, cy = wy + lh * 0.5;
-      var lrx = Math.min(rw / 2 + size * 0.28, Math.max(rw / 2, Math.min(cx - 40, 1040 - cx) / 1.12));
-      var st = stroke(R.pin, loopPath(cx, cy, lrx, lh * 0.6, R.rnd), Math.max(9, Math.round(size * 0.07)));
+      // Même boucle que les marques (fitLoop) ; un item trop large pour être entouré est souligné.
+      var lp = fitLoop(rw / 2 + size * 0.04, size * 0.47, lh * 0.6, cx, size);
+      var st = stroke(R.pin, lp ? loopPath(cx, cy, lp.rx, lp.ry, R.rnd, lp.e) : wave(rx - size * 0.03, rx + rw + size * 0.03, cy + size * 0.46, size * 0.035, size * 0.5), Math.max(9, Math.round(size * 0.07)));
       draw(tl, st, c.mark, 0.45);
       R.rest.push(st.svg);
       R.focus = { x: cx, y: cy };
@@ -1498,9 +1559,11 @@
     // Les cartes : la dernière (le match) au fond de la pile, les autres dessus.
     var stampC = surf.mk;
     // La carte du match : la teinte la plus vive du nuancier qui laisse lire le tampon (jamais un gris).
-    var pool = TONES.filter(function (t) { return contrast(t, stampC) >= 2.2; }).sort(function (a, b) { return chroma(b) - chroma(a); });
+    // Jamais une carte de la couleur de la plaque (elle s'y fondrait).
+    var onPlate = TONES.filter(function (t) { return contrast(t, surf.bg) >= 1.3 || hueDist(t, surf.bg) >= 40; });
+    var pool = onPlate.filter(function (t) { return contrast(t, stampC) >= 2.2; }).sort(function (a, b) { return chroma(b) - chroma(a); });
     var matchTone = pool.length ? pool[0] : lum(stampC) > 0.4 ? "#25264a" : "#f3efe2";
-    var others = TONES.filter(function (t) { return t !== matchTone; });
+    var others = onPlate.filter(function (t) { return t !== matchTone; });
     if (!others.length) others = [mix(matchTone, "#ffffff", 0.3)];
     var wrap = make("div", "cards", R.pin);
     var cards = new Array(n);
@@ -1576,7 +1639,7 @@
     (c.heart || []).forEach(function (t) { tl.fromTo(bh, { scale: 1.14 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, t); });
     if (pay && Number.isFinite(c.out)) {
       tl.to(blk.ws.map(function (x) { return x.w; }), { yPercent: -125, duration: 0.18, ease: "power3.in", stagger: 0.008 }, c.out);
-      markOut(tl, R.mark, c.out);
+      markOut(tl, R.mark, c.out, { d: 0.16 });
     }
     // LE moment fort.
     flash(tl, D, 0.72);
@@ -1653,6 +1716,14 @@
     var rows = make("div", "rows", R.deco);
     var words = B.items.length ? B.items : B.words.map(function (x) { return x.t; });
     var STY = ["", "o", "a", "", "c", "o", "d"];
+    // Les rangées en couleur (styles c et d) : deux teintes du nuancier lisibles sur les deux fonds du mur (il
+    // s'inverse sur les temps), sinon la marque, sinon l'encre ; jamais une teinte du fond (des trous dans les rangées).
+    var both = function (t) { return Math.min(contrast(t, R.surf.bg), contrast(t, R.surf.ink)) >= 2.2; };
+    var rowT = [];
+    for (var q = 1; q <= TONES.length && rowT.length < 2; q++) if (both(tone(R.k + q)) && rowT.indexOf(tone(R.k + q)) < 0) rowT.push(tone(R.k + q));
+    while (rowT.length < 2) rowT.push(rowT[0] || (both(R.surf.mk) ? R.surf.mk : R.surf.ink));
+    R.plate.style.setProperty("--t2", rowT[0]);
+    R.plate.style.setProperty("--t3", rowT[1]);
     var span = spanOf(R), t0 = decoStart(R);
     for (var r = 0; r < 10; r++) {
       var tr = make("div", "track disp", make("div", "row", rows));
@@ -1772,7 +1843,9 @@
         tl.fromTo(but, { scale: 1.07 }, { scale: 1, duration: 0.45, ease: "expo.out", immediateRender: false }, t);
         tl.fromTo(rings[i % 3], { scale: 1, opacity: 0.85 }, { scale: 1.6, opacity: 0, duration: 0.9, ease: "expo.out", immediateRender: false }, t);
       });
-      if (Number.isFinite(c.shine)) tl.fromTo(shine, { x: -160, opacity: 1 }, { x: but.offsetWidth + 60, opacity: 1, duration: 0.6, ease: "power2.inOut", immediateRender: false }, c.shine);
+      [c.shine].concat(c.shines || []).filter(Number.isFinite).forEach(function (t) {
+        tl.fromTo(shine, { x: -160, opacity: 1 }, { x: but.offsetWidth + 60, opacity: 1, duration: 0.6, ease: "power2.inOut", immediateRender: false }, t);
+      });
       if (Number.isFinite(c.tap)) {
         tap(tl, R.fly, 540 + but.offsetWidth / 2 - (but.classList.contains("two") ? 40 : 50) - 26, parseFloat(but.style.top) + bh / 2 + 2, c.tap);
         tl.to(but, { scale: 0.95, duration: 0.07, ease: "power2.in" }, c.tap - 0.04);
@@ -1803,7 +1876,7 @@
     }
     if (ws.length) tl.to(ws, { yPercent: -125, duration: 0.28, ease: "power3.in", stagger: st }, t);
     if (A.rest.length) tl.to(A.rest, { y: "-=40", autoAlpha: 0, duration: 0.28, ease: "power2.in" }, t);
-    if (!A.keepMark) markOut(tl, A.mark, t);
+    if (!A.keepMark) markOut(tl, A.mark, t, { down: !!(A.mark && A.mark.ems && A.mark.ems.some(function (w) { return down.indexOf(w) >= 0; })) });
   }
   /** Avant un remplissage : la moitié des mots part en haut, l'autre en bas ; la marque reste si elle devient l'écran. */
   function exitSplit(tl, A, t) {
@@ -1834,6 +1907,15 @@
       tl.set(rw.w, { clearProps: "color" }, t0 + 0.5);
     }
     tl.set(aw.w, { autoAlpha: 0 }, t0);
+    // Une ponctuation que le mot d'avant n'avait pas (« dimanche » → « dimanche, ») n'apparaît qu'à l'atterrissage.
+    var ta = tailOf(aw.w).w, tr = tailOf(rw.w);
+    if (tr.w > 0 && !(ta > 0)) {
+      var hh = Math.round(rr.h), cut = function (x) { return "polygon(-400px " + -hh + "px, " + f1(x) + "px " + -hh + "px, " + f1(x) + "px " + 2 * hh + "px, -400px " + 2 * hh + "px)"; };
+      tl.set(rw.w, { clipPath: cut(tr.x - 1) }, t0);
+      tl.set(rw.w, { clipPath: "none" }, t0 + 0.55);
+    }
+    // Posé, le mot retrouve un masque fermé : à la sortie de la scène, il disparaîtra dans son masque comme les autres.
+    tl.set(rw.wm, { overflowY: "clip" }, t0 + 0.6);
     A.keep = aw.w;
     return true;
   }

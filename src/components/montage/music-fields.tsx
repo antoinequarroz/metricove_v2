@@ -4,7 +4,7 @@ import { Loader2, Music } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { libTrack, MUSIC_PROMPT_MAX, type StyleMedia } from "@/lib/audio-ai";
-import { MUSIC_FADE, type MusicCue } from "@/lib/montage";
+import { MUSIC_FADE, SIG_MUSIC_FADE, type MusicCue } from "@/lib/montage";
 import { reloadLibrary } from "@/lib/use-library";
 import { cn } from "@/lib/utils";
 import { useAudioSettings } from "../resources/music-maker";
@@ -17,6 +17,8 @@ type Value = MusicCue & { track?: string };
  * The music of a video: a music of Ressources → Musique, a file of the Mac's music folder, or one composed now for
  * this video (ElevenLabs Music or Lyria, `duration` seconds); where it starts in the file, its fades.
  * `tracks`: the files the Mac last reported (none when it has not said yet, or when the folder is empty).
+ * `signature`: an engine-2 video. Left at 0, the start is chosen by the Mac (the music's rise lands on the strong
+ * moment), and the fades left out are the engine's own (SIG_MUSIC_FADE).
  */
 export function MusicFields({
   value,
@@ -26,6 +28,7 @@ export function MusicFields({
   auto,
   duration,
   media,
+  signature,
 }: {
   value: Value;
   onChange: (patch: Value) => void;
@@ -35,6 +38,7 @@ export function MusicFields({
   duration?: number;
   /** The choices of the video's style: its music provider, and its music style to start the description from. */
   media?: StyleMedia;
+  signature?: boolean;
 }) {
   const audio = useAudioSettings();
   const [asking, setAsking] = useState(false);
@@ -61,6 +65,10 @@ export function MusicFields({
     }
   };
   const row = "flex items-center gap-2 text-[12px] text-ink-2";
+  /** What a slider shows: « Auto » for an engine-2 start left at 0, two decimals for a fade under 0.1 s (0.02 s). */
+  const shown = (key: "start" | "fadeIn" | "fadeOut", v: number) =>
+    key === "start" ? (signature && !v ? "Auto" : `${v.toFixed(0)} s`) : `${v.toFixed(v > 0 && v < 0.1 ? 2 : 1)} s`;
+  const fade = signature ? SIG_MUSIC_FADE : MUSIC_FADE;
   const slider = (label: string, key: "start" | "fadeIn" | "fadeOut", max: number, step: number, or: number) => (
     <label className={row}>
       <span className="w-24 shrink-0">{label}</span>
@@ -75,7 +83,7 @@ export function MusicFields({
         aria-label={label}
         className="min-w-0 flex-1 accent-[var(--accent)]"
       />
-      <span className="tabular w-12 text-right font-mono text-[11.5px]">{(value[key] ?? or).toFixed(key === "start" ? 0 : 1)} s</span>
+      <span className="tabular w-12 text-right font-mono text-[11.5px]">{shown(key, value[key] ?? or)}</span>
     </label>
   );
   return (
@@ -107,8 +115,9 @@ export function MusicFields({
       )}
       {tracks && !tracks.length && !value.track && <p className="text-[11.5px] text-ink-3">Le dossier Musique de ton Mac est vide : compose une musique ci-dessus, ou choisis-en une dans Ressources → Musique.</p>}
       {slider("Début du morceau", "start", 120, 1, 0)}
-      {slider("Fondu d'entrée", "fadeIn", MUSIC_FADE.maxIn, 0.1, MUSIC_FADE.in)}
-      {slider("Fondu de sortie", "fadeOut", MUSIC_FADE.maxOut, 0.1, MUSIC_FADE.out)}
+      {signature && <p className="text-[11.5px] text-ink-3">À 0, le morceau part au bon endroit pour que sa montée tombe sur le moment fort. Un début choisi à la main annule ce calage (le morceau reste calé sur les temps).</p>}
+      {slider("Fondu d'entrée", "fadeIn", MUSIC_FADE.maxIn, 0.1, fade.in)}
+      {slider("Fondu de sortie", "fadeOut", MUSIC_FADE.maxOut, 0.1, fade.out)}
     </div>
   );
 }

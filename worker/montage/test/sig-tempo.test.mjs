@@ -321,6 +321,31 @@ test("planMusic : sans moment fort, la grille seule ; musique plus courte que la
   assert.match(short.why, /bouclé/);
 });
 
+test("planMusic : un morceau un peu court tient sans boucle quand sa montée se pose avec un silence de tête", () => {
+  // 115 BPM étiré ×1,0435 : 20,6 s de fichier font 19,74 s ; la montée (8 s dans le fichier, sur un temps) tombe à
+  // 7,667 s étirée, un tiers de temps avant le moment fort : la vidéo ne demande que 20 − 0,333 s de musique.
+  const p115 = 60 / 115;
+  const A = { duration: 20.6, bpm: 115, period: p115, phase: 8 - 15 * p115, confidence: 1, beats: [], energy: [], rises: [{ t: 8, score: 4 }] };
+  const plan = planMusic(A, { fpb: 15, D: 20, drop: 8 });
+  assert.equal(plan.ratio, 1.0435);
+  assert.equal(plan.loop, false);
+  assert.equal(plan.loopLen, 0);
+  assert.deepEqual(plan.aligned, { grid: true, drop: true });
+  assert.ok(plan.delay > 0.3 && plan.delay <= P15, `silence de tête ${plan.delay}`);
+  assert.ok(Math.abs(8 / plan.ratio - plan.offset + plan.delay - 8) < 0.002, "la montée sur le moment fort");
+  // Trop court même avec un temps de silence : bouclé, la reprise après un nombre entier de mesures de la grille.
+  const short = planMusic({ ...A, duration: 15 }, { fpb: 15, D: 20, drop: 8 });
+  assert.equal(short.loop, true);
+  assert.deepEqual(short.aligned, { grid: true, drop: false });
+  assert.ok(short.loopLen >= 4 * P15, `boucle ${short.loopLen} s`);
+  const bars = short.loopLen / (4 * P15);
+  assert.ok(Math.abs(bars - Math.round(bars)) < 1e-6, `boucle ${short.loopLen} s : pas un nombre entier de mesures`);
+  assert.ok(short.offset + short.loopLen <= 15 / short.ratio - 0.02 + 1e-6, "la boucle tient dans le morceau");
+  assert.match(short.why, /reprise tous les \d+ temps/);
+  // Sans grille (tempo trop loin) : pas de boucle calée, l'appelant boucle le fichier entier.
+  assert.equal(planMusic({ ...A, duration: 15, bpm: 90, period: 60 / 90 }, { fpb: 15, D: 20, drop: 8 }).loopLen, 0);
+});
+
 test("planMusic : 20 % d'écart → pas d'étirement, mais la montée reste posée sur le moment fort", () => {
   const a = { duration: 40, bpm: 100, period: 0.6, phase: 0.137, confidence: 0.9, rises: [{ t: 0.137 + 20 * 0.6, score: 8 }] };
   const plan = planMusic(a, { fpb: 15, D: 20, drop: 8 });
@@ -404,6 +429,13 @@ test("musicFilter : la chaîne -af (atempo, départ corrigé, fondus, durée exa
   assert.throws(() => musicFilter({ ratio: 1 }, { D: 0 }), /durée de la vidéo invalide/);
 });
 
+test("musicFilter : boucle calée (loopLen) → coupe après loopLen s puis aloop à 48 kHz, sans -stream_loop", () => {
+  const f = musicFilter({ ratio: 1, offset: 0.25, loop: true, loopLen: 8 }, { D: 20 });
+  assert.match(f, /^aresample=48000,atrim=start=0\.25:duration=8,asetpts=PTS-STARTPTS,aloop=loop=-1:size=384000,asetpts=N\/SR\/TB,/);
+  // Sans loopLen, rien ne change : la boucle reste celle du fichier, posée par l'appelant.
+  assert.doesNotMatch(musicFilter({ ratio: 1, offset: 0.25, loop: true }, { D: 20 }), /aloop/);
+});
+
 test("musicFilter : ffmpeg accepte la chaîne et la sortie dure exactement D (48 kHz)", () => {
   const src = wav("filtre.wav", track({ bpm: 117, seconds: 20, noise: 0.01, hats: 0.1 }));
   const short = wav("filtre-court.wav", track({ bpm: 117, seconds: 4 }));
@@ -413,6 +445,8 @@ test("musicFilter : ffmpeg accepte la chaîne et la sortie dure exactement D (48
     [src, { ratio: 1, offset: 0 }, 7, []],
     [src, { ratio: 1, offset: 15 }, 8, []], // la musique s'arrête avant D : silence jusqu'à D
     [short, { ratio: 1.0256, offset: 0.13, loop: true }, 11, ["-stream_loop", "-1"]], // bouclée par l'appelant
+    [short, { ratio: 1.0256, offset: 0.13, loop: true, loopLen: 2 }, 11, []], // boucle calée : 4 temps répétés (aloop)
+    [short, { ratio: 1, offset: 0.13, loop: true, loopLen: 2 }, 9, []], // boucle calée sans étirement : 48 kHz en tête
     // Silence de tête derrière atempo, plus long qu'une trame d'adelay (2048 échantillons) : sans pts refaits, la
     // sortie durait 91 ms de moins que D et le silence était tronqué.
     [src, { ratio: 1.017, offset: 0, delay: 0.134 }, 10, []],

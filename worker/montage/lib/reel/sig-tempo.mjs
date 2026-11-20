@@ -41,7 +41,8 @@ const ATTACK_DB = 6; // une attaque nette : au moins 6 dB de plus après qu'avan
 const BIAS0 = 0.004; // s : retard typique de l'attaque réelle sur la trame du flux (−4 à +9 ms mesurés ; repli sans attaques nettes)
 const MIN_SECONDS = 4; // en dessous : trop court pour un tempo
 const SILENCE = 1e-4; // crête sous −80 dBFS : silence
-const MIN_CONF = 0.2; // en dessous, planMusic n'étire pas : le tempo est trop incertain pour caler la grille
+/** Confiance de tempo en dessous de laquelle planMusic n'étire pas : le tempo est trop incertain pour caler la grille. */
+export const MIN_CONF = 0.2;
 const RISE_MIN = 2; // score minimal d'une montée gardée (dB, bonus d'attaque compris)
 const DRIFT_OK = 0.004; // s : sans étirement, la musique ne dérive pas de plus sur la vidéo → pas d'atempo (et de son flou)
 
@@ -516,7 +517,7 @@ const fr = (x, n = 3) => String(round(x, n)).replace(".", ",");
 
 /**
  * Calage d'une musique analysée sur la vidéo (durée D, grille de fpb images par temps à fps i/s, moment fort `drop`
- * en s ou null). Renvoie { ratio, offset, delay, loop, bpmIn, bpmOut, aligned: { grid, drop }, why } :
+ * en s ou null). Renvoie { ratio, offset, delay, loop, loopLen, bpmIn, bpmOut, aligned: { grid, drop }, why } :
  * - ratio : facteur atempo (> 1 accélère, 4 décimales) qui rend la période de la musique (ou son double, ou sa moitié :
  *   la plus proche de P = fpb / fps) égale à P ; 1 si l'écart dépasse maxStretch ou si le tempo est incertain
  *   (aligned.grid faux), et 1 aussi quand, sans étirement, les temps ne dériveraient pas de plus de 4 ms sur la vidéo ;
@@ -531,7 +532,11 @@ const fr = (x, n = 3) => String(round(x, n)).replace(".", ",");
  *   coup posé quelques ms trop tôt) demanderait un départ négatif : la musique part alors de son début (offset 0)
  *   et commence `delay` s après la vidéo, au plus maxDelay (un temps de grille par défaut). Sans cela, la montée
  *   tomberait un temps entier avant le moment fort. musicFilter pose ce silence ;
- * - loop : la musique étirée est plus courte que D (l'appelant la boucle ; départ sur le premier temps) ;
+ * - loop : la musique étirée est plus courte que D (départ sur le premier temps), sauf si une montée posée avec un
+ *   `delay` la fait tenir (la vidéo ne demande alors que D − delay s de musique) ;
+ * - loopLen : avec loop sur la grille, la longueur (s, musique étirée) d'un nombre entier de temps de grille depuis le
+ *   départ, que musicFilter répète (aloop) : les temps restent sur la grille après chaque reprise. 0 sinon (l'appelant
+ *   boucle alors le fichier entier, -stream_loop, et les temps quittent la grille à la reprise) ;
  * - bpmIn, bpmOut : tempo avant et après étirement ; why : l'explication, en français.
  * Silence ou fichier trop court (confidence 0) : ratio 1, offset 0, rien de calé.
  */
@@ -553,7 +558,7 @@ export function planMusic(analysis, { fpb, D, drop, fps = 30, maxStretch = 0.08,
 
   if (!(conf > 0) || !(period > 0)) {
     return {
-      ratio: 1, offset: 0, delay: 0, loop: loopOf(1), bpmIn, bpmOut: bpmIn, aligned: { grid: false, drop: false },
+      ratio: 1, offset: 0, delay: 0, loop: loopOf(1), loopLen: 0, bpmIn, bpmOut: bpmIn, aligned: { grid: false, drop: false },
       why: `Tempo introuvable (silence, fichier trop court ou son sans attaques) : musique prise depuis le début, sans étirement ni calage${loopOf(1) ? `, et bouclée (${fr(dur, 1)} s pour ${fr(Dv, 1)} s de vidéo)` : ""}.`,
     };
   }
@@ -584,13 +589,11 @@ export function planMusic(analysis, { fpb, D, drop, fps = 30, maxStretch = 0.08,
   let first = sure ? mod(phaseS, step) : 0;
   if (step - first < 0.002) first = 0;
   first = round(first, 4);
-  const loop = loopOf(ratio);
+  // Un morceau un peu plus court que la vidéo peut encore tenir sans boucle : une montée posée avec un silence au début
+  // (delay, au plus maxD) ne demande que D − delay s de musique. Les montées sont donc essayées avant de boucler.
+  const short = loopOf(ratio);
   let offset = first, used = -1, delay = 0;
-
-  if (loop) parts.push(`morceau plus court que la vidéo (${fr(durS, 1)} s pour ${fr(Dv, 1)} s) : il sera bouclé, départ sur le premier temps (${fr(first, 3)} s)`);
-  else if (dropAt === null) parts.push(`pas de moment fort : départ sur le premier temps (${fr(first, 3)} s)`);
-  else if (!rises.length) parts.push(`pas de montée nette dans la musique : départ sur le premier temps (${fr(first, 3)} s)`);
-  else {
+  if (dropAt !== null && rises.length && (!short || durS >= Dv - maxD - 1e-6)) {
     for (let i = 0; i < rises.length; i++) {
       // La montée, recalée sur la grille des temps de la musique, puis posée sur le point de la grille de la vidéo le
       // plus proche du moment fort (le moment fort lui-même s'il est sur la grille) : l'ancre est la montée, la petite
@@ -603,6 +606,13 @@ export function planMusic(analysis, { fpb, D, drop, fps = 30, maxStretch = 0.08,
       // La vidéo ne demande alors que D − delay s de musique : la même condition o + D ≤ durée étirée.
       if (o >= -maxD - 1e-9 && o + Dv <= durS + 1e-6) { offset = Math.max(0, o); delay = round(Math.max(0, -o), 4); used = i; break; }
     }
+  }
+  const loop = short && used < 0;
+  const loopLen = loop ? loopLength({ loop, offset, aligned: { grid } }, { durS, P }) : 0;
+  if (loop) parts.push(`morceau plus court que la vidéo (${fr(durS, 1)} s pour ${fr(Dv, 1)} s) : il sera bouclé, départ sur le premier temps (${fr(first, 3)} s)${loopLen > 0 ? `, reprise tous les ${Math.round(loopLen / P)} temps (${fr(loopLen, 3)} s) pour rester sur la grille` : ""}`);
+  else if (dropAt === null) parts.push(`pas de moment fort : départ sur le premier temps (${fr(first, 3)} s)`);
+  else if (!rises.length) parts.push(`pas de montée nette dans la musique : départ sur le premier temps (${fr(first, 3)} s)`);
+  else {
     if (used < 0) parts.push(`aucune montée de la musique ne peut tomber sur le moment fort (${fr(dropAt, 3)} s) sans sortir du morceau : départ sur le premier temps (${fr(first, 3)} s)`);
     else {
       const which = used === 0 ? "sa plus forte montée" : `sa ${used + 1}e montée (les plus fortes ne tiennent pas dans la vidéo)`;
@@ -613,10 +623,23 @@ export function planMusic(analysis, { fpb, D, drop, fps = 30, maxStretch = 0.08,
     }
   }
   return {
-    ratio, offset, delay, loop, bpmIn, bpmOut: round(bpmIn * ratio, 2),
+    ratio, offset, delay, loop, loopLen, bpmIn, bpmOut: round(bpmIn * ratio, 2),
     aligned: { grid, drop: used >= 0 },
     why: `${parts.join(" ; ")}.`,
   };
+}
+
+/**
+ * La boucle calée d'un plan bouclé sur la grille : la longueur (s, dans la musique étirée de durée durS) d'un nombre
+ * entier de temps de grille P depuis plan.offset, par mesures de 4 temps quand le morceau en a au moins 8 ; au moins
+ * 4 temps, sinon 0 (pas de boucle calée possible : l'appelant boucle le fichier). Une marge de 20 ms couvre le
+ * décalage d'atempo du départ (ATEMPO_SHIFT).
+ */
+export function loopLength(plan, { durS, P }) {
+  if (!plan?.loop || !plan.aligned?.grid || !(P > 0) || !(durS > 0)) return 0;
+  let k = Math.floor((durS - (Number(plan.offset) || 0) - 0.02) / P + 1e-6);
+  if (k >= 8) k -= k % 4;
+  return k >= 4 ? round(k * P, 4) : 0;
 }
 
 // ─── Filtre ffmpeg ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -640,9 +663,11 @@ const ATEMPO_SHIFT = 0.01;
  * atempo (enchaîné hors de 0,5-2 ; la fenêtre de WSOLA ne dépend plus du fichier), départ (atrim=start=offset, dans
  * la musique étirée, corrigé du décalage moyen d'atempo), fondu d'entrée court sur la musique elle-même, silence
  * ajouté au début par adelay (plan.delay, plus un départ corrigé négatif), fondu de sortie qui finit exactement à D,
- * silence ajouté puis coupe à exactement D, 48 kHz. Le bouclage (plan.loop) se fait à l'entrée (-stream_loop -1), par
- * l'appelant. Les durées sont arrondies à 4 décimales avant usage : un fondu arrondi à 0 est omis (afade d=0 ferait un
- * fondu d'une seconde), une durée D arrondie à 0 est refusée (atrim=duration=0 ne coupe plus rien).
+ * silence ajouté puis coupe à exactement D, 48 kHz. Avec plan.loopLen (boucle calée), le morceau est coupé loopLen s
+ * après le départ et ce bout est répété (aloop, à 48 kHz) : chaque reprise tombe sur un temps de la grille. Sans
+ * loopLen, le bouclage (plan.loop) se fait à l'entrée (-stream_loop -1), par l'appelant. Les durées sont arrondies à
+ * 4 décimales avant usage : un fondu arrondi à 0 est omis (afade d=0 ferait un fondu d'une seconde), une durée D
+ * arrondie à 0 est refusée (atrim=duration=0 ne coupe plus rien).
  */
 export function musicFilter(plan, { D, fadeIn = 0.02, fadeOut = 1.2 } = {}) {
   const d = round(Number(D), 4);
@@ -650,17 +675,21 @@ export function musicFilter(plan, { D, fadeIn = 0.02, fadeOut = 1.2 } = {}) {
   const ratio = Number(plan?.ratio) > 0 && Number.isFinite(Number(plan.ratio)) ? Number(plan.ratio) : 1;
   const offset = Number(plan?.offset) > 0 && Number.isFinite(Number(plan.offset)) ? Number(plan.offset) : 0;
   const delay = Number(plan?.delay) > 0 && Number.isFinite(Number(plan.delay)) ? Number(plan.delay) : 0;
+  const loopLen = plan?.loop && Number(plan?.loopLen) > 0 && Number.isFinite(Number(plan.loopLen)) ? round(Number(plan.loopLen), 4) : 0;
   const out = [];
   let start = offset;
-  if (Math.abs(ratio - 1) >= 5e-5) {
-    out.push("aresample=48000");
+  const stretch = Math.abs(ratio - 1) >= 5e-5;
+  // La boucle calée compte ses échantillons à 48 kHz : le rééchantillonnage passe en tête même sans étirement.
+  if (stretch || loopLen > 0) out.push("aresample=48000");
+  if (stretch) {
     let r = ratio;
     while (r > 2) { out.push("atempo=2"); r /= 2; }
     while (r < 0.5) { out.push("atempo=0.5"); r /= 0.5; }
     out.push(`atempo=${n4(r)}`);
     start += ratio > 1 ? ATEMPO_SHIFT : -ATEMPO_SHIFT;
   }
-  out.push(`atrim=start=${n4(Math.max(0, start))}`, "asetpts=PTS-STARTPTS");
+  if (loopLen > 0) out.push(`atrim=start=${n4(Math.max(0, start))}:duration=${n4(loopLen)}`, "asetpts=PTS-STARTPTS", `aloop=loop=-1:size=${Math.round(loopLen * 48000)}`, "asetpts=N/SR/TB");
+  else out.push(`atrim=start=${n4(Math.max(0, start))}`, "asetpts=PTS-STARTPTS");
   const fi = round(Math.min(Math.max(0, Number(fadeIn) || 0), d / 2), 4), fo = round(Math.min(Math.max(0, Number(fadeOut) || 0), d), 4);
   if (fi > 0) out.push(`afade=t=in:st=0:d=${n4(fi)}`);
   // Derrière atempo (qui ne rend rien avant une fenêtre pleine), adelay émet son silence avant d'avoir vu un

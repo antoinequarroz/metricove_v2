@@ -7,13 +7,14 @@
 // - Voix off posée comme en engine 1 (narration.mjs) ; sous elle, la musique et les bruitages baissent.
 // Le mélange est fait en flottant (aucun écrêtage), mesuré (EBU R128), mis à −14 LUFS par un gain fixe puis tenu
 // sous −2 dBFS par un limiteur sans retard : la montée de la musique garde sa dynamique (un loudnorm dynamique
-// l'aplatirait). Des bruitages seuls ne sont pas montés à −14 LUFS (ils seraient énormes) : gain fixe.
+// l'aplatirait). Des bruitages seuls ne sont pas montés à −14 LUFS (ils seraient énormes) : gain fixe. Sans voix, le
+// volume choisi pour la musique règle le niveau de toute la vidéo (70 % donne −14 LUFS, plus bas est plus doux).
 import { rmSync, statSync } from "node:fs";
 import { run, log } from "../util.mjs";
-import { analyzeMusic, planMusic, musicFilter } from "./sig-tempo.mjs";
+import { analyzeMusic, planMusic, musicFilter, loopLength, MIN_CONF } from "./sig-tempo.mjs";
 import { renderSfx } from "./sig-sfx.mjs";
 import { voiceGraph } from "./narration.mjs";
-import { FPS } from "./vocab.mjs";
+import { FPS, SIG_MUSIC_FADE } from "./vocab.mjs";
 
 /** Gains du mélange : bruitages (sans voix ni musique mesurée), part de la musique et des bruitages sous une voix. */
 export const SIG_GAIN = Object.freeze({ sfx: 0.8, musicUnderVoice: 0.5, sfxUnderVoice: 0.6 });
@@ -23,8 +24,12 @@ export const SIG_GAIN = Object.freeze({ sfx: 0.8, musicUnderVoice: 0.5, sfxUnder
  * compressée ou très douce garde ainsi des bruitages audibles sans qu'ils la couvrent.
  */
 export const SIG_BALANCE = Object.freeze({ music: 6, voice: 9, gain: Object.freeze([0.2, 2.2]) });
-/** Sonie visée (LUFS intégrés) et plafond du limiteur (−2 dBFS : marge pour les crêtes entre échantillons et l'AAC). */
-export const SIG_LOUDNESS = Object.freeze({ target: -14, limit: 0.79, maxGainDb: 24 });
+/**
+ * Sonie visée (LUFS intégrés) et plafond du limiteur (−2 dBFS : marge pour les crêtes entre échantillons et l'AAC).
+ * volRef : sans voix, le volume de musique qui donne `target` ; un volume plus bas baisse la sonie d'autant (dB), un
+ * volume plus haut ne la monte pas (les réseaux baissent de toute façon ce qui dépasse −14 LUFS).
+ */
+export const SIG_LOUDNESS = Object.freeze({ target: -14, limit: 0.79, maxGainDb: 24, volRef: 0.7 });
 
 const f3 = (n) => Number(n).toFixed(3);
 const num = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -60,8 +65,10 @@ export function musicPlan(analysis, { fpb, D, drop, start = 0 }) {
   offset = Math.round(offset * 10000) / 10000;
   const durS = (num(analysis?.duration) ?? 0) / base.ratio;
   const loop = durS > 0 && offset + D > durS + 1e-6;
-  const why = `${base.why.replace(/ ; (pas de moment fort|morceau plus court)[^;]*\.$/, ".").replace(/\.$/, "")} ; départ choisi à la main (${String(s).replace(".", ",")} s)${base.aligned.grid ? ", recalé sur le temps le plus proche" : ""}${loop ? ", musique bouclée" : ""}.`;
-  return { ...base, offset, loop, aligned: { grid: base.aligned.grid, drop: false }, manual: true, why };
+  const aligned = { grid: base.aligned.grid, drop: false };
+  const loopLen = loop ? loopLength({ loop, offset, aligned }, { durS, P }) : 0;
+  const why = `${base.why.replace(/ ; (pas de moment fort|morceau plus court)[^;]*\.$/, ".").replace(/\.$/, "")} ; départ choisi à la main (${String(s).replace(".", ",")} s)${base.aligned.grid ? ", recalé sur le temps le plus proche" : ""}${loop ? `, musique bouclée${loopLen > 0 ? ` tous les ${Math.round(loopLen / P)} temps` : ""}` : ""}.`;
+  return { ...base, offset, delay: 0, loop, loopLen, aligned, manual: true, why };
 }
 
 /** La sonie intégrée (LUFS) d'un fichier (passé par la chaîne `af`, options d'entrée `pre`), null pour un silence. */
@@ -105,26 +112,38 @@ export async function signatureMix({ clips, marks, track, cue = {}, volume = 0.7
     try {
       const a = await analysisOf(track, signal);
       mp = musicPlan(a, { fpb, D, drop, start: cue?.start });
-      // Un départ tardif dans un morceau à peine plus long que la vidéo : bouclé plutôt que fini en silence.
+      // Un départ tardif dans un morceau à peine plus long que la vidéo : bouclé plutôt que fini en silence. La vidéo
+      // ne demande que D − delay s de musique (un silence de delay s la précède).
       const durS = (num(a.duration) ?? 0) / mp.ratio;
-      if (durS > 0 && mp.offset + D > durS + 0.05) mp = { ...mp, loop: true };
+      if (!mp.loop && durS > 0 && mp.offset + D - (num(mp.delay) ?? 0) > durS + 0.05) {
+        const forced = { ...mp, loop: true };
+        mp = { ...forced, loopLen: loopLength(forced, { durS, P: fpb / FPS }) };
+      }
       log(`musique : ${mp.why}`);
-      if (!mp.aligned.grid) notes.push(a.confidence > 0 && mp.bpmIn > 0 ? `La musique (${Math.round(mp.bpmIn)} BPM) est trop loin du rythme de la vidéo (${Math.round(1800 / fpb)} BPM) pour s'y caler : les coupes ne tombent pas sur ses temps. Une musique proche de ${Math.round(1800 / fpb)} BPM (ou de sa moitié) s'y calera.` : "La musique n'a pas de rythme assez net pour y caler les coupes : elle est posée telle quelle.");
+      // « Trop loin » seulement pour un tempo sûr : un tempo incertain (confiance sous MIN_CONF) n'est pas calé non plus,
+      // mais sa valeur ne veut rien dire.
+      if (!mp.aligned.grid) notes.push(a.confidence >= MIN_CONF && mp.bpmIn > 0 ? `La musique (${Math.round(mp.bpmIn)} BPM) est trop loin du rythme de la vidéo (${Math.round(1800 / fpb)} BPM) pour s'y caler : les coupes ne tombent pas sur ses temps. Une musique proche de ${Math.round(1800 / fpb)} BPM (ou de sa moitié) s'y calera.` : "La musique n'a pas de rythme assez net pour y caler les coupes : elle est posée telle quelle.");
+      else if (mp.loop && !(mp.loopLen > 0)) {
+        // Trop courte pour une boucle de temps entiers : le fichier entier est bouclé, ses temps quittent la grille à la reprise.
+        notes.push("La musique est bien plus courte que la vidéo : elle est bouclée telle quelle, et après la reprise ses temps ne tombent plus sur les coupes. Une musique plus longue que la vidéo s'y calera du début à la fin.");
+        mp = { ...mp, aligned: { grid: false, drop: false } };
+      }
     } catch (e) {
       if (signal?.aborted) throw e;
       log(`musique : analyse impossible (${e.message})`);
       mp = { ratio: 1, offset: num(cue?.start) ?? 0, loop: true, bpmIn: 0, bpmOut: 0, aligned: { grid: false, drop: false }, why: "analyse impossible" };
       notes.push("Le rythme de la musique n'a pas pu être mesuré : elle est posée telle quelle, sans calage sur les coupes.");
     }
-    const fadeIn = num(cue?.fadeIn) ?? 0.02, fadeOut = num(cue?.fadeOut) ?? 1.2;
+    const fadeIn = num(cue?.fadeIn) ?? SIG_MUSIC_FADE.in, fadeOut = num(cue?.fadeOut) ?? SIG_MUSIC_FADE.out;
     const gain = vol * (voiced ? SIG_GAIN.musicUnderVoice : 1);
-    // Bouclée en entrée (avant l'étirement) : la musique étirée reste continue au point de boucle.
-    const pre = mp.loop ? ["-stream_loop", "-1"] : [];
+    // Boucle calée (loopLen) : musicFilter répète un nombre entier de temps de grille. Sinon le fichier est bouclé en
+    // entrée (avant l'étirement) : la musique étirée reste continue au point de boucle.
+    const pre = mp.loop && !(mp.loopLen > 0) ? ["-stream_loop", "-1"] : [];
     const chain = `aformat=channel_layouts=stereo,${musicFilter(mp, { D, fadeIn: Math.min(5, Math.max(0, fadeIn)), fadeOut: Math.min(8, Math.max(0, fadeOut)) })},volume=${f3(vol)}`;
     inputs.push(...pre, "-i", track);
     fc.push(`[${n}:a]${chain},volume=${f3(gain / Math.max(vol, 1e-6))}[m]`);
     n++;
-    music = { ratio: mp.ratio, offset: mp.offset, bpmIn: mp.bpmIn, bpmOut: mp.bpmOut, aligned: mp.aligned, why: mp.why, pre, chain };
+    music = { ratio: mp.ratio, offset: mp.offset, delay: num(mp.delay) ?? 0, loop: !!mp.loop, loopLen: num(mp.loopLen) ?? 0, bpmIn: mp.bpmIn, bpmOut: mp.bpmOut, aligned: mp.aligned, why: mp.why, pre, chain };
   }
 
   // Bruitages : synthétisés dans un wav à côté (D secondes, sans traîne).
@@ -163,11 +182,14 @@ export async function signatureMix({ clips, marks, track, cue = {}, volume = 0.7
   const raw = out.replace(/\.wav$/, "") + "-brut.wav";
   try {
     await run("ffmpeg", ["-v", "error", "-y", ...inputs, "-filter_complex", fc.join(";"), "-map", "[o]", "-ar", "48000", "-ac", "2", "-c:a", "pcm_f32le", "-t", f3(D), raw], { timeoutMs: 180_000, signal });
-    // Sonie : −14 LUFS par un gain fixe (des bruitages seuls gardent leur niveau), puis limiteur sans retard.
+    // Sonie : −14 LUFS par un gain fixe (des bruitages seuls gardent leur niveau), puis limiteur sans retard. Sans voix,
+    // la musique mène : son volume sous volRef baisse la sonie visée d'autant (sinon le gain l'annulerait).
     const I = voiced || music ? await loudness(raw, signal) : null;
-    const gainDb = I === null ? 0 : Math.max(-SIG_LOUDNESS.maxGainDb, Math.min(SIG_LOUDNESS.maxGainDb, SIG_LOUDNESS.target - I));
+    const volDb = music && !voiced ? Math.min(0, 20 * Math.log10(Math.max(vol, 0.01) / SIG_LOUDNESS.volRef)) : 0;
+    const target = SIG_LOUDNESS.target + volDb;
+    const gainDb = I === null ? 0 : Math.max(-SIG_LOUDNESS.maxGainDb, Math.min(SIG_LOUDNESS.maxGainDb, target - I));
     await run("ffmpeg", ["-v", "error", "-y", "-i", raw, "-af", `volume=${gainDb.toFixed(2)}dB,alimiter=limit=${SIG_LOUDNESS.limit}:attack=5:release=60:level=false:latency=true,aresample=48000,apad,atrim=0:${f3(D)}`, "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", "-t", f3(D), out], { timeoutMs: 120_000, signal });
-    log(`son Signature : ${[voiced ? `voix (${vg.count})` : "", music ? `musique ×${music.ratio}${music.aligned.drop ? ", montée sur le moment fort" : ""}` : "", sfxFile ? `${events.length} bruitages` : ""].filter(Boolean).join(", ")} ; ${I === null ? "niveau fixe" : `${I.toFixed(1)} LUFS → ${SIG_LOUDNESS.target} (${gainDb >= 0 ? "+" : ""}${gainDb.toFixed(1)} dB)`}`);
+    log(`son Signature : ${[voiced ? `voix (${vg.count})` : "", music ? `musique ×${music.ratio}${music.aligned.drop ? ", montée sur le moment fort" : ""}` : "", sfxFile ? `${events.length} bruitages` : ""].filter(Boolean).join(", ")} ; ${I === null ? "niveau fixe" : `${I.toFixed(1)} LUFS → ${target.toFixed(1)} (${gainDb >= 0 ? "+" : ""}${gainDb.toFixed(1)} dB)`}`);
     if (music) { delete music.pre; delete music.chain; }
     return { file: out, music, sfx: sfxFile ? events.length : 0, sfxGain: sfxFile ? Math.round(sfxGain * 1000) / 1000 : 0, voice: vg.count, gainDb: Math.round(gainDb * 100) / 100 };
   } finally {

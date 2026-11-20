@@ -463,15 +463,15 @@ test("engine 2 : liaisons — un changement de fond passe montée, métamorphose
       beat("d", "Sans lien", { bridge: "carry" }), // aucun mot commun : métamorphose (même fond)
       beat("e", "Plongée", { bridge: "zoom" }), // sans emphase avant : gardée en engine 2
       beat("f", "Fond encre", { bridge: "morph", surface: "ink" }), // base → ink : volet
-      beat("g", "Toujours rien", { bridge: "carry", surface: "alt" }), // pas de mot commun → morph, puis ink → alt : volet
+      beat("g", "Toujours rien", { bridge: "carry", surface: "alt" }), // pas de mot commun, ink → alt : volet (la note le dit)
       beat("h", "Choc", { bridge: "cut", surface: "alt" }),
       beat("i", "Choc encore", { bridge: "cut", surface: "alt" }),
-      beat("j", "Troisième choc", { bridge: "cut" }), // 3e coupe → morph, puis alt → base : volet
+      beat("j", "Troisième choc", { bridge: "cut" }), // 3e coupe, alt → base : volet (la note le dit)
       beat("k", "Abonne-toi", { layout: "cta", bridge: "whip", surface: "accent" }), // une transition franche passe d'un fond à l'autre
     ],
   });
   assert.deepEqual(r.video.beats.map((b) => b.bridge), ["morph", "wipe", "carry", "morph", "zoom", "wipe", "wipe", "cut", "cut", "wipe", "whip"]);
-  for (const note of ["Temps fort « d » : aucun mot commun avec le précédent à porter, métamorphose à la place.", "Temps fort « g » : aucun mot commun avec le précédent à porter, métamorphose à la place.", "Temps fort « j » : plus de 2 coupes sèches, métamorphose à la place."]) assert.ok(r.fixes.includes(note), `${note} absente de : ${r.fixes.join(" | ")}`);
+  for (const note of ["Temps fort « d » : aucun mot commun avec le précédent à porter, métamorphose à la place.", "Temps fort « g » : aucun mot commun avec le précédent à porter, volet à la place.", "Temps fort « j » : plus de 2 coupes sèches, volet à la place."]) assert.ok(r.fixes.includes(note), `${note} absente de : ${r.fixes.join(" | ")}`);
   assert.ok(!r.fixes.some((f) => /plongée/.test(f)), r.fixes.join(" | "));
   // Le fond comparé est celui de la scène gardée d'avant : une scène coupée entre les deux ne compte pas.
   const s = sig({ beats: [beat("x", "Premier fond", { surface: "accent" }), beat("y", "Coupée au montage", { cut: true }), beat("z", "Retour au même fond", { bridge: "rise", surface: "accent" }), beat("w", "Abonne-toi", { layout: "cta", surface: "accent" })] });
@@ -651,6 +651,38 @@ test("engine 2 : la cible est tenue à ±15 % ou expliquée, sur la grille, le f
   assert.deepEqual(down.video.beats.map((b) => b.seconds), [2, 5, 3.5, 3.5, 3]);
   assert.deepEqual(down.fixes, []);
   assert.equal(sigTimed(down, "cible 15 à la baisse").duration, 17);
+});
+
+test("engine 2 : à la baisse, les scènes courtes perdent aussi des temps (pas d'arrondi au temps suivant) ; la note dit la vraie raison", () => {
+  const scenes = (n, seconds, extra = {}) => ({ ...extra, beats: Array.from({ length: n }, (_, i) => beat(`s${i}`, `Idée numéro ${i}`, { seconds, layout: i === n - 1 ? "cta" : "stack" })) });
+  // 12 scènes de 3 s (36 s), cible 30 : les piles à 2,5 s (5 temps), l'appel à son plancher de 3 s : 30,5 s.
+  const a = sig(scenes(12, 3), { target: 30 });
+  assert.equal(sigTimed(a, "12 × 3 s").duration, 30.5);
+  assert.deepEqual(a.fixes, []);
+  // fpb 18 : 11 scènes de 3,6 s (39,6 s), cible 30 : 33,6 s, dans les 15 %.
+  const b = sig(scenes(11, 3.6, { fpb: 18 }), { target: 30 });
+  assert.equal(sigTimed(b, "11 × 3,6 s").duration, 33.6);
+  assert.deepEqual(b.fixes, []);
+  // 7 scènes de 3 s (21 s), cible 15 : ×0,85 au plus → 18 s ; les planchers ne bloquent pas, la note le dit.
+  const c = sig(scenes(7, 3), { target: 15 });
+  assert.equal(sigTimed(c, "7 × 3 s").duration, 18);
+  assert.ok(c.fixes.includes("Durée visée 15 s : la vidéo garde 18 s (raccourcie de 15 % au plus, pour garder le rythme de la partition)."), c.fixes.join(" | "));
+  // Un second passage avec la même cible ne bouge plus.
+  for (const r of [a, b, c]) assert.deepEqual(sig(copy(r.video), { base: r.video }).video.beats, r.video.beats);
+});
+
+test("engine 2 : pick désigne l'item écrit, vides compris ; rythme imposé → une grille de ce rythme (la base garde la sienne)", () => {
+  const r = sig({ beats: [beat("a", "Un début"), beat("p", "Choisis", { layout: "phone", screen: "app", items: ["", "Reels", "Posts", "Stories"], pick: 2 }), beat("q", "Encore", { layout: "phone", screen: "app", items: ["Reels", "  ", "Posts"], pick: 2 }), beat("z", "Rien", { layout: "phone", screen: "app", items: ["Reels", "", "Posts"], pick: 1 }), beat("f", "Fin", { layout: "cta" })] });
+  assert.deepEqual(r.video.beats.slice(1, 4).map((b) => [b.items, b.pick]), [[["Reels", "Posts", "Stories"], 1], [["Reels", "Posts"], 1], [["Reels", "Posts"], undefined]]);
+  // Idempotent : un second passage garde le même pick.
+  assert.deepEqual(sig(copy(r.video), { base: r.video }).video.beats, r.video.beats);
+  const raw = () => ({ fpb: 12, beats: [beat("a", "Un"), beat("b", "Deux"), beat("c", "Fin", { layout: "cta" })] });
+  const calm = sig(raw(), { pace: "calm" });
+  assert.equal(calm.video.fpb, 18);
+  assert.ok(calm.fixes.includes("Rythme imposé (calme) : grille de 12 images par temps hors de ce rythme, 18 à la place."), calm.fixes.join(" | "));
+  assert.equal(sig(raw(), { pace: "fast" }).video.fpb, 12);
+  assert.equal(sig(raw()).video.fpb, 12);
+  assert.equal(sig(raw(), { pace: "calm", base: { engine: 2, fpb: 12, beats: [] } }).video.fpb, 12);
 });
 
 test("engine 2 : le moment fort (drop) est gardé s'il nomme une scène gardée, même après la remise au propre des ids ; hérité de la base", () => {

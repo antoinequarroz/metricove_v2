@@ -107,9 +107,11 @@ export function surfacesOf(look = {}) {
   const surface = (bg, ink, mk) => ({ bg, ink, sub: mix(ink, bg, contrast(ink, bg) < 7 ? 0.18 : 0.3), mk, onMk: best(mk, [bg, ink, "#ffffff", "#15161f"]) });
   const base = surface(bg0, ink0, markOn(bg0, ink0));
   base.sub = sub0;
-  // Sur l'accent, la marque est en négatif : une barre de la couleur du texte, le texte dessus dans l'accent.
-  const acc = surface(accBg, onAcc, onAcc);
-  acc.onMk = accBg;
+  // Sur l'accent, la marque est en négatif : une barre de la couleur du texte, le texte dessus dans l'accent. Un accent
+  // clair proche de la base (jaune sur crème) a pour fond l'encre teintée : la marque y reprend l'accent lui-même.
+  const lightNear = nearBase(accent) && !dark(accent);
+  const acc = surface(accBg, onAcc, lightNear ? accent : onAcc);
+  if (!lightNear) acc.onMk = accBg;
   const inkS = surface(ink0, bg0, markOn(ink0, bg0));
   const alt = surface(altBg, altInk, markOn(altBg, altInk));
   // Le nuancier : l'accent (toujours), les champs du thème Perso, puis les voisins de l'accent (teintes proches, plus
@@ -162,7 +164,7 @@ function effective(kept, safe) {
 }
 
 /** Quand le contenu d'une scène peut commencer à entrer, selon la transition qui l'amène (en temps de musique g). */
-const ENTER = { hook: 0.1, none: 0, cut: 0, flood: 0.5, wipe: 0.4, whip: 0.3, push: 0.35, flip: 0.45, zoom: 0.05, rise: -0.15, morph: 0.05, carry: 0.05 };
+const ENTER = { hook: 0.1, none: 0.4, cut: 0, flood: 0.5, wipe: 0.4, whip: 0.3, push: 0.35, flip: 0.45, zoom: 0.05, rise: -0.15, morph: 0.05, carry: 0.05 };
 /** Quand la sortie commence avant la frontière, selon la transition qui suit (en g ; 0 = rien ne sort). */
 const EXIT = { end: 0, none: 0, cut: 0, flood: 0.75, wipe: 0, whip: 0.5, push: 0.45, flip: 0.5, zoom: 0.85, rise: 0.6, morph: 0.6, carry: 0.6 };
 
@@ -249,6 +251,9 @@ function choreograph(B, ctx) {
       if (B.sub) fx(cue.sub, "tick", 0.45, { f: 0.85 });
       // Le point (ou la barre) vient après le dernier mot sous le chiffre, jamais avant lui.
       cue.mark = r3(Math.min((cue.words.length ? cue.words[cue.words.length - 1] : tf) + h, B.exit - h));
+      // Un chiffre qui reste longtemps à l'écran repulse toutes les 4 temps (anneau, rayons), jamais figé plus de 2 s.
+      cue.pulses = [];
+      for (let t = GB(cue.mark + 2 * g); t < B.exit - g; t += 4 * g) { cue.pulses.push(r3(t)); fx(t, "thump", 0.22); }
       break;
     }
     case "list": {
@@ -356,7 +361,7 @@ function choreograph(B, ctx) {
       fx(t0, "swish", 0.45);
       const n = B.items.length;
       const from = r3(HB(t0 + h));
-      cue.items = steps(n, from, spread(n, from, h, g, Math.max(1, g)), B.exit - g, h / 2);
+      cue.items = steps(n, from, spread(n, from, h, 2 * g, Math.max(1, g)), B.exit - g, h / 2);
       cue.items.forEach((t, i) => fx(t, "pop", 0.55, { f: 1 + i * 0.16, p: i % 2 ? 0.5 : -0.5 }));
       cue.mark = r3(Math.min(GB(t0 + g), B.exit - h));
       markSfx(cue.mark);
@@ -397,6 +402,9 @@ function choreograph(B, ctx) {
       cue.tap = r3(Math.max(cue.button + h, HB(B.exit - g * 1.25)));
       if (cue.tap < B.exit - 0.2) { fx(cue.tap - 0.01, "tap", 1); fx(cue.tap + 0.05, "impact", 0.3, { big: 0.25 }); }
       else cue.tap = null;
+      // Une fin longue : le reflet repasse sur le bouton toutes les 4 temps, jusqu'au temps qui précède la tape.
+      cue.shines = [];
+      for (let t = cue.shine + 4 * g; t < (cue.tap ?? B.exit) - g; t += 4 * g) { cue.shines.push(r3(t)); fx(t, "shimmer", 0.35, { d: 0.5 }); }
       break;
     }
     default: break;
@@ -473,7 +481,7 @@ ${inv}
 .em{color:var(--mk)}
 .hlon .em{color:var(--onmk)}
 .hl{position:absolute;background:var(--mk);transform-origin:0 50%}
-.sub{position:absolute;left:0;top:0;font-family:var(--font-body);font-weight:600;color:var(--sub);line-height:1.22;text-wrap:pretty}
+.sub{position:absolute;left:0;top:0;font-family:var(--font-body);font-weight:600;color:var(--sub);line-height:1.22;text-wrap:balance}
 .mkline{position:absolute;left:0;top:0;overflow:visible}
 .mkline path{fill:none;stroke:var(--mk);stroke-linecap:round;stroke-linejoin:round}
 .dotm{position:absolute;border-radius:50%;background:var(--mk)}
@@ -538,7 +546,9 @@ export async function stageSignature(cfg, plan, hfDir, { safe = false, notes = [
       const n = at >= 0 ? bigNumber(main.slice(at), true) : { number: null };
       if (n.number) {
         number = { text: n.number.text, prefix: n.number.prefix, suffix: n.number.suffix, value: n.number.value, decimals: n.number.decimals, em: n.number.em, lead: at };
-        number.digits = (number.text.match(/\d/g) || []).length;
+        // Les rouleaux : les chiffres du nombre seul (« 4,8 » de « 4,8/5 ») ; ceux du préfixe ou du suffixe apparaissent.
+        const core = number.text.slice(String(number.prefix || "").length, number.text.length - String(number.suffix || "").length);
+        number.digits = (core.match(/\d/g) || []).length || 1;
         main = [...main.slice(0, at), ...n.main];
       }
     }

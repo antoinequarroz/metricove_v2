@@ -557,8 +557,8 @@ const bpmOf = (fpb) => Math.round((60 * FPS * 10) / fpb) / 10;
 const beatOf = (fpb) => Math.round((fpb / FPS) * 100) / 100;
 /** Engine 2 : la grille d'une vidéo (video.fpb), 0 si elle n'en a pas. */
 const gridOf = (video) => (Number.isInteger(video?.fpb) && video.fpb >= FPB_RANGE[0] && video.fpb <= FPB_RANGE[1] ? video.fpb : 0);
-/** Engine 2 : les grilles qui vont avec chaque rythme (pace suit fpb ; FPB[pace] est dedans). */
-export const SIG_PACE_FPB = Object.freeze({ calm: Object.freeze([17, 20]), normal: Object.freeze([15, 16]), fast: Object.freeze([12, 14]) });
+/** Engine 2 : les grilles qui vont avec chaque rythme (dans vocab.mjs : cleanScore les applique aussi). */
+export const SIG_PACE_FPB = V.SIG_PACE_FPB;
 /** Engine 2 : les scènes de texte entre lesquelles un mot peut être porté (carry), comme le moteur. */
 const SIG_WORDY = ["hero", "stack", "number", "list", "bubbles", "cta"];
 /** Engine 2 : les scènes où une plongée (zoom) vise la marque, sinon le milieu du texte. */
@@ -667,7 +667,7 @@ function sigCraftRules() {
 - Un changement de fond passe par wipe (le volet, par défaut), flood, whip, push, flip, zoom ou cut.
 - flood grandit depuis la marque highlight ou dot de la scène d'avant, ou depuis la tape du doigt d'une scène phone app : avant un flood, mets un highlight (avec emphasis) ou un dot sur la scène d'avant, ou fais-y toucher un choix (pick) ou le bouton (label) de l'app. Idéal vers une scène sur l'accent. Un wall n'a pas de marque : un flood qui le suit part du bas de l'écran.
 - zoom plonge dans la marque, l'emphase ou le téléphone de la scène d'avant : avant un zoom, une scène avec une marque visible ou une scène phone.
-- cut : ${RULES.cutsMax} au plus par vidéo, pour un choc (au-delà, le moteur joue morph). Entre deux scènes phone : flip (l'écran se retourne) ou push (il glisse), sur le même fond. Jamais trois fois de suite la même transition.
+- cut : ${RULES.cutsMax} au plus par vidéo, pour un choc (au-delà, le moteur joue morph, ou wipe entre deux fonds). Entre deux scènes phone : flip (l'écran se retourne) ou push (il glisse), sur le même fond. Jamais trois fois de suite la même transition.
 - actor est la marque de la scène ; elle agit sur emphasis, les mots EXACTS de text (recopiés mot pour mot, 1 à 3 mots : le mot clé) : highlight les surligne d'une barre de couleur, underline les souligne à la main, bar les entoure à la main, rest les colore seulement. dot ne demande pas d'emphase : il pose un point de couleur au bout de text, qui ne finit alors par aucune ponctuation. hidden : aucune emphase visible. Varie les marques.
 - surface : le fond de la scène. Alterne pour le rythme, jamais le même fond plus de 3 scènes de suite : accent pour le moment fort ou l'accroche, ink pour un contraste fort, base pour respirer, alt pour varier. Change de fond quand l'histoire tourne.
 - camera : drift par défaut, push pour monter la tension (avant le moment fort), still pour une scène dense.`;

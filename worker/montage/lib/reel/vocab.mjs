@@ -63,6 +63,12 @@ export const SCREENS = frozen(["feed", "app", "chat", "notifs"]);
 /** Engine 2 : images par temps de musique selon le rythme (100, 120 et 128,6 BPM) ; 12 à 20 pour une musique choisie. */
 export const FPB = frozen({ calm: 18, normal: 15, fast: 14 });
 export const FPB_RANGE = frozen([12, 20]);
+/** Engine 2 : les grilles qui vont avec chaque rythme (pace suit fpb ; FPB[pace] est dedans). */
+export const SIG_PACE_FPB = frozen({ calm: frozen([17, 20]), normal: frozen([15, 16]), fast: frozen([12, 14]) });
+/** Engine 2 : les scènes qui montrent leurs items, et celles qui montrent un sous-texte (BUDGETS). */
+export const SIG_ITEM_LAYOUTS = frozen(["list", "slot", "phone", "cards", "bubbles", "wall"]);
+/** Engine 2 : les fondus de la musique quand la vidéo n'en choisit pas (une attaque nette sur le temps, une fin courte). */
+export const SIG_MUSIC_FADE = frozen({ in: 0.02, out: 1.2 });
 /** Engine 2 : la durée plancher d'une scène en temps de musique, [base, par item] (arrondie au temps suivant) : le
  * temps que sa chorégraphie se joue (entrée, items un par temps, tampon des cartes, tape du doigt…). */
 export const SIG_MIN_BEATS = frozen({
@@ -343,7 +349,7 @@ export const TS_MIRROR = frozen({
   REEL_SURFACES: SURFACES, REEL_SCREENS: SCREENS, REEL_FPB: FPB, REEL_FPB_RANGE: FPB_RANGE,
   REEL_ACTORS: ACTORS, REEL_CAMERAS: CAMERAS, REEL_ZONES: ZONES,
   REEL_SHAPES: SHAPES, REEL_SOURCES: SOURCES, REEL_TARGETS: TARGETS, REEL_VIDEO: VIDEO, READ_PACE, REEL_SIG_READ: SIG_READ,
-  VIDEO_LIMITS, VIDEO_BUDGETS: BUDGETS, VIDEO_BEAT_ID: BEAT_ID, VIDEO_MOMENT_ID: MOMENT_ID,
+  REEL_SIG_ITEM_LAYOUTS: SIG_ITEM_LAYOUTS, SIG_MUSIC_FADE, VIDEO_LIMITS, VIDEO_BUDGETS: BUDGETS, VIDEO_BEAT_ID: BEAT_ID, VIDEO_MOMENT_ID: MOMENT_ID,
 });
 
 /** Balises permises dans le html d'un moment (comparées sans casse). */
@@ -717,11 +723,14 @@ export const countWords = (s) => String(s ?? "").split(/\s+/).filter((w) => /[\p
 export function minSeconds(beat, pace = "normal", engine = 1) {
   const items = Array.isArray(beat?.items) ? beat.items : [];
   if (Number(engine) === 2) {
+    // Seulement ce que la scène montre : ses items (SIG_ITEM_LAYOUTS) et son sous-texte (BUDGETS[layout].sub).
     const L = beat?.layout;
-    const read = L === "wall" ? [] : L === "slot" || L === "cards" ? items.slice(-1) : items;
+    const shown = SIG_ITEM_LAYOUTS.includes(L) ? items : [];
+    const read = L === "wall" ? [] : L === "slot" || L === "cards" ? shown.slice(-1) : shown;
     const per = L === "wall" || L === "slot" || L === "cards" ? 0 : read.length;
+    const sub = BUDGETS[L]?.sub ? countWords(beat?.sub) : 0;
     const R = SIG_READ;
-    return (R.base + R.perWord * countWords(beat?.text) + R.subWord * countWords(beat?.sub) + R.itemWord * countWords(read.join(" ")) + R.perItem * per) * (READ_PACE[pace] ?? 1);
+    return (R.base + R.perWord * countWords(beat?.text) + R.subWord * sub + R.itemWord * countWords(read.join(" ")) + R.perItem * per) * (READ_PACE[pace] ?? 1);
   }
   const words = countWords([beat?.text, beat?.sub, ...items].filter(Boolean).join(" "));
   return (READ.base + READ.perWord * words + (beat?.count ? READ.count : 0) + READ.perItem * items.length) * (READ_PACE[pace] ?? 1);

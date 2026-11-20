@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { signatureMix, musicPlan, SIG_LOUDNESS } from "../lib/reel/sig-mix.mjs";
-import { analyzeMusic } from "../lib/reel/sig-tempo.mjs";
+import { analyzeMusic, MIN_CONF } from "../lib/reel/sig-tempo.mjs";
 import { voiceGraph } from "../lib/reel/narration.mjs";
 
 const DIR = mkdtempSync(join(tmpdir(), "sig-mix-"));
@@ -125,6 +125,57 @@ test("musique + bruitages : durée exacte, −14 LUFS, plafond, temps sur la gri
   // La montée de la musique (temps 40 du fichier, 20,83 s) tombe sur le moment fort : plus d'énergie juste après.
   const before = measured(out, DROP - 2, DROP - 0.05), afterDrop = measured(out, DROP + 0.05, DROP + 2);
   assert.ok(afterDrop.rms - before.rms > 2, `montée ${before.rms} → ${afterDrop.rms} dB`);
+});
+
+test("musique plus courte que la vidéo : bouclée par mesures entières, ses temps restent sur la grille après la reprise", async () => {
+  // Un morceau de 21 s (composé pour un reel de 15 s) à 118 BPM, pour une vidéo de 30 s.
+  const short = wav("music-118-21s.wav", music({ bpm: 118, first: 0.2, seconds: 21, jump: 99 }));
+  const out = join(DIR, "boucle.wav"), notes = [];
+  const r = await signatureMix({ clips: new Map(), marks: [], track: short, cue: {}, volume: 0.7, sfx: [], fpb: FPB, duration: 30, drop: 14, out, notes });
+  assert.equal(r.music.loop, true);
+  assert.equal(r.music.aligned.grid, true);
+  const bars = r.music.loopLen / 2;
+  assert.ok(r.music.loopLen > 0 && Math.abs(bars - Math.round(bars)) < 1e-6, `boucle ${r.music.loopLen} s`);
+  assert.deepEqual(notes, []);
+  assert.ok(Math.abs(Number(probe(out).duration) - 30) < 0.001);
+  // Après la reprise (vers 20 s), les grosses caisses tombent toujours sur la grille de 0,5 s.
+  const tail = join(DIR, "boucle-fin.wav");
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-i", out, "-af", "atrim=21:30,asetpts=N/SR/TB", tail]);
+  const a = await analyzeMusic(tail);
+  const off = a.beats.filter((t) => t > 0.3 && t < 7.6).map((t) => { let e = (t + 21) % 0.5; if (e > 0.25) e -= 0.5; return e; });
+  const med = off.slice().sort((x, y) => x - y)[Math.floor(off.length / 2)];
+  assert.ok(off.length >= 10 && Math.abs(med) < 0.035, `écart médian ${(med * 1000).toFixed(1)} ms sur ${off.length} temps`);
+});
+
+test("sans voix, le volume de la musique règle le niveau de la vidéo (70 % → −14 LUFS, 30 % → 7,4 dB plus bas)", async () => {
+  const lvl = {};
+  for (const v of [1, 0.7, 0.3]) {
+    const out = join(DIR, `volume-${v}.wav`);
+    await signatureMix({ clips: new Map(), marks: [], track: TRACK, cue: {}, volume: v, sfx: SFX, fpb: FPB, duration: 12, drop: null, seed: 3, out, notes: [] });
+    lvl[v] = measured(out).I;
+  }
+  assert.ok(Math.abs(lvl[0.7] - SIG_LOUDNESS.target) <= 1, `70 % : ${lvl[0.7]} LUFS`);
+  assert.ok(Math.abs(lvl[1] - lvl[0.7]) <= 0.3, `100 % : ${lvl[1]} LUFS (pas plus fort que −14)`);
+  assert.ok(Math.abs(lvl[0.3] - lvl[0.7] - 20 * Math.log10(0.3 / 0.7)) <= 0.5, `30 % : ${lvl[0.3]} LUFS`);
+});
+
+test("tempo incertain : la note dit que le rythme n'est pas assez net, pas qu'il est trop loin", async () => {
+  // Nappe douce : une note tenue par temps à 120 BPM, attaques de 250 ms, souffle (confiance entre 0 et MIN_CONF).
+  const n = 30 * SR, y = new Float32Array(n), rnd = mulberry32(1), hz = [220, 246.94, 261.63, 293.66, 329.63, 349.23, 392];
+  for (let k = 0; k * 0.5 < 30; k++) {
+    rnd(); // un tirage écarté par temps : cette suite de notes donne une confiance de 0,18
+    const f = hz[Math.floor(rnd() * hz.length)], i0 = Math.round(k * 0.5 * SR);
+    for (let i = 0; i < 0.6 * SR && i0 + i < n; i++) { const t = i / SR; y[i0 + i] += 0.25 * Math.min(1, t / 0.25) * Math.exp(-t / 0.4) * (Math.sin(2 * Math.PI * f * t) + 0.3 * Math.sin(4 * Math.PI * f * t)); }
+  }
+  for (let i = 0; i < n; i++) y[i] += 0.05 * (rnd() * 2 - 1);
+  const pad = wav("nappe-120.wav", y);
+  const a = await analyzeMusic(pad);
+  assert.ok(a.confidence > 0 && a.confidence < MIN_CONF, `confiance ${a.confidence} : la nappe ne fait plus un tempo incertain`);
+  const notes = [];
+  await signatureMix({ clips: new Map(), marks: [], track: pad, cue: {}, volume: 0.7, sfx: [], fpb: FPB, duration: 20, drop: DROP, out: join(DIR, "nappe.wav"), notes });
+  assert.equal(notes.length, 1);
+  assert.match(notes[0], /pas de rythme assez net/);
+  assert.doesNotMatch(notes[0], /trop loin/);
 });
 
 test("départ choisi à la main : la montée ne tombe plus sur le moment fort, le calage reste", async () => {
