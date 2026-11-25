@@ -806,6 +806,8 @@ async function tiktokDirect(post: Post, bytes: Uint8Array) {
             disable_comment: !!info.data?.comment_disabled,
             disable_duet: !!info.data?.duet_disabled,
             disable_stitch: !!info.data?.stitch_disabled,
+            // Videos rendered by Claude Code (AI voice and images) carry TikTok's "AI-generated" label.
+            is_aigc: post.origin === "claude-code",
           },
           source_info: { source: "FILE_UPLOAD", video_size: bytes.length, chunk_size: chunk, total_chunk_count: count },
         },
@@ -830,7 +832,10 @@ async function tiktokDirect(post: Post, bytes: Uint8Array) {
   return { externalId: id ? String(id) : `publish:${init.data!.publish_id}` };
 }
 
-/** Sends the video to the creator's TikTok inbox. No caption can go with it. */
+/**
+ * Sends the video to the creator's TikTok inbox. No caption or setting can go with it: the caption
+ * and the "AI-generated" label are set in the TikTok app before posting.
+ */
 async function tiktokInbox(bytes: Uint8Array) {
   const { chunk, count } = tiktokChunks(bytes.length);
   const { data: init } = await call<TikTokInit>("tiktok.tiktok.video.inbox.init", {
