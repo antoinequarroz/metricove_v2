@@ -646,53 +646,18 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
     return { externalId: (JSON.parse(text) as { id?: string }).id };
   },
 
-  // TikTok only lets audited apps publish directly. treg's app isn't yet, so the video
-  // goes to the TikTok inbox: the creator adds the caption and posts it from the app.
-  async tiktok({ media }) {
+  // TikTok publishes directly (with the caption) only from apps it has audited. treg's app isn't
+  // yet: TikTok then answers unaudited_client_can_only_post_to_private_accounts, and the video
+  // goes to the TikTok inbox instead, where the creator pastes the caption and posts it from the app.
+  // Direct publication is tried again once a day, so captions come back by themselves after the audit.
+  async tiktok({ post, media }) {
     if (!media?.path) throw new Error("TikTok exige une vidéo");
     const bytes = await fs.readFile(media.path);
-    const MB = 1024 * 1024;
-    const chunk = bytes.length <= 64 * MB ? bytes.length : 10 * MB;
-    const count = Math.max(1, Math.floor(bytes.length / chunk));
-    const { data: init } = await call<{ data?: { publish_id: string; upload_url: string }; error?: { code?: string; message?: string } }>("tiktok.tiktok.video.inbox.init", {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=UTF-8" },
-      body: { source_info: { source: "FILE_UPLOAD", video_size: bytes.length, chunk_size: chunk, total_chunk_count: count } },
-    });
-    if (init.error?.code && init.error.code !== "ok") {
-      if (/pending_share|spam_risk/i.test(init.error.code)) throw new Error("TikTok refuse un nouvel envoi : trop de vidéos attendent déjà dans ton app TikTok. Finalise-les ou supprime-les, puis relance.");
-      throw new Error(`TikTok a refusé l'envoi : ${init.error.code}${init.error.message ? ` (${init.error.message})` : ""}`);
+    if (Date.now() >= tiktokDirectRetryAt) {
+      const direct = await tiktokDirect(post, bytes);
+      if (direct) return direct;
     }
-    if (!init.data?.upload_url) throw new Error(`TikTok a refusé l'envoi : ${init.error?.message ?? "réponse inattendue"}`);
-    for (let i = 0; i < count; i++) {
-      const start = i * chunk;
-      const end = i === count - 1 ? bytes.length - 1 : start + chunk - 1; // the last chunk takes the rest
-      const res = await put(init.data.upload_url, bytes.subarray(start, end + 1), { "Content-Type": "video/mp4", "Content-Range": `bytes ${start}-${end}/${bytes.length}` });
-      if (!res.ok) {
-        const text = (await res.text().catch(() => "")).slice(0, 300);
-        console.error(`[treg] tiktok upload ${res.status} on ${new URL(init.data.upload_url).host}: ${text}`);
-        throw new Error(
-          res.status === 404
-            ? "TikTok a refusé l'envoi (404). Ça arrive quand la même vidéo attend déjà dans ton app TikTok : finalise-la ou supprime-la, puis relance."
-            : `Envoi de la vidéo à TikTok refusé (${res.status})${text ? ` : ${text}` : ""}`,
-        );
-      }
-    }
-    // TikTok sometimes takes several minutes. The file is already uploaded, so after the wait it
-    // counts as sent: marking it failed would make a retry send a duplicate to the inbox.
-    for (let i = 0; i < 30; i++) {
-      await sleep(10_000);
-      const { data: s } = await call<{ data?: { status?: string; fail_reason?: string } }>("tiktok.tiktok.publish.status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json; charset=UTF-8" },
-        body: { publish_id: init.data.publish_id },
-      });
-      const status = s.data?.status;
-      if (status === "SEND_TO_USER_INBOX" || status === "PUBLISH_COMPLETE") return { externalId: `inbox:${init.data.publish_id}` };
-      if (status === "FAILED") throw new Error(`TikTok a refusé la vidéo : ${s.data?.fail_reason ?? "raison inconnue"}`);
-    }
-    console.warn(`[treg] tiktok ${init.data.publish_id} still processing after 5 min, counted as sent to the inbox`);
-    return { externalId: `inbox:${init.data.publish_id}` };
+    return tiktokInbox(bytes);
   },
 
   async x({ post }) {
@@ -749,6 +714,140 @@ async function syncAll() {
     if (!all.length) throw new Error("Aucun compte trouvé dans treg : vérifiez les connexions et les jetons (TREG_TOKENS)");
     return { accounts: all, warnings };
   }
+}
+
+/* ---------- TikTok ---------- */
+
+type TikTokInit = { data?: { publish_id: string; upload_url: string }; error?: { code?: string; message?: string } };
+const TIKTOK_JSON = { "Content-Type": "application/json; charset=UTF-8" };
+
+/** When to try direct publication again, after TikTok refused it to treg's unaudited app. */
+let tiktokDirectRetryAt = 0;
+const unaudited = (text = "") => /unaudited_client/i.test(text);
+
+function tiktokChunks(size: number) {
+  const MB = 1024 * 1024;
+  const chunk = size <= 64 * MB ? size : 10 * MB;
+  return { chunk, count: Math.max(1, Math.floor(size / chunk)) };
+}
+
+function tiktokInitError(init: TikTokInit) {
+  if (init.error?.code && init.error.code !== "ok") {
+    if (/pending_share|spam_risk/i.test(init.error.code)) return new Error("TikTok refuse un nouvel envoi : trop de vidéos attendent déjà dans ton app TikTok. Finalise-les ou supprime-les, puis relance.");
+    return new Error(`TikTok a refusé l'envoi : ${init.error.code}${init.error.message ? ` (${init.error.message})` : ""}`);
+  }
+  if (!init.data?.upload_url) return new Error(`TikTok a refusé l'envoi : ${init.error?.message ?? "réponse inattendue"}`);
+}
+
+async function tiktokUpload(uploadUrl: string, bytes: Uint8Array) {
+  const { chunk, count } = tiktokChunks(bytes.length);
+  for (let i = 0; i < count; i++) {
+    const start = i * chunk;
+    const end = i === count - 1 ? bytes.length - 1 : start + chunk - 1; // the last chunk takes the rest
+    const res = await put(uploadUrl, bytes.subarray(start, end + 1), { "Content-Type": "video/mp4", "Content-Range": `bytes ${start}-${end}/${bytes.length}` });
+    if (!res.ok) {
+      const text = (await res.text().catch(() => "")).slice(0, 300);
+      console.error(`[treg] tiktok upload ${res.status} on ${new URL(uploadUrl).host}: ${text}`);
+      throw new Error(
+        res.status === 404
+          ? "TikTok a refusé l'envoi (404). Ça arrive quand la même vidéo attend déjà dans ton app TikTok : finalise-la ou supprime-la, puis relance."
+          : `Envoi de la vidéo à TikTok refusé (${res.status})${text ? ` : ${text}` : ""}`,
+      );
+    }
+  }
+}
+
+type TikTokStatus = { data?: { status?: string; fail_reason?: string; publicaly_available_post_id?: (string | number)[] } };
+
+/**
+ * Waits for TikTok to process an uploaded video. The file is already uploaded, so a status call
+ * that fails (treg or TikTok briefly unavailable) is retried, and after the wait the video counts
+ * as sent: marking it failed would make a retry send a duplicate.
+ */
+async function tiktokWait(publishId: string, done: string[]) {
+  for (let i = 0; i < 30; i++) {
+    await sleep(10_000);
+    let s: TikTokStatus;
+    try {
+      s = (await call<TikTokStatus>("tiktok.tiktok.publish.status", { method: "POST", headers: TIKTOK_JSON, body: { publish_id: publishId } })).data;
+    } catch (e) {
+      console.warn(`[treg] tiktok status ${publishId}: ${(e as Error).message.slice(0, 200)}`);
+      continue;
+    }
+    const status = s.data?.status;
+    if (status && done.includes(status)) return s.data;
+    if (status === "FAILED") throw new Error(`TikTok a refusé la vidéo : ${s.data?.fail_reason ?? "raison inconnue"}`);
+  }
+  console.warn(`[treg] tiktok ${publishId} still processing after 5 min, counted as sent`);
+  return undefined;
+}
+
+/**
+ * Publishes on the profile with the caption. Returns undefined when TikTok refuses because treg's
+ * app isn't audited yet: nothing was uploaded then, and the caller falls back to the inbox.
+ */
+async function tiktokDirect(post: Post, bytes: Uint8Array) {
+  // TikTok requires reading the creator's options right before a direct publication.
+  type Info = { data?: { privacy_level_options?: string[]; comment_disabled?: boolean; duet_disabled?: boolean; stitch_disabled?: boolean } };
+  const info = await call<Info>("tiktok.tiktok.creator.info", { method: "POST", body: {}, headers: TIKTOK_JSON }).then((r) => r.data, () => ({}) as Info);
+  const options = info.data?.privacy_level_options ?? [];
+  if (!options.includes("PUBLIC_TO_EVERYONE")) return undefined;
+  const { chunk, count } = tiktokChunks(bytes.length);
+  let init: TikTokInit;
+  try {
+    init = (
+      await call<TikTokInit>("tiktok.tiktok.video.publish.init", {
+        method: "POST",
+        headers: TIKTOK_JSON,
+        body: {
+          post_info: {
+            title: post.caption.slice(0, 2200),
+            privacy_level: "PUBLIC_TO_EVERYONE",
+            disable_comment: !!info.data?.comment_disabled,
+            disable_duet: !!info.data?.duet_disabled,
+            disable_stitch: !!info.data?.stitch_disabled,
+            // Videos rendered by Claude Code (AI voice and images) carry TikTok's "AI-generated" label.
+            is_aigc: post.origin === "claude-code",
+          },
+          source_info: { source: "FILE_UPLOAD", video_size: bytes.length, chunk_size: chunk, total_chunk_count: count },
+        },
+      })
+    ).data;
+  } catch (e) {
+    init = { error: { code: "treg_error", message: (e as Error).message } };
+  }
+  // Nothing is uploaded until init succeeds: any refusal here falls back to the inbox, as before.
+  const error = tiktokInitError(init);
+  if (error) {
+    const reason = `${init.error?.code ?? ""} ${init.error?.message ?? ""}`;
+    if (unaudited(reason)) {
+      tiktokDirectRetryAt = Date.now() + 24 * 3600_000;
+      console.log("[treg] tiktok: direct publication refused (treg app not audited yet), sending to the inbox");
+    } else console.warn(`[treg] tiktok: direct publication refused (${reason.trim().slice(0, 200)}), sending to the inbox`);
+    return undefined;
+  }
+  await tiktokUpload(init.data!.upload_url, bytes);
+  const done = await tiktokWait(init.data!.publish_id, ["PUBLISH_COMPLETE"]);
+  const id = done?.publicaly_available_post_id?.[0];
+  return { externalId: id ? String(id) : `publish:${init.data!.publish_id}` };
+}
+
+/**
+ * Sends the video to the creator's TikTok inbox. No caption or setting can go with it: the caption
+ * and the "AI-generated" label are set in the TikTok app before posting.
+ */
+async function tiktokInbox(bytes: Uint8Array) {
+  const { chunk, count } = tiktokChunks(bytes.length);
+  const { data: init } = await call<TikTokInit>("tiktok.tiktok.video.inbox.init", {
+    method: "POST",
+    headers: TIKTOK_JSON,
+    body: { source_info: { source: "FILE_UPLOAD", video_size: bytes.length, chunk_size: chunk, total_chunk_count: count } },
+  });
+  const error = tiktokInitError(init);
+  if (error) throw error;
+  await tiktokUpload(init.data!.upload_url, bytes);
+  await tiktokWait(init.data!.publish_id, ["SEND_TO_USER_INBOX", "PUBLISH_COMPLETE"]);
+  return { externalId: `inbox:${init.data!.publish_id}` };
 }
 
 async function publishAll(self: Publisher, post: Post, accounts: Account[], media?: MediaFile, items?: MediaFile[]) {

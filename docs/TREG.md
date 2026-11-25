@@ -43,7 +43,7 @@ Puis recrée le conteneur. Dans **Comptes**, clique sur « Synchroniser » : Met
 | Facebook | Vidéo, photo ou texte sur la Page, carrousel de photos (2 à 10), story photo ou vidéo | La Page est celle choisie dans la connexion treg. Un carrousel Facebook ne prend que des photos. La story vidéo demande un réglage de plus (voir plus bas). |
 | LinkedIn | Texte et vidéo sur ton profil | Pas encore de page entreprise. |
 | YouTube | Vidéo ou Short (#Shorts ajouté) | Environ 6 envois par jour (quota Google). |
-| TikTok | Vidéo envoyée dans **l'app TikTok** | Tant que TikTok n'a pas validé l'app treg, la vidéo arrive dans ta boîte de réception TikTok : tu colles la légende (bouton « Copier la légende » dans Metricove) et tu publies, dans les 24 h. |
+| TikTok | Vidéo publiée avec sa légende, ou envoyée dans **l'app TikTok** | Metricove tente d'abord la publication directe (avec la légende). Tant que TikTok n'a pas audité l'app treg, il la refuse : la vidéo arrive alors dans ta boîte de réception TikTok, **sans légende** (TikTok n'y met que « #Treg »). Colle la légende (bouton « Copier la légende » dans Metricove) et, pour une vidéo générée par Claude Code, active « Contenu généré par IA » (Plus d'options) avant de publier, dans les 24 h. En publication directe, ce marquage est mis automatiquement. Metricove retente la publication directe une fois par jour : dès l'audit, les légendes passent toutes seules. |
 | X | Texte seul | Les vidéos ne passent pas encore par treg sur X. |
 
 Les photos importées dans Metricove sont converties en JPEG et remises droites automatiquement.
