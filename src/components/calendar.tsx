@@ -16,8 +16,9 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, Sparkles, Bot, Images } from "lucide-react";
-import { useMemo } from "react";
+import { Popover } from "@base-ui-components/react/popover";
+import { ChevronLeft, ChevronRight, Plus, Sparkles, Bot, Images, CalendarRange } from "lucide-react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore, useVisiblePosts, type CalendarView } from "@/lib/store";
@@ -187,6 +188,15 @@ function useDnd() {
   return { sensors, onDragEnd };
 }
 
+// Hauteur minimale d'une semaine en vue Mois : de quoi voir le jour et un post. Six semaines tiennent en 1280x720.
+const MONTH_ROW_MIN = 76;
+const CHIP_GAP = 4;
+
+/** Nombre de posts qui tiennent en entier dans la case (« +N autres » est dans l'en-tête du jour). */
+function fitCount(height: number, chip: number, total: number) {
+  return Math.min(total, Math.max(0, Math.floor((height + CHIP_GAP) / (chip + CHIP_GAP))));
+}
+
 function MonthView() {
   const cursor = new Date(useStore((s) => s.cursor));
   const posts = useVisiblePosts();
@@ -212,15 +222,16 @@ function MonthView() {
 
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="flex h-full min-h-[560px] flex-col">
-        <div className="grid grid-cols-7 border-b border-line">
+      {/* Le mois remplit la hauteur disponible ; sous la hauteur minimale des semaines, la vue défile. */}
+      <div className="scroll-thin flex h-full flex-col overflow-y-auto">
+        <div className="sticky top-0 z-10 grid grid-cols-7 border-b border-line bg-surface/90 backdrop-blur">
           {days.slice(0, 7).map((d) => (
             <div key={d.toISOString()} className="px-3 py-2 text-[11.5px] font-medium tracking-wide text-ink-3 uppercase">
               {fmt(d, "EEE")}
             </div>
           ))}
         </div>
-        <div className="grid flex-1 grid-cols-7" style={{ gridTemplateRows: `repeat(${weeks}, minmax(112px, 1fr))` }}>
+        <div className="grid flex-1 grid-cols-7" style={{ gridTemplateRows: `repeat(${weeks}, minmax(${MONTH_ROW_MIN}px, 1fr))` }}>
           {days.map((d, i) => (
             <DayCell key={d.toISOString()} day={d} inMonth={isSameMonth(d, cursor)} posts={byDay.get(d.toISOString()) ?? []} index={i} />
           ))}
@@ -235,13 +246,37 @@ function DayCell({ day, inMonth, posts, index }: { day: Date; inMonth: boolean; 
   const { setNodeRef, isOver } = useDroppable({ id: day.toISOString() });
   const past = isBefore(day, startOfDay(new Date()));
   const today = isToday(day);
-  const max = 3;
+  const cellRef = useRef<HTMLDivElement | null>(null);
+  const [detail, setDetail] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const chipHeight = useRef(40);
+  const [max, setMax] = useState(3);
+
+  // La case ne grandit plus avec ses posts : on affiche ceux qui tiennent, le reste passe dans « +N autres ».
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const measure = () => {
+      const chips = el.querySelectorAll<HTMLElement>("[data-chip]");
+      if (chips.length) chipHeight.current = Math.max(...Array.from(chips, (c) => c.offsetHeight));
+      setMax(fitCount(el.clientHeight, chipHeight.current, posts.length));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [posts.length]);
+
+  const hidden = posts.length - max;
 
   return (
     <div
-      ref={setNodeRef}
+      ref={(el) => {
+        setNodeRef(el);
+        cellRef.current = el;
+      }}
       className={cn(
-        "group relative flex min-w-0 flex-col gap-1 border-line p-1.5 transition-colors duration-150",
+        "group relative flex min-h-0 min-w-0 flex-col gap-0.5 overflow-hidden border-line p-1.5 transition-colors duration-150",
         index % 7 !== 6 && "border-r",
         "border-b",
         !inMonth && "bg-bg-2/40",
@@ -250,31 +285,147 @@ function DayCell({ day, inMonth, posts, index }: { day: Date; inMonth: boolean; 
       )}
     >
       <div className="flex items-center justify-between px-1">
-        <span
+        <button
+          onClick={() => posts.length > 0 && setDetail(true)}
+          disabled={posts.length === 0}
+          aria-label={posts.length > 0 ? `Voir la journée du ${fmt(day, "d MMMM")}` : undefined}
           className={cn(
-            "tabular flex h-6 min-w-6 items-center justify-center rounded-full text-[12.5px]",
+            "tabular flex h-5 min-w-5 items-center justify-center rounded-full text-[12.5px] disabled:cursor-default",
             today ? "bg-accent px-1.5 font-semibold text-accent-ink" : inMonth ? "text-ink" : "text-ink-3",
+            posts.length > 0 && !today && "hover:bg-ink/5",
           )}
         >
           {fmt(day, "d")}
-        </span>
+        </button>
+        {hidden > 0 && (
+          <button
+            onClick={() => setDetail(true)}
+            title="Voir toute la journée"
+            className="ml-auto rounded px-1.5 text-[11.5px] leading-5 font-medium whitespace-nowrap text-ink-3 hover:bg-ink/5 hover:text-ink"
+          >
+            {max > 0 ? `+${hidden} ${hidden > 1 ? "autres" : "autre"}` : `${hidden} ${hidden > 1 ? "posts" : "post"}`}
+          </button>
+        )}
         {!past && (
           <button
             onClick={() => openComposer({ date: day.toISOString() })}
             aria-label={`Créer un post le ${fmt(day, "d MMMM")}`}
-            className="press flex size-6 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-ink/5 hover:text-ink focus-visible:opacity-100"
+            className="press flex size-5 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-ink/5 hover:text-ink focus-visible:opacity-100"
           >
             <Plus className="size-3.5" />
           </button>
         )}
       </div>
-      <div className="flex min-h-0 flex-col gap-1">
-        {posts.slice(0, max).map((p) => (
-          <PostChip key={p.id} post={p} />
-        ))}
-        {posts.length > max && <span className="px-1.5 text-[11.5px] font-medium text-ink-3">+{posts.length - max} autres</span>}
+      <div ref={listRef} className="relative min-h-0 flex-1">
+        <div className="absolute inset-0 flex flex-col gap-1">
+          {posts.slice(0, max).map((p) => (
+            <PostChip key={p.id} post={p} />
+          ))}
+        </div>
       </div>
+      {posts.length > 0 && <DayDetail day={day} posts={posts} past={past} open={detail} onOpenChange={setDetail} anchor={cellRef} />}
     </div>
+  );
+}
+
+/** Le détail d'une journée : tous ses posts, même ceux qui ne tiennent pas dans la case du mois. */
+function DayDetail({
+  day,
+  posts,
+  past,
+  open,
+  onOpenChange,
+  anchor,
+}: {
+  day: Date;
+  posts: Post[];
+  past: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  anchor: React.RefObject<HTMLDivElement | null>;
+}) {
+  const accounts = useStore((s) => s.accounts);
+  const media = useStore((s) => s.media);
+  const openComposer = useStore((s) => s.openComposer);
+  const setView = useStore((s) => s.setView);
+  const setCursor = useStore((s) => s.setCursor);
+
+  return (
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Portal>
+        <Popover.Positioner anchor={anchor} side="bottom" align="start" sideOffset={-28} collisionPadding={12} className="z-[60]">
+          <Popover.Popup className="popover-popup flex max-h-[min(560px,calc(100dvh-24px))] w-[min(400px,calc(100vw-24px))] flex-col rounded-xl border border-line-strong bg-surface shadow-[0_20px_50px_-15px_rgba(0,0,0,0.35)] outline-none">
+            <div className="flex items-baseline gap-2 border-b border-line px-4 pt-3.5 pb-3">
+              <Popover.Title className={cn("text-[14px] font-semibold first-letter:uppercase", isToday(day) && "text-accent")}>
+                {isToday(day) ? "Aujourd'hui" : fmt(day, "EEEE")}
+              </Popover.Title>
+              <span className="text-[13px] text-ink-3">{fmt(day, "d MMMM")}</span>
+              <span className="tabular ml-auto text-[12px] text-ink-3">
+                {posts.length} {posts.length > 1 ? "posts" : "post"}
+              </span>
+            </div>
+            <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-1.5">
+              {posts.map((p) => {
+                const m = media.find((x) => x.id === p.mediaId);
+                const accs = accounts.filter((a) => p.accountIds.includes(a.id));
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      onOpenChange(false);
+                      openComposer({ postId: p.id });
+                    }}
+                    className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-surface-2"
+                  >
+                    <span className="tabular w-10 shrink-0 font-mono text-[12px] text-ink-2">{fmt(p.scheduledAt, "HH:mm")}</span>
+                    {m ? <MediaThumb media={m} showMeta={false} className="h-10 w-8 shrink-0 rounded-md" /> : <span className="h-10 w-8 shrink-0 rounded-md border border-dashed border-line-strong" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5 text-[13px]">
+                        {p.format === "story" && <span className="shrink-0 rounded-[4px] bg-accent-soft px-1 text-[9.5px] leading-[14px] font-semibold tracking-wide text-accent uppercase">Story</span>}
+                        <span className="truncate">{p.caption || (p.format === "story" ? "Story" : "")}</span>
+                      </span>
+                      <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] text-ink-3">
+                        <AvatarStack accounts={accs} size={14} />
+                        <span className="truncate">{accs.map((a) => `@${a.handle}`).join(", ")}</span>
+                      </span>
+                    </span>
+                    <StatusPill status={p.status} inbox={waitsInTikTok(p)} />
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-1 border-t border-line p-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  onOpenChange(false);
+                  setCursor(day);
+                  setView("week");
+                }}
+              >
+                <CalendarRange className="size-3.5" />
+                Voir la semaine
+              </Button>
+              {!past && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto"
+                  onClick={() => {
+                    onOpenChange(false);
+                    openComposer({ date: day.toISOString() });
+                  }}
+                >
+                  <Plus className="size-3.5" />
+                  Nouveau post
+                </Button>
+              )}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -290,12 +441,13 @@ function PostChip({ post }: { post: Post }) {
   return (
     <button
       ref={setNodeRef}
+      data-chip
       {...listeners}
       {...attributes}
       onClick={() => openComposer({ postId: post.id })}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
       className={cn(
-        "group/chip relative flex w-full items-center gap-1.5 overflow-hidden rounded-md border border-line bg-surface py-1 pr-1.5 pl-2 text-left shadow-[0_1px_1px_rgba(0,0,0,0.04)] outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-accent/40",
+        "group/chip relative flex w-full shrink-0 items-center gap-1.5 overflow-hidden rounded-md border border-line bg-surface py-1 pr-1.5 pl-2 text-left shadow-[0_1px_1px_rgba(0,0,0,0.04)] outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-accent/40",
         isDragging ? "z-50 cursor-grabbing shadow-card ring-1 ring-accent/40" : "transition-[border-color,box-shadow] duration-150",
         post.status === "draft" && "border-dashed bg-surface/60",
       )}
