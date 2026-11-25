@@ -44,6 +44,7 @@ async function publishOne(post: Post) {
           title: row.file ?? row.title,
           kind: row.kind === "image" ? "image" : "video",
           duration: row.duration,
+          aspect: row.aspect,
           path: row.file ? path.join(DATA_DIR, "media", row.file) : undefined,
           mime: mimeOfFile(row.file) ?? "video/mp4",
           cover: row.cover ? path.join(DATA_DIR, "media", row.cover) : undefined,

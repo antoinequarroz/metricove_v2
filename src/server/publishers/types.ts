@@ -1,6 +1,6 @@
 import type { Account, AccountStats, Post, PostStat, TargetResult } from "@/lib/types";
 
-export type MediaFile = { id: string; title: string; kind: "video" | "image"; path?: string; mime: string; /** Seconds, 0 for a photo. */ duration?: number; /** Cover image on disk, when there is one. */ cover?: string };
+export type MediaFile = { id: string; title: string; kind: "video" | "image"; path?: string; mime: string; /** Seconds, 0 for a photo. */ duration?: number; /** Rough shape, from the library. */ aspect?: "9:16" | "1:1" | "16:9"; /** Cover image on disk, when there is one. */ cover?: string };
 
 export interface Publisher {
   name: "demo" | "postiz" | "treg";
