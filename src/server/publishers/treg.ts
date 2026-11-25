@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import type { Account, Network, Post, TargetResult } from "@/lib/types";
 import { getSetting } from "../db";
+import { isFacebookReel, isYoutubeShort } from "@/lib/formats";
 import { signedCoverUrl, signedMediaUrl } from "../media-url";
 import type { MediaFile, Publisher } from "./types";
 import { fetchTregStats } from "./treg-stats";
@@ -367,25 +368,48 @@ async function facebookPhotoStory(page: string, media: MediaFile): Promise<Out> 
   return { externalId: data.post_id ?? photo.id };
 }
 
-/** A video story, in Facebook's three steps: open an upload, hand over the video, publish. */
-async function facebookVideoStory(page: string, media: MediaFile): Promise<Out> {
-  const { data: start } = await graph<{ video_id?: string; upload_url?: string }>(`${page}/video_stories`, { method: "POST", body: { upload_phase: "start" } });
-  if (!start.video_id || !start.upload_url) throw new Error("Facebook n'a pas ouvert l'envoi de la story");
-  // Facebook downloads the video itself from our signed link. The upload host (rupload.facebook.com) wants
-  // the Page's key, which only treg holds: the call goes through the team's "facebook-rupload" treg tool
-  // (see docs/TREG.md for the one command that creates it).
-  const res = await fetch(`${base()}/call/${RUPLOAD_TOOL}${new URL(start.upload_url).pathname}`, {
+/** The team has no "facebook-rupload" treg tool: Facebook's video upload host can't be reached. */
+class NoRuploadTool extends Error {}
+
+/**
+ * Hands a video over to Facebook's upload host, for a story or a Reel.
+ * Facebook downloads the video itself from our signed link. The upload host (rupload.facebook.com) wants
+ * the Page's key, which only treg holds: the call goes through the team's "facebook-rupload" treg tool
+ * (see docs/TREG.md for the one command that creates it).
+ */
+async function rupload(uploadUrl: string, media: MediaFile, what: "story" | "reel") {
+  const res = await fetch(`${base()}/call/${RUPLOAD_TOOL}${new URL(uploadUrl).pathname}`, {
     method: "POST",
     headers: { "X-Treg-Token": token(), file_url: signedMediaUrl(media.id) },
     signal: AbortSignal.timeout(300_000),
   });
   const text = await res.text();
   if (!res.ok || !/"success"\s*:\s*true/.test(text)) {
-    console.error(`[treg] facebook story upload ${res.status}: ${text.slice(0, 300)}`);
+    console.error(`[treg] facebook ${what} upload ${res.status}: ${text.slice(0, 300)}`);
     if (res.status === 404 || /not found|unknown tool|no such tool|no tool/i.test(text))
-      throw new Error(`Les stories vidéo Facebook demandent un réglage de plus dans treg (outil « ${RUPLOAD_TOOL} », voir docs/TREG.md). Les stories photo marchent sans.`);
-    throw new Error(`Facebook n'a pas pu recevoir la vidéo de la story (${res.status})`);
+      throw new NoRuploadTool(`Les stories vidéo Facebook demandent un réglage de plus dans treg (outil « ${RUPLOAD_TOOL} », voir docs/TREG.md). Les stories photo marchent sans.`);
+    throw new Error(`Facebook n'a pas pu recevoir la vidéo ${what === "story" ? "de la story" : "du Reel"} (${res.status})`);
   }
+}
+
+/** A Reel on the Page, in the same three steps as a video story. */
+async function facebookReel(page: string, post: Post, media: MediaFile): Promise<Out> {
+  const { data: start } = await graph<{ video_id?: string; upload_url?: string }>(`${page}/video_reels`, { method: "POST", body: { upload_phase: "start" } });
+  if (!start.video_id || !start.upload_url) throw new Error("Facebook n'a pas ouvert l'envoi du Reel");
+  await rupload(start.upload_url, media, "reel");
+  const { data } = await graph<{ success?: boolean; post_id?: string }>(`${page}/video_reels`, {
+    method: "POST",
+    body: { upload_phase: "finish", video_id: start.video_id, video_state: "PUBLISHED", description: post.caption },
+  });
+  if (data.success === false) throw new Error("Facebook n'a pas publié le Reel");
+  return { externalId: data.post_id ?? start.video_id };
+}
+
+/** A video story, in Facebook's three steps: open an upload, hand over the video, publish. */
+async function facebookVideoStory(page: string, media: MediaFile): Promise<Out> {
+  const { data: start } = await graph<{ video_id?: string; upload_url?: string }>(`${page}/video_stories`, { method: "POST", body: { upload_phase: "start" } });
+  if (!start.video_id || !start.upload_url) throw new Error("Facebook n'a pas ouvert l'envoi de la story");
+  await rupload(start.upload_url, media, "story");
   const { data } = await graph<{ success?: boolean; post_id?: string }>(`${page}/video_stories`, {
     method: "POST",
     body: { upload_phase: "finish", video_id: start.video_id },
@@ -554,6 +578,15 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
         });
         return { externalId: data.post_id ?? data.id };
       }
+      // A vertical video of 3 to 90 seconds goes out as a Reel. Without the rupload tool, as a plain video.
+      if (media?.path && isFacebookReel({ kind: media.kind, aspect: media.aspect ?? "16:9", duration: media.duration ?? 0 })) {
+        try {
+          return await facebookReel(page, post, media);
+        } catch (e) {
+          if (!(e instanceof NoRuploadTool)) throw e;
+          console.warn(`[treg] no ${RUPLOAD_TOOL} tool in team ${team}: the Reel goes out as a plain Page video`);
+        }
+      }
       if (media?.path) {
         const { data } = await graph<{ id: string }>(`${page}/videos`, {
           catalog: "facebook.facebook.page.video.create",
@@ -625,7 +658,8 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
 
   async youtube({ post, media }) {
     if (!media?.path) throw new Error("YouTube exige une vidéo");
-    const short = post.youtube?.format === "short";
+    // A post made before the YouTube channel was added has no YouTube options: the video decides.
+    const short = post.youtube ? post.youtube.format === "short" : isYoutubeShort({ kind: media.kind, aspect: media.aspect ?? "16:9", duration: media.duration ?? 0 });
     const title = (post.youtube?.title || post.caption.split("\n")[0] || "Vidéo").slice(0, 100);
     const description = short && !/#shorts/i.test(post.caption) ? `${post.caption}\n\n#Shorts` : post.caption;
     const { headers } = await call("youtube.youtube.video.upload", {

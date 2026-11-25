@@ -40,9 +40,9 @@ Puis recrée le conteneur. Dans **Comptes**, clique sur « Synchroniser » : Met
 | Réseau | Ce qui part | Remarque |
 | --- | --- | --- |
 | Instagram | Reel (vidéo et légende), post photo, carrousel (2 à 10 photos ou vidéos), story photo ou vidéo | Compte professionnel relié à une Page Facebook. Instagram télécharge le fichier depuis un lien signé de Metricove, valable 24 h. Photos en JPEG, entre 4:5 et 1,91:1 dans le fil. Story vidéo : 60 s au plus. 100 posts par 24 h. |
-| Facebook | Vidéo, photo ou texte sur la Page, carrousel de photos (2 à 10), story photo ou vidéo | La Page est celle choisie dans la connexion treg. Un carrousel Facebook ne prend que des photos. La story vidéo demande un réglage de plus (voir plus bas). |
+| Facebook | Reel (vidéo verticale de 3 à 90 s), vidéo, photo ou texte sur la Page, carrousel de photos (2 à 10), story photo ou vidéo | La Page est celle choisie dans la connexion treg. Un carrousel Facebook ne prend que des photos. Le Reel et la story vidéo demandent un réglage de plus (voir plus bas) : sans lui, une vidéo verticale part en vidéo classique. |
 | LinkedIn | Texte et vidéo sur ton profil | Pas encore de page entreprise. |
-| YouTube | Vidéo ou Short (#Shorts ajouté) | Environ 6 envois par jour (quota Google). |
+| YouTube | Vidéo ou Short (#Shorts ajouté). Une vidéo verticale de 3 min au plus part en Short, même si le post a été créé avant d'ajouter la chaîne. | Environ 6 envois par jour (quota Google). |
 | TikTok | Vidéo envoyée dans **l'app TikTok** | Tant que TikTok n'a pas validé l'app treg, la vidéo arrive dans ta boîte de réception TikTok : tu colles la légende (bouton « Copier la légende » dans Metricove) et tu publies, dans les 24 h. |
 | X | Texte seul | Les vidéos ne passent pas encore par treg sur X. |
 
@@ -65,9 +65,9 @@ Cette connexion utilise aussi Facebook. Metricove le voit et appelle alors la Pa
 
 Si une équipe a plusieurs connexions Facebook, Metricove prend seul celle qui a une Page choisie (la plus récente d'abord) et ignore les connexions vides. La page **Réglages** montre ce choix par équipe et permet d'en imposer une. Après un changement, clique sur « Synchroniser » dans Comptes.
 
-## Stories vidéo sur Facebook
+## Reels et stories vidéo sur Facebook
 
-Facebook reçoit les vidéos de story sur un autre serveur (`rupload.facebook.com`), que treg ne connaît pas par défaut. Une commande par équipe l'ajoute, avec la clé de la Page déjà connectée :
+Facebook reçoit les vidéos de Reel et de story sur un autre serveur (`rupload.facebook.com`), que treg ne connaît pas par défaut. Une commande par équipe l'ajoute, avec la clé de la Page déjà connectée :
 
 ```bash
 treg connections ls          # note le numéro (secret) de la connexion Facebook

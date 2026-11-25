@@ -23,6 +23,13 @@ export function postMediaIds(p: Pick<Post, "mediaId" | "mediaIds">): string[] {
   return p.mediaId ? [p.mediaId] : [];
 }
 
+/**
+ * A vertical video of 3 minutes or less: YouTube files it under Shorts.
+ * Facebook takes Reels from 3 to 90 seconds, vertical too.
+ */
+export const isYoutubeShort = (m: Pick<Media, "kind" | "aspect" | "duration">) => m.kind === "video" && m.aspect === "9:16" && m.duration <= 180;
+export const isFacebookReel = (m: Pick<Media, "kind" | "aspect" | "duration">) => m.kind === "video" && m.aspect === "9:16" && m.duration >= 3 && m.duration <= 90;
+
 /** Stories longer than this are refused (Instagram) or cut (Facebook). */
 export const STORY_MAX_SECONDS = 60;
 
@@ -63,7 +70,8 @@ export function formatLabel(format: PostFormat | undefined, media: MediaShape | 
   if (!media) return "Texte";
   if (media.kind === "image") return "Photo";
   if (network === "instagram") return "Reel";
-  if (network === "youtube") return "Vidéo";
+  if (network === "facebook" && isFacebookReel(media)) return "Reel";
+  if (network === "youtube") return isYoutubeShort(media) ? "Short" : "Vidéo";
   return "Vidéo";
 }
 
