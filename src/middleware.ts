@@ -6,8 +6,8 @@ import { currentSessionToken, mediaSecret } from "./server/password";
 // Scripts (Hermes, Claude Code) can use "Authorization: Bearer <API_TOKEN>" on /api routes.
 export async function middleware(req: NextRequest) {
   // Called by AI agents and their servers, never with the cookie: the MCP server (it checks its own
-  // key), the OAuth discovery documents and the code exchange. The consent page itself stays private.
-  if (/^\/(mcp|api\/mcp|api\/oauth\/(register|token|metadata|protected-resource)|\.well-known\/.*)$/.test(req.nextUrl.pathname)) return NextResponse.next();
+  // key), the OAuth discovery documents and the code exchange, and the public feed of published videos. The consent page itself stays private.
+  if (/^\/(mcp|api\/mcp|api\/oauth\/(register|token|metadata|protected-resource)|api\/public\/videos|\.well-known\/.*)$/.test(req.nextUrl.pathname)) return NextResponse.next();
 
   const expected = await currentSessionToken();
   if (!expected) return NextResponse.next();
