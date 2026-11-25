@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { isAllowed } from "@/server/request-auth";
 import { CHUNK_MAX, createUpload, UploadError } from "@/server/montage";
 
 /** Starts a chunked upload: { name, size } → { id, chunk }. Then PUT /api/uploads/:id?offset=… */
 export async function POST(req: Request) {
+  if (!(await isAllowed(req))) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as { name?: string; size?: number };
   try {
     return NextResponse.json({ ...createUpload(body.name ?? "video", Number(body.size)), chunk: CHUNK_MAX }, { status: 201 });

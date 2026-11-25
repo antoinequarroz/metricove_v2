@@ -98,7 +98,7 @@ const byNameTeams = new Set<string>();
  * A call to the Facebook Graph API for the team's Page.
  *
  * With `catalog`, treg's catalog entry is tried first, unless the team is known to be ambiguous.
- * On a 409 "ambiguous", the call goes again by tool name, /call/facebook/<path>, which always means
+ * On a 409 "ambiguous", the call goes again by tool name, /call/<page tool>/<path>, which always means
  * the Page connection, and the team is remembered so the next calls skip the failing attempt.
  * Without `catalog` (stories have no catalog entry), the call goes by tool name directly.
  */
@@ -112,7 +112,24 @@ export async function graph<T = unknown>(path: string, init: CallInit & { catalo
       byNameTeams.add(team);
     }
   }
-  return call<T>(`facebook/${path}`, rest);
+  return call<T>(`${await pageToolName()}/${path}`, rest);
+}
+
+/** Per team, the name of the treg tool of the chosen Page connection ("facebook", "facebook-livrematch"...). */
+const pageTools = new Map<string, string>();
+
+/**
+ * treg names each connection's tool after the connection. The first Page connection of a team is often
+ * just "facebook", but a later one gets its own name, and "facebook/<path>" then means the catalog,
+ * which treg refuses as ambiguous.
+ */
+async function pageToolName(): Promise<string> {
+  const known = pageTools.get(team);
+  if (known) return known;
+  const all = await connections();
+  const name = (all && pickFacebook(all, getSetting<string>(facebookSettingKey(team)))?.name) || "facebook";
+  if (all) pageTools.set(team, name);
+  return name;
 }
 
 /** Facebook answers errors as { error: { message, error_user_msg } } inside treg's own message. */
@@ -196,6 +213,8 @@ async function facebookPageId(): Promise<string | undefined> {
   if (all.filter(onGraph).length > 1) byNameTeams.add(team);
   else byNameTeams.delete(team);
   const fb = pickFacebook(all, getSetting<string>(facebookSettingKey(team)));
+  if (fb?.name) pageTools.set(team, fb.name);
+  else pageTools.delete(team);
   return fb && connRef(fb);
 }
 

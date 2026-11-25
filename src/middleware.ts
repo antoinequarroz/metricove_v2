@@ -38,5 +38,6 @@ export async function middleware(req: NextRequest) {
 export const config = {
   // Node runtime: the password changed in Réglages is read from a file in DATA_DIR.
   runtime: "nodejs",
-  matcher: ["/((?!login|api/auth/login|api/auth/compte|_next/static|_next/image|brand/|favicon.ico|apple-icon|manifest.webmanifest).*)"],
+  // Upload chunks check their own access (src/server/request-auth.ts): the middleware would use up their body.
+  matcher: ["/((?!login|api/uploads|api/auth/login|api/auth/compte|_next/static|_next/image|brand/|favicon.ico|apple-icon|manifest.webmanifest).*)"],
 };
