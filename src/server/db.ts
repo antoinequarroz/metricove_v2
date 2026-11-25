@@ -79,6 +79,28 @@ export function db() {
       key text primary key,
       value text not null
     );
+    -- Keys of the AI agents that read Metricove through MCP (Claude…). Only the SHA-256 is kept.
+    create table if not exists mcp_tokens (
+      id text primary key,
+      name text not null,
+      token_hash text not null unique,
+      created_at text not null,
+      last_used_at text
+    );
+    -- Connectors that registered themselves (OAuth dynamic client registration, as Claude does).
+    create table if not exists oauth_clients (
+      id text primary key,
+      name text not null,
+      redirect_uris text not null,
+      created_at text not null
+    );
+    create table if not exists oauth_codes (
+      code_hash text primary key,
+      client_id text not null references oauth_clients (id) on delete cascade,
+      redirect_uri text not null,
+      code_challenge text not null,
+      expires_at text not null
+    );
   `);
   // Columns added after the first release.
   const cols = (conn.prepare("pragma table_info(posts)").all() as { name: string }[]).map((c) => c.name);

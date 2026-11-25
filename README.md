@@ -55,6 +55,19 @@ Pour YouTube, choisir « Vidéo » ou « Short » dans l'éditeur. Un Short est 
 | DELETE | `/api/media/:id` | Supprimer une vidéo inutilisée |
 | POST | `/api/hermes/caption` | Demander une légende à Hermes |
 
+## Claude (serveur MCP, lecture seule)
+
+Metricove a son propre serveur MCP à l'adresse `https://<ton domaine>/mcp` (Streamable HTTP, sans état). Claude peut y lire le calendrier, les comptes, les projets, les posts, la médiathèque et les statistiques. Il ne peut rien modifier ni publier.
+
+- **Claude (claude.ai, appli bureau et mobile)** : Réglages › Connecteurs › Ajouter un connecteur personnalisé, adresse `https://<ton domaine>/mcp`. Claude ouvre Metricove, tu te connectes (Compte Postmelo ou mot de passe), tu cliques sur « Autoriser » : la clé est créée et transmise toute seule (OAuth 2.1 avec PKCE et inscription dynamique).
+- **Claude Code** : `claude mcp add --transport http metricove https://<ton domaine>/mcp` (même autorisation dans le navigateur), ou avec `--header "Authorization: Bearer $API_TOKEN"`.
+
+`PUBLIC_URL` doit être l'adresse publique exacte de Metricove : c'est elle que Claude reçoit pour se connecter.
+
+Outils : `list_accounts`, `list_projects`, `get_calendar` (jour par jour, fuseau `APP_TIMEZONE`, `Europe/Zurich` par défaut), `list_posts` (filtres dates, statut, compte, projet, texte), `get_post`, `list_media`, `get_stats`.
+
+Les connecteurs autorisés se listent avec `GET /api/mcp/keys` et se coupent avec `DELETE /api/mcp/keys` (tous) ou `DELETE /api/mcp/keys?id=…` (un seul).
+
 ## Où en est le projet
 
 1. ✅ **Base et design** : calendrier mois / semaine / liste, glisser-déposer, éditeur avec aperçu par réseau, bibliothèque vidéo, recherche ⌘K.

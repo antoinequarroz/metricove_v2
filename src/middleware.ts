@@ -5,6 +5,10 @@ import { currentSessionToken, mediaSecret } from "./server/password";
 // Everything is private once a password is set (APP_PASSWORD, or the one changed in Réglages).
 // Scripts (Hermes, Claude Code) can use "Authorization: Bearer <API_TOKEN>" on /api routes.
 export async function middleware(req: NextRequest) {
+  // Called by AI agents and their servers, never with the cookie: the MCP server (it checks its own
+  // key), the OAuth discovery documents and the code exchange. The consent page itself stays private.
+  if (/^\/(mcp|api\/mcp|api\/oauth\/(register|token|metadata|protected-resource)|\.well-known\/.*)$/.test(req.nextUrl.pathname)) return NextResponse.next();
+
   const expected = await currentSessionToken();
   if (!expected) return NextResponse.next();
 
@@ -24,8 +28,10 @@ export async function middleware(req: NextRequest) {
 
   if (req.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   const url = req.nextUrl.clone();
+  // Claude asking for access: back to its consent page once signed in.
+  const next = req.nextUrl.pathname === "/oauth/authorize" ? `${req.nextUrl.pathname}${req.nextUrl.search}` : "";
   url.pathname = "/login";
-  url.search = "";
+  url.search = next ? `?next=${encodeURIComponent(next)}` : "";
   return NextResponse.redirect(url);
 }
 

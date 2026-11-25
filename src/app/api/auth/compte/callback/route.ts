@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { safeNext } from "@/lib/utils";
 import { SESSION_COOKIE } from "@/server/auth";
 import { finishSignIn, PENDING_COOKIE } from "@/server/compte";
 import { currentSessionToken, SESSION_MAX_AGE } from "@/server/password";
@@ -20,7 +21,7 @@ export async function GET(req: Request) {
   try {
     const person = await finishSignIn(req.url, (await cookies()).get(PENDING_COOKIE)?.value);
     console.log(`[compte] connexion de ${person.email}`);
-    return go("/", (await currentSessionToken()) ?? undefined);
+    return go(safeNext(person.next) || "/", (await currentSessionToken()) ?? undefined);
   } catch (error) {
     return go(`/login?erreur=${encodeURIComponent((error as Error).message)}`);
   }
