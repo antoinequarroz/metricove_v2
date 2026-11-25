@@ -17,7 +17,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Plus, Sparkles, Bot, Images } from "lucide-react";
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { NETWORK_ORDER, NETWORKS, NetworkBadge } from "@/lib/networks";
 import { useStore, useVisiblePosts, type CalendarView } from "@/lib/store";
@@ -187,6 +187,15 @@ function useDnd() {
   return { sensors, onDragEnd };
 }
 
+// Hauteur minimale d'une semaine en vue Mois : de quoi voir le jour et un post. Six semaines tiennent en 1280x720.
+const MONTH_ROW_MIN = 76;
+const CHIP_GAP = 4;
+
+/** Nombre de posts qui tiennent en entier dans la case (« +N autres » est dans l'en-tête du jour). */
+function fitCount(height: number, chip: number, total: number) {
+  return Math.min(total, Math.max(0, Math.floor((height + CHIP_GAP) / (chip + CHIP_GAP))));
+}
+
 function MonthView() {
   const cursor = new Date(useStore((s) => s.cursor));
   const posts = useVisiblePosts();
@@ -212,15 +221,16 @@ function MonthView() {
 
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="flex h-full min-h-[560px] flex-col">
-        <div className="grid grid-cols-7 border-b border-line">
+      {/* Le mois remplit la hauteur disponible ; sous la hauteur minimale des semaines, la vue défile. */}
+      <div className="scroll-thin flex h-full flex-col overflow-y-auto">
+        <div className="sticky top-0 z-10 grid grid-cols-7 border-b border-line bg-surface/90 backdrop-blur">
           {days.slice(0, 7).map((d) => (
             <div key={d.toISOString()} className="px-3 py-2 text-[11.5px] font-medium tracking-wide text-ink-3 uppercase">
               {fmt(d, "EEE")}
             </div>
           ))}
         </div>
-        <div className="grid flex-1 grid-cols-7" style={{ gridTemplateRows: `repeat(${weeks}, minmax(112px, 1fr))` }}>
+        <div className="grid flex-1 grid-cols-7" style={{ gridTemplateRows: `repeat(${weeks}, minmax(${MONTH_ROW_MIN}px, 1fr))` }}>
           {days.map((d, i) => (
             <DayCell key={d.toISOString()} day={d} inMonth={isSameMonth(d, cursor)} posts={byDay.get(d.toISOString()) ?? []} index={i} />
           ))}
@@ -233,15 +243,36 @@ function MonthView() {
 function DayCell({ day, inMonth, posts, index }: { day: Date; inMonth: boolean; posts: Post[]; index: number }) {
   const openComposer = useStore((s) => s.openComposer);
   const { setNodeRef, isOver } = useDroppable({ id: day.toISOString() });
+  const setView = useStore((s) => s.setView);
+  const setCursor = useStore((s) => s.setCursor);
   const past = isBefore(day, startOfDay(new Date()));
   const today = isToday(day);
-  const max = 3;
+  const listRef = useRef<HTMLDivElement>(null);
+  const chipHeight = useRef(40);
+  const [max, setMax] = useState(3);
+
+  // La case ne grandit plus avec ses posts : on affiche ceux qui tiennent, le reste passe dans « +N autres ».
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const measure = () => {
+      const chips = el.querySelectorAll<HTMLElement>("[data-chip]");
+      if (chips.length) chipHeight.current = Math.max(...Array.from(chips, (c) => c.offsetHeight));
+      setMax(fitCount(el.clientHeight, chipHeight.current, posts.length));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [posts.length]);
+
+  const hidden = posts.length - max;
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "group relative flex min-w-0 flex-col gap-1 border-line p-1.5 transition-colors duration-150",
+        "group relative flex min-h-0 min-w-0 flex-col gap-0.5 overflow-hidden border-line p-1.5 transition-colors duration-150",
         index % 7 !== 6 && "border-r",
         "border-b",
         !inMonth && "bg-bg-2/40",
@@ -252,27 +283,40 @@ function DayCell({ day, inMonth, posts, index }: { day: Date; inMonth: boolean; 
       <div className="flex items-center justify-between px-1">
         <span
           className={cn(
-            "tabular flex h-6 min-w-6 items-center justify-center rounded-full text-[12.5px]",
+            "tabular flex h-5 min-w-5 items-center justify-center rounded-full text-[12.5px]",
             today ? "bg-accent px-1.5 font-semibold text-accent-ink" : inMonth ? "text-ink" : "text-ink-3",
           )}
         >
           {fmt(day, "d")}
         </span>
+        {hidden > 0 && (
+          <button
+            onClick={() => {
+              setCursor(day);
+              setView("week");
+            }}
+            title="Voir la semaine"
+            className="ml-auto rounded px-1.5 text-[11.5px] leading-5 font-medium whitespace-nowrap text-ink-3 hover:bg-ink/5 hover:text-ink"
+          >
+            {max > 0 ? `+${hidden} ${hidden > 1 ? "autres" : "autre"}` : `${hidden} ${hidden > 1 ? "posts" : "post"}`}
+          </button>
+        )}
         {!past && (
           <button
             onClick={() => openComposer({ date: day.toISOString() })}
             aria-label={`Créer un post le ${fmt(day, "d MMMM")}`}
-            className="press flex size-6 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-ink/5 hover:text-ink focus-visible:opacity-100"
+            className="press flex size-5 items-center justify-center rounded-md text-ink-3 opacity-0 group-hover:opacity-100 hover:bg-ink/5 hover:text-ink focus-visible:opacity-100"
           >
             <Plus className="size-3.5" />
           </button>
         )}
       </div>
-      <div className="flex min-h-0 flex-col gap-1">
-        {posts.slice(0, max).map((p) => (
-          <PostChip key={p.id} post={p} />
-        ))}
-        {posts.length > max && <span className="px-1.5 text-[11.5px] font-medium text-ink-3">+{posts.length - max} autres</span>}
+      <div ref={listRef} className="relative min-h-0 flex-1">
+        <div className="absolute inset-0 flex flex-col gap-1">
+          {posts.slice(0, max).map((p) => (
+            <PostChip key={p.id} post={p} />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -290,12 +334,13 @@ function PostChip({ post }: { post: Post }) {
   return (
     <button
       ref={setNodeRef}
+      data-chip
       {...listeners}
       {...attributes}
       onClick={() => openComposer({ postId: post.id })}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
       className={cn(
-        "group/chip relative flex w-full items-center gap-1.5 overflow-hidden rounded-md border border-line bg-surface py-1 pr-1.5 pl-2 text-left shadow-[0_1px_1px_rgba(0,0,0,0.04)] outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-accent/40",
+        "group/chip relative flex w-full shrink-0 items-center gap-1.5 overflow-hidden rounded-md border border-line bg-surface py-1 pr-1.5 pl-2 text-left shadow-[0_1px_1px_rgba(0,0,0,0.04)] outline-none hover:border-line-strong focus-visible:ring-2 focus-visible:ring-accent/40",
         isDragging ? "z-50 cursor-grabbing shadow-card ring-1 ring-accent/40" : "transition-[border-color,box-shadow] duration-150",
         post.status === "draft" && "border-dashed bg-surface/60",
       )}
