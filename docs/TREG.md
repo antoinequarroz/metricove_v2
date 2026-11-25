@@ -71,11 +71,11 @@ Facebook reçoit les vidéos de Reel et de story sur un autre serveur (`rupload.
 
 ```bash
 treg connections ls          # note le numéro (secret) de la connexion Facebook
-treg tool add facebook-rupload --base-url https://rupload.facebook.com --injector oauth \
-  --secret-field page_access_token --bind 'secret=<numéro>,name=Authorization,format=OAuth {secret}'
+treg tool add facebook-rupload --base-url https://rupload.facebook.com \
+  --binding '{"secret_id":<numéro>,"injector":"oauth","name":"Authorization","format":"OAuth {secret}","secret_field":"page_access_token"}'
 ```
 
-Sans cet outil, les stories photo marchent, et une story vidéo Facebook échoue avec un message qui renvoie ici. Si tu reconnectes Facebook dans treg, le numéro change : supprime l'outil (`treg tool rm`) et recrée-le.
+Sans cet outil, les stories photo marchent, et une story vidéo Facebook échoue avec un message qui renvoie ici. Avec `--bind`, treg ignore `--injector` et `--secret-field` : passe bien par `--binding`. Si tu reconnectes Facebook dans treg, le numéro change : supprime l'outil (`treg tool rm`) et recrée-le.
 
 ## Statistiques
 
