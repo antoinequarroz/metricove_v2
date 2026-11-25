@@ -24,7 +24,7 @@ export function outcomeOf(result: TargetResult | undefined, post: Post): Outcome
     const until = new Date(new Date(result.at).getTime() + 24 * 3600_000);
     return { kind: "inbox", label: "À finaliser dans l'app TikTok", detail: `Ouvre TikTok (brouillons ou notifications), colle la légende et publie avant le ${until.toLocaleString("fr-CH", { weekday: "long", hour: "2-digit", minute: "2-digit" })}.` };
   }
-  return { kind: "published", label: "Publié" };
+  return { kind: "published", label: "Publié", detail: result.note };
 }
 
 /** One line per account, for the toast after "Publier maintenant". */

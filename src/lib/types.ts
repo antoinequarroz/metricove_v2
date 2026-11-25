@@ -63,6 +63,8 @@ export type TargetResult = {
   status: "published" | "failed";
   error?: string;
   externalId?: string;
+  /** Published, but something went wrong on the side (e.g. the thumbnail was refused). */
+  note?: string;
   at: string;
 };
 

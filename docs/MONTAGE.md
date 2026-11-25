@@ -179,8 +179,9 @@ Un segment peut être coupé en deux dans la timeline : les deux moitiés garden
 ## Couverture du feed
 
 - `PUT /api/media/:id/cover` (corps = image JPEG ou PNG), `GET` pour la lire, `DELETE` pour la retirer.
-- À la publication Instagram, Metricove envoie `cover_url` (lien signé). Sans couverture, Instagram
-  prend la 1re image de la vidéo. TikTok (envoi dans l'app) ne prend pas de couverture.
+- À la publication, la couverture part aussi comme miniature : `cover_url` sur Instagram, miniature
+  YouTube et Facebook (voir docs/TREG.md). Sans couverture, chaque réseau prend une image de la vidéo.
+  TikTok ne prend pas de couverture.
 
 ### Notes dessinées (`job.marks`)
 

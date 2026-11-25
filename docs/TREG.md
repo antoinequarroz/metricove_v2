@@ -42,11 +42,22 @@ Puis recrée le conteneur. Dans **Comptes**, clique sur « Synchroniser » : Met
 | Instagram | Reel (vidéo et légende), post photo, carrousel (2 à 10 photos ou vidéos), story photo ou vidéo | Compte professionnel relié à une Page Facebook. Instagram télécharge le fichier depuis un lien signé de Metricove, valable 24 h. Photos en JPEG, entre 4:5 et 1,91:1 dans le fil. Story vidéo : 60 s au plus. 100 posts par 24 h. |
 | Facebook | Reel (vidéo verticale de 3 à 90 s), vidéo, photo ou texte sur la Page, carrousel de photos (2 à 10), story photo ou vidéo | La Page est celle choisie dans la connexion treg. Un carrousel Facebook ne prend que des photos. Le Reel et la story vidéo demandent un réglage de plus (voir plus bas) : sans lui, une vidéo verticale part en vidéo classique. |
 | LinkedIn | Texte et vidéo sur ton profil | Pas encore de page entreprise. |
-| YouTube | Vidéo ou Short (#Shorts ajouté). Une vidéo verticale de 3 min au plus part en Short, même si le post a été créé avant d'ajouter la chaîne. | Environ 6 envois par jour (quota Google). |
+| YouTube | Vidéo ou Short (#Shorts ajouté). Une vidéo verticale de 3 min au plus part en Short, même si le post a été créé avant d'ajouter la chaîne. | Environ 6 envois par jour (quota Google). Avec sa propre app Google branchée dans treg (`treg connections connect <nom> --client-secret <json> --scopes …`, puis `treg tool update` de l'outil youtube), le quota n'est plus partagé. |
 | TikTok | Vidéo publiée avec sa légende, ou envoyée dans **l'app TikTok** | Metricove tente d'abord la publication directe (avec la légende). Tant que TikTok n'a pas audité l'app treg, il la refuse : la vidéo arrive alors dans ta boîte de réception TikTok, **sans légende** (TikTok n'y met que « #Treg »). Colle la légende (bouton « Copier la légende » dans Metricove) et, pour une vidéo générée par Claude Code, active « Contenu généré par IA » (Plus d'options) avant de publier, dans les 24 h. En publication directe, ce marquage est mis automatiquement. Metricove retente la publication directe une fois par jour : dès l'audit, les légendes passent toutes seules. |
 | X | Texte seul | Les vidéos ne passent pas encore par treg sur X. |
 
 Les photos importées dans Metricove sont converties en JPEG et remises droites automatiquement.
+
+### Miniature (couverture) des vidéos
+
+Quand une vidéo a une couverture dans Metricove (`PUT /api/media/:id/cover`), elle part avec la vidéo :
+
+- **Instagram** : `cover_url` du Reel (image de la grille du profil).
+- **YouTube** : `thumbnails.set` juste après l'envoi, par l'adresse `https://youtube.googleapis.com/upload/youtube/v3/thumbnails/set` via treg. 2 Mo au plus, et la chaîne doit être vérifiée par téléphone (youtube.com/verify), sinon YouTube refuse. Sur un Short, YouTube ne montre pas la miniature partout (le fil Shorts garde une image de la vidéo).
+- **Facebook** (Reel ou vidéo) : `POST /{vidéo}/thumbnails` (image en fichier, `is_preferred=true`), retenté 4 fois sur 1 minute pendant que Facebook traite la vidéo.
+- **TikTok** : impossible. L'API ne prend qu'un instant de la vidéo (`video_cover_timestamp_ms`), pas une image, et l'envoi dans l'app n'en prend aucun.
+
+Une miniature refusée ne fait pas échouer le post (la vidéo est déjà en ligne) : le résultat du compte reste « Publié », avec la raison en dessous.
 
 Les vidéos sont envoyées à l'heure prévue. Instagram et TikTok demandent quelques minutes de traitement.
 

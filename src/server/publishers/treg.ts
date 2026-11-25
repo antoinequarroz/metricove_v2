@@ -71,7 +71,7 @@ export async function call<T = unknown>(id: string, init: CallInit = {}): Promis
   });
   const text = await res.text();
   if (!res.ok) {
-    if (/quotaExceeded/i.test(text)) throw new Error("Quota YouTube du jour épuisé (app Google partagée de treg). Relancez après 9h, ou branchez votre propre app Google dans treg.");
+    if (/quotaExceeded/i.test(text)) throw new Error("Quota YouTube du jour épuisé. Relancez après 9h (heure de remise à zéro de Google).");
     if (res.status === 409 && /ambiguous/i.test(text)) throw new AmbiguousError(`Plusieurs comptes du même réseau dans la même équipe treg : gardez-en un seul par équipe (${id})`);
     if (res.status === 428) throw new Error(`Compte à reconnecter dans treg (${id.split(".")[0]})`);
     throw new Error(`treg ${res.status} sur ${id} : ${text.slice(0, 300)}`);
@@ -362,11 +362,84 @@ const readers: Record<Network, () => Promise<Account | undefined>> = {
 /* ---------- Publishing, one function per network ---------- */
 
 type Ctx = { post: Post; account: Account; media?: MediaFile; /** Every media of a carousel, in order. */ items?: MediaFile[] };
-type Out = { externalId?: string };
+type Out = { externalId?: string; note?: string };
 
 /** LinkedIn's "little text" format needs these characters escaped. */
 const linkedinText = (s: string) => s.replace(/[\\()[\]{}<>@|~_*]/g, (c) => `\\${c}`);
 const LINKEDIN_HEADERS = { "LinkedIn-Version": "202601", "X-Restli-Protocol-Version": "2.0.0" };
+
+/* ---------- Thumbnails ---------- */
+
+/** The cover image of a video, read from disk, when there is one. */
+async function coverBytes(media: MediaFile): Promise<{ bytes: Buffer; mime: string } | undefined> {
+  if (!media.cover) return undefined;
+  const bytes = await fs.readFile(media.cover).catch(() => undefined);
+  if (!bytes?.length) return undefined;
+  return { bytes, mime: bytes[0] === 0xff && bytes[1] === 0xd8 ? "image/jpeg" : "image/png" };
+}
+
+/**
+ * The video is already published when its thumbnail goes: a refused thumbnail must never mark the
+ * post failed (a retry would publish the video twice). It is reported as a note on the result.
+ */
+async function withThumbnail(out: Out, network: string, set: () => Promise<void>): Promise<Out> {
+  try {
+    await set();
+    return out;
+  } catch (e) {
+    const reason = (e as Error).message.slice(0, 300);
+    console.warn(`[treg] ${network} thumbnail: ${reason}`);
+    return { ...out, note: `Publié sans la miniature : ${reason}` };
+  }
+}
+
+const YOUTUBE_THUMB_MAX = 2 * 1024 * 1024;
+
+/** YouTube's custom thumbnail (thumbnails.set), sent through treg by the API's address. */
+async function youtubeThumbnail(videoId: string, cover: { bytes: Buffer; mime: string }) {
+  if (cover.bytes.length > YOUTUBE_THUMB_MAX) throw new Error("YouTube refuse les miniatures de plus de 2 Mo : refaites la couverture en JPEG plus léger.");
+  const url = `https://youtube.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`;
+  const res = await fetch(`${base()}/call/${url}`, {
+    method: "POST",
+    headers: { "X-Treg-Token": token(), "Content-Type": cover.mime },
+    body: cover.bytes as BodyInit,
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (res.ok) return;
+  const text = (await res.text().catch(() => "")).slice(0, 300);
+  // Custom thumbnails need a channel verified by phone (youtube.com/verify).
+  if (res.status === 403 && /permission|verif|forbidden/i.test(text)) throw new Error("YouTube n'autorise pas encore les miniatures sur cette chaîne : vérifiez-la par téléphone sur youtube.com/verify.");
+  throw new Error(`YouTube a refusé la miniature (${res.status})${text ? ` : ${text}` : ""}`);
+}
+
+/**
+ * The preferred thumbnail of a Page video or Reel (POST /{video}/thumbnails, image as a file).
+ * Facebook may still be processing a video it just received: a refusal is tried again a few times.
+ */
+async function facebookThumbnail(videoId: string, cover: { bytes: Buffer; mime: string }) {
+  for (let i = 0; ; i++) {
+    try {
+      return await facebookThumbnailOnce(videoId, cover);
+    } catch (e) {
+      if (i >= 3) throw e;
+      await sleep(20_000);
+    }
+  }
+}
+
+async function facebookThumbnailOnce(videoId: string, cover: { bytes: Buffer; mime: string }) {
+  const form = new FormData();
+  form.set("source", new Blob([cover.bytes as BlobPart], { type: cover.mime }), cover.mime === "image/png" ? "cover.png" : "cover.jpg");
+  form.set("is_preferred", "true");
+  const res = await fetch(`${base()}/call/${await pageToolName()}/${videoId}/thumbnails`, {
+    method: "POST",
+    headers: { "X-Treg-Token": token() },
+    body: form,
+    signal: AbortSignal.timeout(120_000),
+  });
+  const text = await res.text().catch(() => "");
+  if (!res.ok || /"success"\s*:\s*false/.test(text)) throw new Error(facebookReason(new Error(`Facebook a refusé la miniature (${res.status}) : ${text.slice(0, 300)}`)));
+}
 
 /* ---------- Facebook stories ---------- */
 
@@ -421,7 +494,9 @@ async function facebookReel(page: string, post: Post, media: MediaFile): Promise
     body: { upload_phase: "finish", video_id: start.video_id, video_state: "PUBLISHED", description: post.caption },
   });
   if (data.success === false) throw new Error("Facebook n'a pas publié le Reel");
-  return { externalId: data.post_id ?? start.video_id };
+  const out = { externalId: data.post_id ?? start.video_id };
+  const cover = await coverBytes(media);
+  return cover ? withThumbnail(out, "facebook", () => facebookThumbnail(start.video_id!, cover)) : out;
 }
 
 /** A video story, in Facebook's three steps: open an upload, hand over the video, publish. */
@@ -614,7 +689,8 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
           query: { fields: "id,permalink_url" },
           body: { file_url: signedMediaUrl(media.id), description: post.caption, title: post.youtube?.title, published: true },
         });
-        return { externalId: data.id };
+        const cover = await coverBytes(media);
+        return cover && data.id ? await withThumbnail({ externalId: data.id }, "facebook", () => facebookThumbnail(data.id, cover)) : { externalId: data.id };
       }
       const { data } = await graph<{ id: string }>(`${page}/feed`, {
         catalog: "facebook.facebook.page.post.create",
@@ -696,7 +772,9 @@ const publishers: Record<Network, (c: Ctx) => Promise<Out>> = {
     const res = await put(session, bytes, { "Content-Type": media.mime });
     const text = await res.text();
     if (!res.ok) throw new Error(`Envoi de la vidéo à YouTube refusé (${res.status}) : ${text.slice(0, 200)}`);
-    return { externalId: (JSON.parse(text) as { id?: string }).id };
+    const id = (JSON.parse(text) as { id?: string }).id;
+    const cover = await coverBytes(media);
+    return cover && id ? withThumbnail({ externalId: id }, "youtube", () => youtubeThumbnail(id, cover)) : { externalId: id };
   },
 
   // TikTok publishes directly (with the caption) only from apps it has audited. treg's app isn't
@@ -916,7 +994,7 @@ async function publishAll(self: Publisher, post: Post, accounts: Account[], medi
         team = a.providerKind.slice(5);
         try {
           const out = await publishers[a.network]({ post, account: a, media, items });
-          results[a.id] = { status: "published", externalId: out.externalId, at: at() };
+          results[a.id] = { status: "published", externalId: out.externalId, note: out.note, at: at() };
         } catch (e) {
           results[a.id] = { status: "failed", error: (e as Error).message, at: at() };
         }

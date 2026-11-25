@@ -70,7 +70,7 @@ function matchProject(c: Ctx, query: string): Project {
 
 function mediaSummary(m: Media | undefined, id: string) {
   if (!m) return { id, missing: true };
-  return { id: m.id, title: m.title, kind: m.kind, aspect: m.aspect, duration: m.duration || undefined };
+  return { id: m.id, title: m.title, kind: m.kind, aspect: m.aspect, duration: m.duration || undefined, ...(m.kind === "video" ? { cover: !!m.cover } : {}) };
 }
 
 /** A post as an agent wants to read it: accounts and media by name, local day and time. */
