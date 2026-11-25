@@ -1,3 +1,4 @@
+import { safeNext } from "@/lib/utils";
 import { PENDING_COOKIE, PENDING_MAX_AGE, settings, startSignIn } from "@/server/compte";
 
 export const dynamic = "force-dynamic";
@@ -5,10 +6,10 @@ export const dynamic = "force-dynamic";
 const back = (message: string) => new Response(null, { status: 302, headers: { Location: `/login?erreur=${encodeURIComponent(message)}`, "Cache-Control": "no-store" } });
 
 /** Sends the browser to the Compte Postmelo. It comes back on /api/auth/compte/callback. */
-export async function GET() {
+export async function GET(req: Request) {
   if (!settings()) return back("La connexion par Compte Postmelo n'est pas configurée");
   try {
-    const { url, cookie } = await startSignIn();
+    const { url, cookie } = await startSignIn({ next: safeNext(new URL(req.url).searchParams.get("next")) });
     const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
     return new Response(null, {
       status: 302,

@@ -18,3 +18,8 @@ export function duration(sec: number) {
 export function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
+
+/** Where to go after signing in: only a path of this app ("/oauth/authorize?…"), never another site. */
+export function safeNext(value: unknown): string {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && value.length <= 4000 ? value : "";
+}
