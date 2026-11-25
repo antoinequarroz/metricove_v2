@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { reelTimeline, type FreeText, type MontageMark } from "@/lib/montage";
 import { cn } from "@/lib/utils";
 import { TextBlocks } from "./free-texts";
-import { fmtSec } from "./parts";
+import { fmtLen, fmtSec } from "./parts";
 import { Filmstrip, SHORTCUTS, snap, useFilmstrip, useFollowPlayhead, useTimelineZoom, useWaveform, Waveform } from "./timeline-kit";
 
 export type ReelPlaced = ReturnType<typeof reelTimeline>;
@@ -21,6 +21,12 @@ const tool = "press inline-flex h-7 min-w-7 shrink-0 items-center justify-center
  * Ruler: click or drag to move in the video. Video track: drag to pick a passage for Claude.
  * Scenes: click to choose one, drag it to move it, pull its right edge to change its length.
  */
+/** The words for a block of the timeline: a scene of an older reel, or a beat ("temps fort") of a continuous video. */
+const BLOCK_WORDS: Record<string, { one: string; the: string; this: string; chosen: string; of: string }> = {
+  Scènes: { one: "Scène", the: "la scène", this: "cette scène", chosen: "la scène choisie", of: "de la scène" },
+  "Temps forts": { one: "Temps fort", the: "le temps fort", this: "ce temps fort", chosen: "le temps fort choisi", of: "du temps fort" },
+};
+
 export function ReelTimeline({
   src,
   placed,
@@ -47,6 +53,7 @@ export function ReelTimeline({
   zoomRef,
   stale,
   hidden,
+  rowLabel = "Scènes",
 }: {
   /** The video on screen (its pictures and its sound are drawn in the tracks). */
   src?: string;
@@ -82,8 +89,11 @@ export function ReelTimeline({
   stale: boolean;
   /** Kept in place but not shown (while drawing on the video), so the zoom and the scroll are not lost. */
   hidden?: boolean;
+  /** The name of the row of blocks ("Scènes" for an older reel, "Temps forts" for a continuous video). */
+  rowLabel?: string;
 }) {
   const { scroller, pps, setZoom, fitted } = useTimelineZoom(total, LABEL, 0, time);
+  const w = BLOCK_WORDS[rowLabel] ?? BLOCK_WORDS.Scènes;
   const strip = useFilmstrip(src);
   const wave = useWaveform(src);
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
@@ -198,21 +208,22 @@ export function ReelTimeline({
 
   return (
     <div className={cn("shrink-0 border-t border-line bg-surface/60 px-6 pt-2 pb-3 max-md:px-4", hidden && "hidden")}>
-      <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3">
+      {/* On a phone the tools wrap: playback and edits on a first line, the hint and the zoom on a second one. */}
+      <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3 max-md:flex-wrap">
         <button onClick={onToggle} disabled={stale && !playing} aria-label={playing ? "Pause" : "Lire"} title="Lire ou mettre en pause (Espace)" className={cn(tool, "text-ink")}>
           {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
         </button>
         <span className="tabular mx-1 shrink-0 font-mono text-ink">
           {time >= 0 ? fmtT(time) : "–"} / {fmtT(total)}
         </span>
-        <span className="min-w-0 flex-1 truncate">
+        <span className="min-w-0 flex-1 truncate max-md:order-1 max-md:basis-48">
           {stale
             ? "Durées estimées de tes modifications. La vidéo sera refaite avec « Voir l'aperçu »."
             : sel
               ? `Passage choisi : ${fmtT(sel[0])} – ${fmtT(sel[1])}`
-              : "Règle : se placer. Piste Vidéo : faire glisser pour choisir un passage. Scènes : glisser pour déplacer, tirer le bord pour la durée."}
+              : `Règle : se placer. Piste Vidéo : faire glisser pour choisir un passage. ${rowLabel} : glisser pour déplacer, tirer le bord pour la durée.`}
         </span>
-        <button onClick={undo.undo} disabled={!undo.canUndo} aria-label="Annuler" title="Annuler (⌘Z)" className={tool}>
+        <button onClick={undo.undo} disabled={!undo.canUndo} aria-label="Annuler" title="Annuler (⌘Z)" className={cn(tool, "max-md:ml-auto")}>
           <Undo2 className="size-3.5" />
         </button>
         <button onClick={undo.redo} disabled={!undo.canRedo} aria-label="Rétablir" title="Rétablir (⇧⌘Z)" className={tool}>
@@ -221,28 +232,28 @@ export function ReelTimeline({
         <button
           onClick={onTrimHere}
           disabled={!onTrimHere || stale || !under || time - under.start < MIN_SCENE || under.end - time < 0.2}
-          title="Finir la scène à la tête de lecture : ce qui suit dans cette scène est coupé (S)"
+          title={`Finir ${w.the} à la tête de lecture : ce qui suit dans ${w.this} est coupé (S)`}
           className={cn(tool, "gap-1.5 px-2 font-medium max-md:hidden")}
         >
           <Scissors className="size-3.5" /> <span className="max-xl:hidden">Couper ici</span>
         </button>
-        <button onClick={onCut} disabled={!onCut || !chosen || placed.length < 2} title="Retirer la scène choisie du reel (Suppr)" className={cn(tool, "gap-1.5 px-2 font-medium")}>
+        <button onClick={onCut} disabled={!onCut || !chosen || placed.length < 2} title={`Retirer ${w.chosen} du reel (Suppr)`} className={cn(tool, "gap-1.5 px-2 font-medium")}>
           <Trash2 className="size-3.5" /> <span className="max-xl:hidden">Retirer</span>
         </button>
         <button onClick={onMark} disabled={!onMark || stale} title="Poser un repère avec une note pour Claude, à la tête de lecture (M)" className={cn(tool, "gap-1.5 px-2 font-medium")}>
           <MapPin className="size-3.5" /> <span className="max-xl:hidden">Repère</span>
         </button>
-        <span className="mx-0.5 h-4 w-px bg-line-strong" />
-        <button onClick={() => setZoom((z) => z / 1.5)} disabled={fitted} aria-label="Dézoomer la timeline" title="Dézoomer (−)" className={tool}>
+        <span className="mx-0.5 h-4 w-px bg-line-strong max-md:hidden" />
+        <button onClick={() => setZoom((z) => z / 1.5)} disabled={fitted} aria-label="Dézoomer la timeline" title="Dézoomer (−)" className={cn(tool, "max-md:order-2")}>
           <Minus className="size-3.5" />
         </button>
-        <button onClick={() => setZoom((z) => z * 1.5)} aria-label="Zoomer la timeline" title="Zoomer (+, ou ⌘ + molette)" className={tool}>
+        <button onClick={() => setZoom((z) => z * 1.5)} aria-label="Zoomer la timeline" title="Zoomer (+, ou ⌘ + molette)" className={cn(tool, "max-md:order-2")}>
           <Plus className="size-3.5" />
         </button>
-        <button onClick={() => setZoom(1)} disabled={fitted} aria-label="Voir toute la vidéo" title="Voir toute la vidéo (0)" className={tool}>
+        <button onClick={() => setZoom(1)} disabled={fitted} aria-label="Voir toute la vidéo" title="Voir toute la vidéo (0)" className={cn(tool, "max-md:order-2")}>
           <Maximize2 className="size-3.5" />
         </button>
-        <div className="relative">
+        <div className="relative max-md:order-2">
           <button onClick={() => setHelp((h) => !h)} aria-expanded={help} aria-label="Raccourcis clavier" title="Raccourcis clavier" className={cn(tool, help && "border-accent bg-accent-soft")}>
             <Keyboard className="size-3.5" />
           </button>
@@ -298,12 +309,13 @@ export function ReelTimeline({
           </Row>
 
           {/* Scenes */}
-          <Row label="Scènes" h="h-11">
+          <Row label={rowLabel} h="h-11">
             {placed.map((p) => {
               const live = resize?.id === p.scene.id;
               const len = live ? resize.seconds : p.end - p.start;
               const dx = moving?.id === p.scene.id ? moving.dx : 0;
               const on = selected === p.scene.id;
+              const width = Math.max(10, len * pps - 2);
               return (
                 <div
                   key={p.scene.id}
@@ -317,13 +329,14 @@ export function ReelTimeline({
                     (live || dx) && "z-20 shadow-card",
                     dx && "opacity-85",
                   )}
-                  style={{ left: p.start * pps, width: Math.max(10, len * pps - 2), transform: dx ? `translateX(${dx}px)` : undefined }}
-                  title={`Scène ${p.index + 1} · ${(p.end - p.start).toFixed(1)} s · ${p.scene.title || p.scene.body}`}
+                  style={{ left: p.start * pps, width, transform: dx ? `translateX(${dx}px)` : undefined }}
+                  title={`${w.one} ${p.index + 1} · ${fmtLen(p.end - p.start)} · ${p.scene.title || p.scene.body}`}
                 >
-                  <p className="pointer-events-none flex items-center gap-1 text-[10px] leading-4 font-medium text-ink-3">
+                  <p className="pointer-events-none flex items-center gap-1 text-[10px] leading-4 font-medium whitespace-nowrap text-ink-3">
                     <span className="tabular font-mono">{p.index + 1}</span>
                     {p.scene.custom && <Sparkles className="size-2.5 shrink-0 text-accent" />}
-                    <span className="tabular ml-auto font-mono">{len.toFixed(1)} s</span>
+                    {/* A short block (1,5 to 3 s at the smallest zoom) keeps its number; the length is in its tooltip. */}
+                    {width >= 56 && <span className="tabular ml-auto font-mono">{fmtLen(len)}</span>}
                   </p>
                   <p className="pointer-events-none truncate text-[11.5px] leading-4 font-medium">{p.scene.title || p.scene.body}</p>
                   <span
@@ -332,7 +345,7 @@ export function ReelTimeline({
                     onPointerUp={drop}
                     onPointerCancel={() => setResize(null)}
                     aria-hidden
-                    title="Tire pour changer la durée de la scène"
+                    title={`Tire pour changer la durée ${w.of}`}
                     className="absolute inset-y-0 right-0 w-2 cursor-ew-resize touch-none rounded-r-md bg-accent/0 hover:bg-accent/60"
                   />
                 </div>

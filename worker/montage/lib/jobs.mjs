@@ -1,6 +1,6 @@
-// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion (contrat docs/MONTAGE.md).
+// Traitement d'une tâche réclamée : propose / preview / final / script / caption / cover / post / motion / brand / plan (contrat docs/MONTAGE.md).
 // Un reel animé (kind "motion") a ses propres actions motion (création ou retouche par Claude) et preview (retouche à la main).
-import { statSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, rmSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { ensureDir, assertSpace, themeFor, log, round } from "./util.mjs";
 import { localRushes } from "./rushes.mjs";
@@ -14,12 +14,44 @@ import { writeCaption } from "./caption.mjs";
 import { makeCover } from "./cover.mjs";
 import { withFont } from "./fonts.mjs";
 import { writePost } from "./post.mjs";
+import { readBrand } from "./brand.mjs";
+import { planContent } from "./plan.mjs";
 import { cleanMotion, makeMotion, renderPlan } from "./motion.mjs";
 import { reviseMotion, writeReelMarks } from "./motion-revise.mjs";
 import { directMotion } from "./motion-direct.mjs";
+import { handleVideo, isVideoJob } from "./reel/index.mjs";
+
+/** Passages de reels vidéo commencés par ce processus (suffixe du dossier de travail). */
+let runs = 0;
+/** Le dossier d'un passage vidéo : <id>-r<suffixe> (un id de Metricove est un UUID, sans « -r » suivi de lettres). */
+const RUN_DIR = /-r[0-9a-z]+$/;
+/** Les dossiers des passages vidéo en cours : retirés aussi quand le worker sort sur un signal (onSignal → process.exit). */
+const live = new Set();
+process.on("exit", () => { for (const d of live) { try { rmSync(d, { recursive: true, force: true }); } catch { /* repris au démarrage suivant */ } } });
+
+/**
+ * Au démarrage, verrou pris (aucun autre worker vivant) : les dossiers de passages vidéo laissés par un arrêt brutal
+ * (kill -9, plantage, coupure) ou par un rendu encore en route à la sortie. Ils gardent la vidéo de travail de
+ * HyperFrames (des centaines de Mo pour 40 s) et ne servent plus à rien : un passage interrompu est refait de zéro.
+ */
+export function sweepRuns(cfg) {
+  const root = join(cfg.workDir, "taches");
+  let n = 0;
+  for (const name of existsSync(root) ? readdirSync(root) : []) {
+    if (!RUN_DIR.test(name)) continue;
+    try { rmSync(join(root, name), { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); n++; }
+    catch (e) { log(`dossier de travail non supprimé (${e.code || e.message}) : ${join(root, name)}`); }
+  }
+  if (n) log(`${n} dossier(s) de travail laissé(s) par un passage interrompu, supprimé(s) (${root})`);
+  return n;
+}
 
 export async function handle(api, cfg, { job, action, rushes = [], media }) {
-  const dir = ensureDir(join(cfg.workDir, "taches", job.id));
+  // Un reel vidéo travaille dans un dossier à lui par passage (<id>-r<suffixe>) : un passage abandonné (arrêté, repris
+  // ailleurs, plafond atteint) qui finit seul ne peut ni écrire dans le dossier du passage suivant ni le supprimer.
+  const video = job.kind === "motion" && isVideoJob(job);
+  const dir = ensureDir(join(cfg.workDir, "taches", video ? `${job.id}-r${Date.now().toString(36)}${(++runs).toString(36)}` : job.id));
+  if (video) live.add(dir);
   // Metricove redonne une tâche sans nouvelles depuis 15 min : on renvoie la dernière étape chaque minute.
   let last = { s: "Démarrage…", p: 0 };
   const step = (s, p) => { last = { s, p }; log(`[${job.id.slice(0, 8)}] ${s}`); return api.step(job.id, s, p); };
@@ -44,6 +76,27 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
       await api.patch(job.id, { status: "done", post });
       log(`[${job.id.slice(0, 8)}] post envoyé (${post.slides.length} visuel(s), ${post.caption.length} car.)`);
       rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (action === "brand") {
+      const brand = await readBrand(api, cfg, job, step);
+      await api.patch(job.id, { status: "done", brand });
+      log(`[${job.id.slice(0, 8)}] ${job.brand?.mode === "charte" ? "charte" : "stratégie"} lue et envoyée`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (action === "plan") {
+      const plan = await planContent(cfg, job, step, dir);
+      await api.patch(job.id, { status: "done", plan });
+      log(`[${job.id.slice(0, 8)}] plan de contenu envoyé (${plan.items?.length ?? 0} post(s))`);
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    if (video) {
+      // Reel vidéo continu (worker 0.15.0) : sa propre progression (battement de 15 s) remplace celui de 60 s.
+      clearInterval(beat);
+      assertSpace(cfg);
+      await handleVideo(api, cfg, job, action, dir);
       return;
     }
     if (job.kind === "motion") {
@@ -236,10 +289,16 @@ export async function handle(api, cfg, { job, action, rushes = [], media }) {
     }
     throw new Error(`Action inconnue : ${action}`);
   } catch (e) {
+    // Une annulation venue de la page (tâche supprimée, arrêtée ou reprise ailleurs) n'envoie pas d'échec.
+    if (e?.cancelled) { log(`[${job.id.slice(0, 8)}] ${e.message} : arrêt sans rien envoyer`); return; }
     log(`[${job.id.slice(0, 8)}] échec :`, e.message);
-    await api.fail(job.id, e.message).catch(() => {});
+    // Un reel vidéo porte l'identité de son passage : l'échec d'un passage déjà terminé est refusé (409) par Metricove.
+    const run = video && job.run?.startedAt !== undefined ? job.run.startedAt : undefined;
+    await api.fail(job.id, e.message, run).catch(() => {});
   } finally {
     clearInterval(beat);
+    // Le dossier d'un passage vidéo qui n'a pas atteint handleVideo (disque plein…) ; handleVideo retire le sien lui-même.
+    if (video) { live.delete(dir); rmSync(dir, { recursive: true, force: true }); }
   }
 }
 

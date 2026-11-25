@@ -1,0 +1,190 @@
+{
+ "_doc": [
+  "Fixture d'évasion (revue 1) : `sandbox: false` coupe le filtre statique pour vérifier le second rideau, à l'exécution. Le filtre statique refuse déjà tlx et esc (evil-static-attacks.json, entrées « revue 1 ») ; grow passe le filtre (l'alias n'est pas suivi), cover aussi.",
+  "grow : le tableau grandit par un alias (b.push dans une boucle sur a.length) ; le compteur __g injecté par le moteur lève RangeError, le moment est retiré.",
+  "tlx : mt._dp.getChildren(...) — mt est une façade gelée sans _dp, TypeError, le moment est retiré.",
+  "esc : setHTMLUnsafe + click() — l'attribut onclick est vu par le piège (attributeFilter on*), takeRecords et le texte/fond du moteur sont protégés (empreinte, natifs capturés) ; le moment est retiré.",
+  "cover : sa CSS commence par transform:translateY(-560px) ; elle est écrite sous #m-cover > .mroot{...}, donc elle ne touche que sa racine, et le cadre (overflow:hidden, contain:paint) coupe ce qui déborde. Le moment est construit, sans rien hors de sa zone."
+ ],
+ "plan": {
+  "scenes": [],
+  "look": {
+   "theme": "night",
+   "accent": "#ff5a1f",
+   "font": "grotesque",
+   "fields": [],
+   "grid": false,
+   "pill": false,
+   "align": "left",
+   "valign": "middle",
+   "grain": true,
+   "numbers": true,
+   "handle": "@metricove",
+   "logo": ""
+  },
+  "logo": false,
+  "music": true,
+  "volume": 0.7,
+  "track": "",
+  "texts": [],
+  "pace": "normal",
+  "duration": 20,
+  "video": {
+   "engine": 1,
+   "request": "Idée : 3 erreurs qui font décrocher sur un reel Instagram, finir par Abonne-toi",
+   "source": "idea",
+   "title": "3 erreurs qui font zapper un reel",
+   "shape": "orb",
+   "beats": [
+    {
+     "id": "accroche",
+     "title": "Accroche",
+     "text": "Ils zappent en 3 secondes",
+     "emphasis": "3 secondes",
+     "layout": "hero",
+     "bridge": "rise",
+     "actor": "highlight",
+     "camera": "push",
+     "seconds": 2.4,
+     "start": 0,
+     "end": 2.4
+    },
+    {
+     "id": "erreurs",
+     "title": "3 erreurs",
+     "text": "3 erreurs qui font fuir",
+     "count": true,
+     "layout": "number",
+     "bridge": "morph",
+     "actor": "dot",
+     "camera": "drift",
+     "seconds": 3.2,
+     "start": 2.4,
+     "end": 5.6
+    },
+    {
+     "id": "intro",
+     "title": "Erreur 1",
+     "text": "Erreur 1 : te présenter d’abord",
+     "emphasis": "te présenter",
+     "layout": "hero",
+     "bridge": "rise",
+     "actor": "underline",
+     "camera": "drift",
+     "seconds": 2.8,
+     "start": 5.6,
+     "end": 8.4
+    },
+    {
+     "id": "son",
+     "title": "Erreur 2",
+     "text": "Erreur 2 : tout miser sur le son",
+     "sub": "Écris l’essentiel à l’écran.",
+     "emphasis": "le son",
+     "layout": "stack",
+     "bridge": "morph",
+     "actor": "rest",
+     "camera": "still",
+     "seconds": 4.2,
+     "start": 8.4,
+     "end": 12.6
+    },
+    {
+     "id": "plan",
+     "title": "Erreur 3",
+     "text": "Erreur 3 : un plan figé",
+     "sub": "Relance l’œil toutes les 2 secondes.",
+     "emphasis": "plan figé",
+     "layout": "stack",
+     "bridge": "cut",
+     "actor": "bar",
+     "camera": "drift",
+     "seconds": 4.2,
+     "start": 12.6,
+     "end": 16.8
+    },
+    {
+     "id": "abonne",
+     "title": "Abonne-toi",
+     "text": "Zéro erreur dans ton prochain reel",
+     "sub": "Abonne-toi",
+     "emphasis": "prochain reel",
+     "layout": "cta",
+     "bridge": "rise",
+     "actor": "underline",
+     "camera": "push",
+     "seconds": 3.2,
+     "start": 16.8,
+     "end": 20
+    }
+   ],
+   "moments": [
+    {
+     "id": "grow",
+     "brief": "Une boucle dont le tableau grandit par un alias : le compteur de tours l'arrête.",
+     "from": "accroche",
+     "to": "accroche",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"a\"></div>",
+      "css": ".a{position:absolute;left:0;top:0;width:10px;height:10px}",
+      "js": "const a = [1];\nconst b = a;\nfor (let i = 0; i < a.length; i++) { b.push(i); }\nmt.to(root.querySelector(\".a\"), { x: 10, duration: 0.5 }, 0);"
+     }
+    },
+    {
+     "id": "tlx",
+     "brief": "Remonte la timeline du moteur par mt._dp et anime ses cibles.",
+     "from": "intro",
+     "to": "intro",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"a\"></div>",
+      "css": ".a{width:10px;height:10px}",
+      "js": "var all = mt._dp.getChildren(false, false, true);\nfor (const t of all) {\n  var tw = t.getChildren(true, true, false);\n  for (let i = 0; i < tw.length; i++) { mt.fromTo(tw[i].targets(), { rotation: 0 }, { rotation: 8, duration: 0.5, immediateRender: false }, 0); }\n}"
+     }
+    },
+    {
+     "id": "esc",
+     "brief": "setHTMLUnsafe avec un onclick puis click() : neutralise takeRecords, change un texte et le fond du moteur.",
+     "from": "son",
+     "to": "son",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"dot\"></div>",
+      "css": ".dot{width:10px;height:10px}",
+      "js": "var lt = String.fromCharCode(60), q = String.fromCharCode(39);\nvar h1 = \"MutationObserver.prototype.takeRecords=function(){return []};\";\nvar h2 = 'document.querySelector(\"#t-plan .w\").textContent=\"PIRATE\";';\nvar h3 = 'document.getElementById(\"bg\").style.background=\"lime\";';\nroot.setHTMLUnsafe(lt + \"b onclick=\" + q + h1 + h2 + h3 + q + \">x\" + lt + \"/b>\");\nroot.firstElementChild.click();\nmt.fromTo(root, { opacity: 0 }, { opacity: 1, duration: 0.5, immediateRender: false }, 0);"
+     }
+    },
+    {
+     "id": "cover",
+     "brief": "Sa CSS déplace son propre cadre (transform) : la portée .mroot et le cadre (overflow, contain) le gardent dans sa zone.",
+     "from": "plan",
+     "to": "plan",
+     "zone": "below",
+     "code": {
+      "html": "<div class=\"a\"></div>",
+      "css": "transform:translateY(-560px);.a{position:absolute;left:0;top:0;width:900px;height:540px;background:var(--accent)}",
+      "js": "mt.fromTo(root.querySelector(\".a\"), { scale: 0.9 }, { scale: 1, duration: 0.5, immediateRender: false }, 0);"
+     }
+    }
+   ],
+   "caption": "3 erreurs qui font zapper ton reel dès les premières secondes.\n\n1. Te présenter avant la promesse\n2. Tout miser sur le son\n3. Garder un plan figé\n\nTu en fais combien ? Abonne-toi pour la suite.\n\n#reels #instagram #createurdecontenu",
+   "seed": 542867949,
+   "tools": {
+    "worker": "0.14.0",
+    "hyperframes": "0.8.137"
+   }
+  }
+ },
+ "sandbox": false,
+ "expect": {
+  "dropped": [
+   "grow",
+   "tlx",
+   "esc"
+  ],
+  "built": [
+   "cover"
+  ]
+ }
+}

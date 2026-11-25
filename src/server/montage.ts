@@ -1,9 +1,11 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, MAX_TEXTS, MUSIC_FADE, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelCode, type ReelFx, type ReelPlan, type ReelScene, type Rush } from "@/lib/montage";
+import { DEFAULT_AUDIO, DEFAULT_CAPTIONS, JOB_PHASES, MAX_TEXTS, MUSIC_FADE, REEL_ACTORS, REEL_BRIDGES, REEL_CAMERAS, REEL_LAYOUTS, REEL_SHAPES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, REEL_ZONES, VIDEO_BEAT_ID, VIDEO_BOARD, VIDEO_ENGINE, VIDEO_LIMITS, VIDEO_MOMENT_ID, VIDEO_WORKER, isVideoJob, type AudioSettings, type FreeText, type MusicCue, type Broll, type CaptionStyle, type Edl, type EdlWord, type JobAction, type JobPhase, type JobRun, type MontageFormat, type MontageJob, type MontageMark, type MontageVersion, type ReelBeat, type ReelCode, type ReelFx, type ReelMoment, type ReelPlan, type ReelScene, type ReelVideo, type Rush, type WorkerSpeed } from "@/lib/montage";
+import { atLeast } from "@/lib/worker-version";
 import type { Look } from "@/lib/profiles";
 import { DATA_DIR, db } from "./db";
+import { removeSources } from "./sources";
 
 /* ---------- Tables ---------- */
 
@@ -112,6 +114,13 @@ export function takeUpload(id: string) {
   if (u.received !== u.size) throw new UploadError("Envoi incomplet", 409);
   init().prepare("delete from uploads where id = ?").run(id);
   return { file: uploadPath(id), name: u.name, size: u.size };
+}
+
+/** Forgets an upload nobody will take (a video refused because its run is over): frees the disk now, not in 24 hours. */
+export function dropUpload(id: unknown) {
+  if (typeof id !== "string" || !getUpload(id)) return;
+  init().prepare("delete from uploads where id = ?").run(id);
+  fs.rmSync(uploadPath(id), { force: true });
 }
 
 /** Unfinished or unused uploads are deleted after 24 hours. */
@@ -261,22 +270,72 @@ export function saveJob(job: MontageJob, claimed?: number | null) {
 }
 
 export function deleteJob(id: string) {
+  // The documents a reading request was made of go with it.
+  const job = getJob(id);
+  if (job?.brand && job.projectId) removeSources(job.projectId, job.brand.files.map((f) => f.id));
   init().prepare("delete from montage_jobs where id = ?").run(id);
   fs.rmSync(path.join(DATA_DIR, "montage", path.basename(id)), { recursive: true, force: true });
 }
 
-/** Gives a job to the worker. A claim older than 15 minutes without news is given again (Mac asleep, crash). */
-export function claimJob(): MontageJob | undefined {
+/** A claim without news for this long is given again (Mac asleep, crash). */
+const CLAIM_STALE = 15 * 60_000;
+/** Same for a video job held by a worker ≥ 0.15.0: it reports every 15 s, and workDir/worker.lock keeps it alone on its Mac. */
+const CLAIM_STALE_FAST = 90_000;
+
+/**
+ * Does the worker that holds this job report every 15 s? Only a video job run by a worker ≥ 0.15.0 does (its own
+ * progress heartbeat); every other path of that same worker (script, caption, post, cover, face-cam edit, reels of
+ * scenes) and every older worker still report once a minute.
+ */
+const fastBeat = (job: MontageJob) => isVideoJob(job) && atLeast(job.run?.by, VIDEO_WORKER);
+
+/**
+ * Gives the oldest waiting job to the worker of version `version`, skipping the jobs it is too old for (`minWorker`;
+ * a missing version counts as "0.0.0", so it gets no such job). A claim without news for 15 minutes is given again,
+ * or for 90 s for a video job held by a worker ≥ 0.15.0 (fastBeat): a Mac that crashed in the middle of a video takes
+ * it back as soon as it returns. `run` starts again: the worker that held the job sees `run.startedAt` change and stops.
+ */
+export function claimJob(version?: string): MontageJob | undefined {
   const conn = init();
-  const stale = Date.now() - 15 * 60_000;
-  const rows = conn.prepare("select * from montage_jobs where claimed_at is null or claimed_at < ? order by created_at").all(stale) as JobRow[];
-  const row = rows.find((r) => (JSON.parse(r.data) as MontageJob).action);
-  if (!row) return undefined;
-  const job: MontageJob = JSON.parse(row.data);
-  if (job.status !== "rendering") job.status = "working";
-  job.step = job.step ?? "Pris en charge par le Mac";
-  job.error = undefined;
-  return saveJob(job, Date.now());
+  const now = Date.now();
+  const rows = conn.prepare("select * from montage_jobs where claimed_at is null or claimed_at < ? order by created_at").all(now - CLAIM_STALE_FAST) as JobRow[];
+  for (const row of rows) {
+    const job: MontageJob = JSON.parse(row.data);
+    if (!job.action) continue;
+    // Claimed between 90 s and 15 min ago: only given again when it reports every 15 s (it would have reported).
+    if (row.claimed_at !== null && row.claimed_at >= now - CLAIM_STALE && !fastBeat(job)) continue;
+    // A video job also needs today's VIDEO_WORKER: one asked before a version bump keeps an older minWorker.
+    if (!atLeast(version, job.minWorker) || (isVideoJob(job) && !atLeast(version, VIDEO_WORKER))) continue;
+    // A video job starts its run from nothing: what an earlier run left (taken back, or a late report) means nothing here.
+    if (job.minWorker) job.step = job.progress = undefined;
+    if (job.status !== "rendering") job.status = "working";
+    job.step = job.step ?? "Pris en charge par le Mac";
+    job.error = undefined;
+    const at = new Date(now).toISOString();
+    job.run = { startedAt: at, ...(version ? { by: version.slice(0, 20) } : {}), beatAt: at };
+    return saveJob(job, now);
+  }
+  return undefined;
+}
+
+/**
+ * A write from the worker that belongs to a run that is over: answered 409, nothing is stored. `run` is the
+ * `run.startedAt` the worker got with its claim and sends back with each write (worker ≥ 0.15.0, optional): another
+ * value means the page stopped that run, or another claim took the job (`queue()` and `release()` clear `run`, a claim
+ * sets a new one). Without it (older workers, or a worker that does not send it yet), only a video job (`video`) is
+ * checked, by its state: it takes worker writes only while it is claimed, never with no action (stopped, cancelled,
+ * finished) nor while it waits in the queue (a new request made after a stop, that nobody has claimed yet). Other jobs
+ * keep their old behaviour. Returns the French reason, or undefined when the write is the current run's.
+ * A refused write still says the Mac is there: its presence is refreshed (its `busy` job is left as it is, and
+ * workerStatus no longer counts it once it is not the Mac's), so that a request queued after a stop never reads « Mac
+ * éteint » while the Mac drops the old run. A worker 0.15.0 takes the 409 as the order to stop.
+ */
+export function staleWrite(job: MontageJob, run: unknown, video = isVideoJob(job)): string | undefined {
+  let why: string | undefined;
+  if (typeof run === "string" && run) why = run === job.run?.startedAt ? undefined : "Ce passage du Mac est terminé (arrêté, repris ou remplacé) : rien n'est enregistré";
+  else if (video && (!job.action || job.status === "queued")) why = "Ce reel n'est plus en cours sur le Mac : rien n'est enregistré";
+  if (why) workerSeen({});
+  return why;
 }
 
 /** The worker reports progress: keeps the claim alive. */
@@ -291,6 +350,7 @@ export function queue(job: MontageJob, action: JobAction) {
   job.step = undefined;
   job.progress = undefined;
   job.error = undefined;
+  job.run = undefined;
   return saveJob(job, null);
 }
 
@@ -300,7 +360,103 @@ export function release(job: MontageJob, status: MontageJob["status"]) {
   job.status = status;
   job.step = undefined;
   job.progress = undefined;
+  job.run = undefined;
   return saveJob(job, null);
+}
+
+const intIn = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi ? v : undefined);
+const secIn = (v: unknown, hi = 3600) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= hi ? Math.round(v * 1000) / 1000 : undefined);
+const isPhase = (v: unknown): v is JobPhase => JOB_PHASES.includes(v as JobPhase);
+
+/** The markers of a run as the worker reports them: at most 12, with their times in the video. */
+function cleanRunBeats(raw: unknown): JobRun["beats"] {
+  if (!Array.isArray(raw)) return undefined;
+  const out: NonNullable<JobRun["beats"]> = [];
+  for (const b of (raw as Record<string, unknown>[]).slice(0, REEL_VIDEO.beats[1])) {
+    const start = secIn(b?.start, 61);
+    const end = secIn(b?.end, 61);
+    if (typeof b?.id !== "string" || !VIDEO_BEAT_ID.test(b.id) || start === undefined || end === undefined || !(start < end)) continue;
+    out.push({ id: b.id, title: line(b.title, VIDEO_LIMITS.beat.title), start, end });
+  }
+  return out.length ? out : undefined;
+}
+
+/**
+ * What the worker reports while it works (PATCH { step, progress, phase?, phases?, eta?, frames?, beats?, done? }),
+ * on the `run` of the job. Fields out of bounds are ignored; an older worker sends none of them and only refreshes
+ * `beatAt`. Times are the server's: `phaseAt` when the phase changes, `etaAt` = now + eta seconds.
+ */
+export function reportRun(job: MontageJob, b: Record<string, unknown>) {
+  const now = new Date();
+  const at = now.toISOString();
+  // A job taken before the server knew `run` (or by a worker that sends none) gets one at its first report.
+  const run: JobRun = job.run ?? { startedAt: at, beatAt: at };
+  if (isPhase(b.phase) && b.phase !== run.phase) {
+    run.phase = b.phase;
+    run.phaseAt = at;
+  }
+  if (Array.isArray(b.phases)) {
+    const phases = [...new Set((b.phases as unknown[]).filter(isPhase))].slice(0, JOB_PHASES.length);
+    if (phases.length) run.phases = phases;
+  }
+  const eta = secIn(b.eta);
+  if (eta !== undefined) run.etaAt = new Date(now.getTime() + eta * 1000).toISOString();
+  if (Array.isArray(b.frames) && b.frames.length === 2) {
+    const n = intIn(b.frames[1], 0, 20_000);
+    const i = n === undefined ? undefined : intIn(b.frames[0], 0, n);
+    if (i !== undefined && n !== undefined) run.frames = [i, n];
+  }
+  const beats = cleanRunBeats(b.beats);
+  if (beats) run.beats = beats;
+  if (Array.isArray(b.done)) {
+    const done = (b.done as Record<string, unknown>[])
+      .slice(0, JOB_PHASES.length)
+      .flatMap((d) => (isPhase(d?.phase) && secIn(d.s) !== undefined ? [{ phase: d.phase, s: secIn(d.s)! }] : []));
+    if (done.length) run.done = done;
+  }
+  run.beatAt = at;
+  job.run = run;
+}
+
+/* ---------- Storyboard of a video job (worker 0.15.0) ---------- */
+
+export const boardPath = (jobId: string) => path.join(dir("montage", path.basename(jobId)), "board.jpg");
+
+/** Where the board of a job would be, without creating its folder (GET). */
+export const boardFile = (jobId: string) => path.join(DATA_DIR, "montage", path.basename(jobId), "board.jpg");
+
+/**
+ * The storyboard the Mac took before rendering: a JPEG sprite, one tile per beat at the instant it is settled.
+ * `image` = "data:image/jpeg;base64,…" (VIDEO_BOARD.chars at most, VIDEO_BOARD.bytes decoded), `frames` = [{ id, t }]
+ * (VIDEO_BOARD.frames at most). Stored as a file (the job only keeps its version number). Returns an error in French.
+ */
+export function saveBoard(job: MontageJob, image: unknown, frames: unknown): string | undefined {
+  const prefix = "data:image/jpeg;base64,";
+  if (typeof image !== "string" || !image.startsWith(prefix)) return "Planche attendue en data:image/jpeg;base64";
+  if (image.length > VIDEO_BOARD.chars) return `Planche trop lourde (${Math.round(VIDEO_BOARD.bytes / 1024)} Ko au plus)`;
+  const bytes = Buffer.from(image.slice(prefix.length), "base64");
+  if (bytes.length > VIDEO_BOARD.bytes) return `Planche trop lourde (${Math.round(VIDEO_BOARD.bytes / 1024)} Ko au plus)`;
+  // A JPEG starts with FF D8 FF and ends with FF D9.
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff || bytes[bytes.length - 2] !== 0xff || bytes[bytes.length - 1] !== 0xd9) return "La planche n'est pas une image JPEG";
+  if (!Array.isArray(frames) || !frames.length || frames.length > VIDEO_BOARD.frames) return `Tuiles de la planche : 1 à ${VIDEO_BOARD.frames}`;
+  const tiles: NonNullable<JobRun["board"]>["frames"] = [];
+  for (const f of frames as Record<string, unknown>[]) {
+    const t = secIn(f?.t, 61);
+    if (typeof f?.id !== "string" || !VIDEO_BEAT_ID.test(f.id) || t === undefined) return "Tuile de la planche invalide";
+    tiles.push({ id: f.id, t });
+  }
+  const file = boardPath(job.id);
+  fs.writeFileSync(`${file}.part`, bytes);
+  fs.renameSync(`${file}.part`, file);
+  const at = new Date().toISOString();
+  job.run = { ...(job.run ?? { startedAt: at, beatAt: at }), beatAt: at, board: { v: Date.now(), n: tiles.length, frames: tiles } };
+  return undefined;
+}
+
+/** For each job waiting for the Mac: how many jobs with an action were made before it (they go first). */
+export function withAhead<T extends MontageJob>(jobs: T[]): T[] {
+  const active = jobs.filter((j) => j.action).map((j) => j.createdAt);
+  return jobs.map((j) => (j.action && j.status === "queued" ? { ...j, ahead: active.filter((c) => c < j.createdAt).length } : j));
 }
 
 export const previewPath = (jobId: string, n: number) => path.join(dir("montage", path.basename(jobId)), `v${n}.mp4`);
@@ -318,14 +474,56 @@ export function dropPreviews(jobId: string) {
 
 /* ---------- Worker presence ---------- */
 
-/** The Mac says it is there; with `tracks` (its music files) when it sends them, else the last list is kept. */
-export function workerSeen(info: { worker?: string; version?: string; tracks?: string[] }) {
-  const conn = init();
-  const before = conn.prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
-  const tracks = info.tracks ?? (before ? (JSON.parse(before.value) as { tracks?: string[] }).tracks : undefined);
-  conn
+/** The presence record of the Mac (kv 'worker'). `busy`: the job it reported on last (cleared by its next claim). */
+type WorkerRecord = { worker?: string; version?: string; tracks?: string[]; speed?: WorkerSpeed; busy?: string; at: number };
+
+function readWorker(): WorkerRecord | undefined {
+  const r = init().prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
+  if (!r) return undefined;
+  try {
+    return JSON.parse(r.value) as WorkerRecord;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeWorker(w: WorkerRecord) {
+  init()
     .prepare("insert into kv (key, value) values ('worker', @v) on conflict(key) do update set value = excluded.value")
-    .run({ v: JSON.stringify({ worker: info.worker, version: info.version, ...(tracks ? { tracks } : {}), at: Date.now() }) });
+    .run({ v: JSON.stringify(w) });
+}
+
+/**
+ * The Mac says it is there. What it does not send (version, music `tracks`, `speed`) keeps its last value: the rush
+ * scan sends no version, and must not make the version gate blink. `idle` (a claim: the Mac only asks for work
+ * between two jobs) clears `busy`.
+ */
+export function workerSeen(info: { worker?: string; version?: string; tracks?: string[]; speed?: WorkerSpeed }, { idle = false }: { idle?: boolean } = {}) {
+  const before = readWorker();
+  const worker = info.worker ?? before?.worker;
+  const version = info.version ?? before?.version;
+  const tracks = info.tracks ?? before?.tracks;
+  const speed = info.speed ?? before?.speed;
+  const busy = idle ? undefined : before?.busy;
+  writeWorker({ worker, version, ...(tracks ? { tracks } : {}), ...(speed ? { speed } : {}), ...(busy ? { busy } : {}), at: Date.now() });
+}
+
+/** The Mac reported on a job (PATCH, board): it is there and busy with it. The rest of its record is kept. */
+export function touchWorker(jobId: string) {
+  const before = readWorker();
+  writeWorker({ ...before, busy: jobId, at: Date.now() });
+}
+
+/** The speed a claim reports ({ frameMs, writeS }), within sane bounds; undefined when nothing usable. */
+export function cleanSpeed(raw: unknown): WorkerSpeed | undefined {
+  const s = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const frameMs = num(s.frameMs);
+  const writeS = num(s.writeS);
+  const out: WorkerSpeed = {
+    ...(frameMs !== undefined && frameMs >= 1 && frameMs <= 10_000 ? { frameMs: Math.round(frameMs) } : {}),
+    ...(writeS !== undefined && writeS >= 1 && writeS <= 3600 ? { writeS: Math.round(writeS) } : {}),
+  };
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** One shot of the Mac B-roll folder, as the page lists it. */
@@ -345,17 +543,54 @@ export function macBroll(): { list: MacBroll[]; at?: string } {
   return { list: v.list, at: new Date(v.at).toISOString() };
 }
 
-export function workerStatus() {
-  const r = init().prepare("select value from kv where key = 'worker'").get() as { value: string } | undefined;
-  if (!r) return { online: false as const };
-  const w = JSON.parse(r.value) as { worker?: string; version?: string; tracks?: string[]; at: number };
-  return { online: Date.now() - w.at < 30_000, lastSeen: new Date(w.at).toISOString(), name: w.worker, version: w.version, tracks: w.tracks };
+/** Presence windows: seen recently, or busy and reporting (a busy Mac sends no claim; it reports every 15 s on a video job of a 0.15.0 worker, every 60 s otherwise). */
+const SEEN_MS = 30_000;
+const BUSY_MS = 90_000;
+const SILENT_MS = 45_000;
+const SILENT_OLD_MS = 120_000;
+
+export type WorkerState = {
+  online: boolean;
+  lastSeen?: string;
+  name?: string;
+  version?: string;
+  tracks?: string[];
+  /** The job the Mac works on right now. */
+  busy?: { id: string; title: string };
+  /** Busy, but no news for a while (asleep? crashed?): its job will be taken back. */
+  silent?: boolean;
+  speed?: WorkerSpeed;
+};
+
+export function workerStatus(): WorkerState {
+  const w = readWorker();
+  if (!w) return { online: false };
+  const age = Date.now() - w.at;
+  // `busy` only counts while the Mac holds that job: finished, stopped or deleted, the Mac is free; back in the queue
+  // (a new request after a stop, nobody has claimed it yet), it is not the Mac's either.
+  const job = w.busy ? getJob(w.busy) : undefined;
+  const busy = job && job.action && job.status !== "queued" ? { id: job.id, title: job.title } : undefined;
+  return {
+    online: age < SEEN_MS || (!!busy && age < BUSY_MS),
+    lastSeen: new Date(w.at).toISOString(),
+    name: w.worker,
+    version: w.version,
+    tracks: w.tracks,
+    ...(busy && job ? { busy, silent: age >= (fastBeat(job) ? SILENT_MS : SILENT_OLD_MS) } : {}),
+    ...(w.speed ? { speed: w.speed } : {}),
+  };
 }
 
 /* ---------- Validation of what the worker or the page sends ---------- */
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 const str = (v: unknown, max = 500) => (typeof v === "string" ? v.slice(0, max) : undefined);
+/**
+ * One line of text: no line breaks, no runs of breaking spaces (the engine lays out words, never raw markup). The
+ * non-breaking spaces of French typography (U+00A0, narrow U+202F, figure U+2007: « Chapitre 3 », « 3 h », « 12 % »)
+ * are kept: JavaScript's \s matches them too.
+ */
+const line = (v: unknown, max: number) => (str(v, max * 2) ?? "").replace(/[^\S\u00a0\u202f\u2007]+/g, " ").trim().slice(0, max);
 
 export function cleanEdl(raw: unknown, rushIds: string[]): Edl | string {
   if (!raw || typeof raw !== "object") return "EDL manquante";
@@ -560,13 +795,178 @@ function cleanCode(raw: unknown): ReelCode | undefined {
 
 const PACES = ["calm", "normal", "fast"] as const;
 
+/* ---------- Continuous video reel (worker 0.15.0): the `video` of a plan ---------- */
+
+const pick = <T extends string>(v: unknown, among: readonly T[], fallback: T): T => (among.includes(v as T) ? (v as T) : fallback);
+/** Free text that may keep its line breaks (request, direction, caption). */
+const para = (v: unknown, max: number) => (str(v, max * 2) ?? "").replace(/\r\n?/g, "\n").trim().slice(0, max);
+
+/** The texts and choices of a beat, bounded (shared by the Mac and the page). Undefined when it has no text at all. */
+function beatFields(x: Record<string, unknown>, fallback?: ReelBeat): Omit<ReelBeat, "id" | "start" | "end" | "say"> | undefined {
+  const L = VIDEO_LIMITS.beat;
+  const text = line(x.text, L.text) || (fallback?.text ?? "");
+  const title = line(x.title, L.title) || fallback?.title || text.slice(0, L.title);
+  if (!text) return undefined;
+  const sub = line(x.sub, L.sub);
+  const items = Array.isArray(x.items) ? (x.items as unknown[]).map((i) => line(i, L.item)).filter(Boolean).slice(0, L.items) : [];
+  const emphasis = line(x.emphasis, L.emphasis);
+  const seconds = num(x.seconds) ?? fallback?.seconds ?? 3;
+  const [lo, hi] = REEL_VIDEO.seconds;
+  return {
+    title,
+    text,
+    ...(sub ? { sub } : {}),
+    ...(items.length ? { items } : {}),
+    ...(emphasis ? { emphasis } : {}),
+    ...(x.count === true ? { count: true } : {}),
+    layout: pick(x.layout, REEL_LAYOUTS, fallback?.layout ?? "stack"),
+    bridge: pick(x.bridge, REEL_BRIDGES, fallback?.bridge ?? "morph"),
+    actor: pick(x.actor, REEL_ACTORS, fallback?.actor ?? "rest"),
+    camera: pick(x.camera, REEL_CAMERAS, fallback?.camera ?? "drift"),
+    seconds: Math.min(hi, Math.max(lo, seconds)),
+    ...(x.fixed === true ? { fixed: true } : {}),
+    ...(x.cut === true ? { cut: true } : {}),
+  };
+}
+
+/** The reserved fields (METRI-18, METRI-27/28): not read in v1, kept bounded so that a newer Mac can round-trip them. */
+function reservedVideo(v: Record<string, unknown>): Pick<ReelVideo, "captions" | "voiceOver" | "motionStyle"> {
+  const c = v.captions as Record<string, unknown> | undefined;
+  const o = v.voiceOver as Record<string, unknown> | undefined;
+  const style = line(v.motionStyle, 1000);
+  return {
+    ...(c && typeof c === "object" ? { captions: { on: c.on === true, ...(["karaoke", "pop", "simple"].includes(c.look as string) ? { look: c.look as "karaoke" | "pop" | "simple" } : {}) } } : {}),
+    ...(o && typeof o === "object" && o.provider === "elevenlabs" && line(o.voiceId, 100) ? { voiceOver: { provider: "elevenlabs" as const, voiceId: line(o.voiceId, 100) } } : {}),
+    ...(style ? { motionStyle: style } : {}),
+  };
+}
+
+/** Code of a moment from the Mac: strings within the bounds of VIDEO_LIMITS. The Mac checks it again before every render. */
+function videoCode(raw: unknown): ReelCode | "trop long" | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const [html, css, js] = [r.html, r.css ?? "", r.js].map((x) => (typeof x === "string" ? x : undefined));
+  if (html === undefined || css === undefined || js === undefined) return undefined;
+  const M = VIDEO_LIMITS.moment;
+  if (html.length > M.html || css.length > M.css || js.length > M.js) return "trop long";
+  return { html, css, js };
+}
+
+/**
+ * The `video` of a plan. From the Mac (`base` left out): the whole score, code of the moments included (bounded only:
+ * the Mac is the safety boundary). From the page (`base` = the video of the version it starts from): the page edits
+ * texts, choices, lengths, cuts and the order of the beats the base has; everything else (request, seed, moments and
+ * their code…) comes from the base, and a moment survives only when the page still marks it `custom`.
+ */
+export function cleanVideo(raw: unknown, base?: ReelVideo): ReelVideo | string {
+  if (!raw || typeof raw !== "object") return "Plan vidéo manquant";
+  const v = raw as Record<string, unknown>;
+  const fromMac = !base;
+  if (fromMac && v.engine !== VIDEO_ENGINE) return "Moteur vidéo inconnu : mets le site à jour";
+
+  // Beats.
+  const beats: ReelBeat[] = [];
+  const seen = new Set<string>();
+  for (const [i, x] of (Array.isArray(v.beats) ? (v.beats as Record<string, unknown>[]) : []).entries()) {
+    if (!x || typeof x !== "object" || beats.length >= REEL_VIDEO.beats[1]) continue;
+    if (base) {
+      // The page: only the beats of the base, each at most once; what it does not say well stays as in the base.
+      const old = base.beats.find((b) => b.id === x.id);
+      if (!old || seen.has(old.id)) continue;
+      const f = beatFields(x, old);
+      if (!f) continue;
+      seen.add(old.id);
+      beats.push({ id: old.id, ...f, ...(old.say ? { say: old.say } : {}) });
+      continue;
+    }
+    const f = beatFields(x);
+    if (!f) continue;
+    // Ids are stable across versions: a bad or repeated one gets a new unique id (moments that pointed to it are dropped).
+    let id = typeof x.id === "string" && VIDEO_BEAT_ID.test(x.id) && !seen.has(x.id) ? x.id : `b${i + 1}`;
+    for (let k = 2; seen.has(id); k++) id = `b${i + 1}-${k}`;
+    seen.add(id);
+    const start = num(x.start);
+    const end = num(x.end);
+    const say = line(x.say, 300);
+    beats.push({
+      id,
+      ...f,
+      ...(say ? { say } : {}),
+      ...(start !== undefined && end !== undefined && start >= 0 && start < end && end <= 61 ? { start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 } : {}),
+    });
+  }
+  if (beats.filter((b) => !b.cut).length < REEL_VIDEO.keep) return "Garde au moins deux temps forts";
+
+  // Moments.
+  const ids = new Set(beats.map((b) => b.id));
+  const moments: ReelMoment[] = [];
+  let total = 0;
+  for (const x of Array.isArray(v.moments) ? (v.moments as Record<string, unknown>[]) : []) {
+    if (!x || typeof x !== "object" || moments.length >= REEL_VIDEO.moments) continue;
+    if (moments.some((m) => m.id === x.id)) continue;
+    if (base) {
+      // The page never brings code nor moves a moment: kept from the base, while the page still marks it `custom`.
+      const old = base.moments.find((m) => m.id === x.id);
+      if (!old || x.custom !== true || !ids.has(old.from) || !ids.has(old.to)) continue;
+      moments.push({ id: old.id, brief: old.brief, from: old.from, to: old.to, zone: old.zone, ...(old.code ? { code: old.code } : {}) });
+      continue;
+    }
+    if (typeof x.id !== "string" || !VIDEO_MOMENT_ID.test(x.id)) continue;
+    const from = typeof x.from === "string" ? x.from : "";
+    const to = typeof x.to === "string" ? x.to : "";
+    if (!ids.has(from) || !ids.has(to)) continue;
+    const code = videoCode(x.code);
+    if (code === "trop long") return "Code des animations trop long";
+    total += code ? code.html.length + code.css.length + code.js.length : 0;
+    if (total > VIDEO_LIMITS.code) return "Code des animations trop long";
+    moments.push({ id: x.id, brief: line(x.brief, VIDEO_LIMITS.moment.brief), from, to, zone: pick(x.zone, REEL_ZONES, "above"), ...(code ? { code } : {}) });
+  }
+
+  if (base) {
+    // Everything the page cannot change.
+    const { beats: _b, moments: _m, ...head } = base;
+    void _b;
+    void _m;
+    return { ...head, beats, moments };
+  }
+  const target = REEL_TARGETS.find((t) => t === v.target);
+  const direction = para(v.direction, 1000);
+  const caption = para(v.caption, VIDEO_LIMITS.caption);
+  const seed = num(v.seed);
+  const tools = (v.tools && typeof v.tools === "object" ? v.tools : {}) as Record<string, unknown>;
+  const worker = line(tools.worker, VIDEO_LIMITS.tools);
+  const hyperframes = line(tools.hyperframes, VIDEO_LIMITS.tools);
+  return {
+    engine: VIDEO_ENGINE,
+    request: para(v.request, REEL_VIDEO.request),
+    source: pick(v.source, REEL_SOURCES, "idea"),
+    ...(target ? { target } : {}),
+    ...(direction ? { direction } : {}),
+    title: line(v.title, VIDEO_LIMITS.title),
+    shape: pick(v.shape, REEL_SHAPES, "orb"),
+    beats,
+    moments,
+    ...(caption ? { caption } : {}),
+    seed: seed !== undefined && Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff ? seed : 0,
+    ...(worker || hyperframes ? { tools: { ...(worker ? { worker } : {}), ...(hyperframes ? { hyperframes } : {}) } } : {}),
+    ...reservedVideo(v),
+  };
+}
+
 /**
  * The plan of a reel version. From the Mac (`base` left out): taken as it is, code included.
  * From the page: the code never travels through the browser, so each scene takes the code of the scene with the same id
  * in `base` when the page still marks it `custom`. A whole custom scene whose text changed loses its code (the text is in it).
+ * A video plan (`video`, worker 0.15.0) has no scenes: its `video` goes through cleanVideo. From the page, only a base
+ * with a video makes a video plan (a page can never turn a reel of scenes into a video, nor bring code).
  */
 export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan | string {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  if (base ? !!base.video : r.video !== undefined) {
+    const video = cleanVideo(r.video, base?.video);
+    if (typeof video === "string") return video;
+    return { ...planFields(r, look, base), scenes: [], video };
+  }
   const seen = new Set<string>();
   const scenes: ReelScene[] = [];
   for (const x of (Array.isArray(r.scenes) ? (r.scenes as Record<string, unknown>[]) : []).slice(0, 16)) {
@@ -598,13 +998,17 @@ export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan |
   }
   if (!scenes.some((s) => !s.cut)) return "Garde au moins une scène";
   if (scenes.filter((s) => !s.cut).length > 8) return "8 scènes au plus";
+  return { scenes, ...planFields(r, look, base) };
+}
+
+/** What a plan of scenes and a video plan share: look, logo, music, hand-placed texts, rhythm, rendered length. */
+function planFields(r: Record<string, unknown>, look: Look, base?: ReelPlan): Omit<ReelPlan, "scenes" | "video"> {
   const volume = num(r.volume);
   const duration = num(r.duration);
   // Only compared with the names of the Mac's folder, never joined to a path: kept as it is.
   const track = str(r.track, 200)?.trim();
   const cue = cleanCue(r.cue);
   return {
-    scenes,
     look,
     logo: r.logo !== false,
     music: r.music !== false,
@@ -620,7 +1024,12 @@ export function cleanReel(raw: unknown, look: Look, base?: ReelPlan): ReelPlan |
 
 /** The plan as the page gets it: the code stays on the server, the page only learns that there is some. */
 export function pageReel(plan: ReelPlan): ReelPlan {
-  return { ...plan, scenes: plan.scenes.map(({ art, layer, ...s }) => ({ ...s, ...(art ? { custom: "art" as const } : layer ? { custom: "layer" as const } : {}) })) };
+  return {
+    ...plan,
+    scenes: plan.scenes.map(({ art, layer, ...s }) => ({ ...s, ...(art ? { custom: "art" as const } : layer ? { custom: "layer" as const } : {}) })),
+    // A video: the moments without their code, `custom` says whether there is some.
+    ...(plan.video ? { video: { ...plan.video, moments: (plan.video.moments ?? []).map(({ code, ...m }) => ({ ...m, custom: !!code })) } } : {}),
+  };
 }
 
 /**

@@ -1,16 +1,23 @@
 import { NextResponse } from "next/server";
-import { MAX_DIRECTION, MAX_SCENES, type MontageFormat, type MontageJob } from "@/lib/montage";
+import { MAX_DIRECTION, MAX_SCENES, REEL_SOURCES, REEL_TARGETS, REEL_VIDEO, VIDEO_WORKER, type MontageFormat, type MontageJob } from "@/lib/montage";
 import { NETWORK_ORDER } from "@/lib/networks";
 import type { Network } from "@/lib/types";
 import { listAccounts, listMedia, listPosts, listProjects } from "@/server/db";
-import { getRushRow, getStyle, listJobs, saveJob } from "@/server/montage";
+import { getRushRow, getStyle, listJobs, pageJob, saveJob, withAhead } from "@/server/montage";
 import { cleanLook, starterProfile } from "@/lib/profiles";
 import { profileOf, voiceOf } from "@/server/profiles";
+import { MAX_FOCUS, MAX_PLAN_ITEMS, MAX_SOURCE_TEXT, MAX_SOURCES, PLAN_DAYS, PLAN_FORMATS, type PlanFormat, type SourceFile } from "@/lib/strategy";
+import { sourceFile } from "@/server/sources";
 
 export const dynamic = "force-dynamic";
 
+/** The jobs as the page sees them (scripts use it too): no code from Claude, a link in place of each drawing. */
 export function GET() {
-  return NextResponse.json({ jobs: listJobs() });
+  const jobs = listJobs().map((j) => ({
+    ...pageJob(j),
+    ...(j.marks ? { marks: j.marks.map((m) => ({ ...m, image: m.image ? `/api/montage/jobs/${j.id}/marks/${m.id}` : undefined })) } : {}),
+  }));
+  return NextResponse.json({ jobs: withAhead(jobs), now: Date.now() });
 }
 
 type Body = {
@@ -35,6 +42,22 @@ type Body = {
   music?: boolean;
   direction?: unknown;
   pace?: unknown;
+  // kind "motion", mode "video" (worker 0.15.0)
+  mode?: unknown;
+  request?: unknown;
+  source?: unknown;
+  seconds?: unknown;
+  track?: unknown;
+  // kind "brand" (mode too)
+  sources?: unknown;
+  url?: unknown;
+  text?: unknown;
+  // kind "plan"
+  from?: unknown;
+  days?: unknown;
+  count?: unknown;
+  formats?: unknown;
+  focus?: unknown;
 };
 
 /**
@@ -47,7 +70,10 @@ export async function POST(req: Request) {
   if (b.kind === "caption") return captionJob(b);
   if (b.kind === "cover") return coverJob(b);
   if (b.kind === "post") return postJob(b);
+  if (b.kind === "motion" && b.mode === "video") return videoJob(b);
   if (b.kind === "motion") return motionJob(b);
+  if (b.kind === "brand") return brandJob(b);
+  if (b.kind === "plan") return planJob(b);
   const kind = b.kind === "script" ? "script" : "montage";
   const format: MontageFormat = ["9:16", "4:5", "1:1", "16:9"].includes(b.brief?.format as string) ? (b.brief!.format as MontageFormat) : "9:16";
   const rushIds = [...new Set(b.rushIds ?? [])].filter((id) => getRushRow(id));
@@ -205,6 +231,169 @@ function motionJob(b: Body) {
     action: "motion",
     brief: { format: "9:16" },
     motion: { scenes, look: stored, logo: b.logo !== false, music: b.music !== false, ...(direction ? { direction } : {}), ...(pace ? { pace } : {}), project: project?.name },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/**
+ * Asks the Mac for a continuous video reel (worker 0.15.0): Claude writes the whole video from Antoine's request, in
+ * the look and the voice of the project. Only a Mac at VIDEO_WORKER or newer can take it (`minWorker`); an older one
+ * leaves it waiting, and the page says why.
+ */
+function videoJob(b: Body) {
+  const request = typeof b.request === "string" ? b.request.replace(/\r\n?/g, "\n").trim().slice(0, REEL_VIDEO.request) : "";
+  if (request.length < REEL_VIDEO.minRequest) return NextResponse.json({ error: `Écris ta demande (${REEL_VIDEO.minRequest} caractères au moins)` }, { status: 400 });
+  const source = REEL_SOURCES.find((s) => s === b.source) ?? "idea";
+  // Auto when left out (Claude picks between 15 and 60 s).
+  const seconds = REEL_TARGETS.find((t) => t === Number(b.seconds));
+  const pace = (["calm", "normal", "fast"] as const).find((p) => p === b.pace);
+  const direction = typeof b.direction === "string" ? b.direction.replace(/\r\n?/g, "\n").trim().slice(0, MAX_DIRECTION) : "";
+  // Only compared with the names of the Mac's music folder, never joined to a path.
+  const track = typeof b.track === "string" ? b.track.trim().slice(0, 200) : "";
+  const project = listProjects().find((p) => p.id === b.projectId);
+  const base = project ? profileOf(project).look : starterProfile("antoine").look;
+  const look = cleanLook(b.look, base);
+  if (typeof look === "string") return NextResponse.json({ error: look }, { status: 400 });
+  // The logo stays out of the job (the list of jobs is read every few seconds): the Mac gets it when it takes the job.
+  const { logo: _logo, ...stored } = look;
+  void _logo;
+  const first = request.split("\n").find((l) => l.trim()) ?? request;
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "motion",
+    // Runs of breaking spaces only: the non-breaking ones of French typography (« ? », « 3 h ») stay, as in line().
+    title: `Reel animé : ${first.replace(/[^\S   ]+/g, " ").trim().slice(0, 60)}`,
+    projectId: project?.id,
+    status: "queued",
+    action: "motion",
+    brief: { format: "9:16", ...(seconds ? { seconds } : {}) },
+    motion: {
+      mode: "video",
+      scenes: [],
+      request,
+      source,
+      ...(seconds ? { seconds } : {}),
+      ...(pace ? { pace } : {}),
+      ...(direction ? { direction } : {}),
+      music: b.music !== false,
+      ...(track ? { track } : {}),
+      logo: b.logo !== false,
+      look: stored,
+      project: project?.name,
+    },
+    minWorker: VIDEO_WORKER,
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+/** Asks the Mac to read a digital strategy or a charte (documents, a website, a pasted text) for a project. */
+function brandJob(b: Body) {
+  const project = listProjects().find((p) => p.id === b.projectId);
+  if (!project) return NextResponse.json({ error: "Choisis le projet" }, { status: 400 });
+  const mode = b.mode === "charte" ? "charte" : "strategy";
+  const files: SourceFile[] = [];
+  for (const s of (Array.isArray(b.sources) ? b.sources : []) as Record<string, unknown>[]) {
+    const id = typeof s?.id === "string" ? s.id : "";
+    if (!sourceFile(project.id, id) || files.some((f) => f.id === id)) continue;
+    files.push({ id, name: typeof s.name === "string" ? s.name.replace(/[\0-\x1f]/g, "").slice(0, 120) || "Document" : "Document", type: id.split(".").pop() as SourceFile["type"] });
+    if (files.length >= MAX_SOURCES) break;
+  }
+  let url: string | undefined;
+  if (typeof b.url === "string" && b.url.trim()) {
+    const raw = b.url.trim();
+    try {
+      const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+      if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error();
+      if (u.username || u.password) throw new Error();
+      url = u.toString().slice(0, 500);
+    } catch {
+      return NextResponse.json({ error: "Adresse du site illisible" }, { status: 400 });
+    }
+  }
+  const text = typeof b.text === "string" ? b.text.replace(/\r\n?/g, "\n").trim().slice(0, MAX_SOURCE_TEXT) : "";
+  if (!files.length && !url && !text) return NextResponse.json({ error: mode === "charte" ? "Ajoute la charte : un PDF, des images ou l'adresse du site" : "Ajoute la stratégie : un document ou un texte" }, { status: 400 });
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "brand",
+    title: `${mode === "charte" ? "Charte" : "Stratégie"} : ${project.name}`.slice(0, 120),
+    projectId: project.id,
+    // The charte reading keeps the tone in mind (it may propose one); the strategy reading writes from scratch.
+    voice: mode === "charte" ? undefined : (({ tone }) => (tone ? { tone } : undefined))(voiceOf(project.id) ?? {}),
+    status: "queued",
+    action: "brand",
+    brief: { format: "4:5" },
+    brand: { mode, project: project.name, files, ...(url ? { url } : {}), ...(text ? { text } : {}) },
+    rushIds: [],
+    versions: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  return NextResponse.json({ job: saveJob(job, null) }, { status: 201 });
+}
+
+const TZ = process.env.TZ || "Europe/Zurich";
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: TZ });
+
+/** Asks the Mac for posts to plan over a period, from the digital strategy of the project. */
+function planJob(b: Body) {
+  const project = listProjects().find((p) => p.id === b.projectId);
+  if (!project) return NextResponse.json({ error: "Choisis le projet" }, { status: 400 });
+  const profile = profileOf(project);
+  if (!profile.strategy.trim()) return NextResponse.json({ error: "Ajoute d'abord la stratégie digitale du projet" }, { status: 400 });
+  const today = dayOf(new Date().toISOString());
+  const from = typeof b.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.from) && b.from >= today ? b.from : today;
+  const days = PLAN_DAYS.find((d) => d === Number(b.days)) ?? 7;
+  const count = Math.min(MAX_PLAN_ITEMS, Math.max(1, Math.round(Number(b.count) || 5)));
+  const formats = PLAN_FORMATS.map((f) => f.value).filter((f) => Array.isArray(b.formats) && (b.formats as unknown[]).includes(f)) as PlanFormat[];
+  const accounts = listAccounts().filter((a) => project.accountIds.includes(a.id));
+  const networks = NETWORK_ORDER.filter((n: Network) => accounts.some((a) => a.network === n));
+  // What is already planned in the period, and the two weeks before it: Claude avoids repeating them.
+  const start = new Date(`${from}T00:00:00Z`).getTime() - 14 * 86_400_000;
+  const end = new Date(`${from}T00:00:00Z`).getTime() + (days + 1) * 86_400_000;
+  const taken = listPosts()
+    .filter((p) => p.status !== "failed" && p.accountIds.some((id) => project.accountIds.includes(id)))
+    .filter((p) => {
+      const t = new Date(p.scheduledAt).getTime();
+      return t >= start && t < end;
+    })
+    .sort((x, y) => x.scheduledAt.localeCompare(y.scheduledAt))
+    .slice(-40)
+    .map((p) => ({ date: dayOf(p.scheduledAt), text: p.caption.replace(/\s+/g, " ").trim().slice(0, 160) || "(sans texte)" }));
+  const focus = typeof b.focus === "string" ? b.focus.replace(/\s+/g, " ").trim().slice(0, MAX_FOCUS) : "";
+  const voice = voiceOf(project.id);
+  if (voice) delete voice.strategy;
+  const now = new Date().toISOString();
+  const job: MontageJob = {
+    id: crypto.randomUUID(),
+    kind: "plan",
+    title: `Plan de contenu : ${project.name}`.slice(0, 120),
+    projectId: project.id,
+    voice,
+    status: "queued",
+    action: "plan",
+    brief: { format: "4:5" },
+    plan: {
+      project: project.name,
+      from,
+      days,
+      count,
+      formats: formats.length ? formats : ["carrousel", "photo", "reel"],
+      networks,
+      accounts: accounts.map((a) => ({ network: a.network, handle: a.handle })),
+      ...(focus ? { focus } : {}),
+      strategy: profile.strategy.trim(),
+      taken,
+    },
     rushIds: [],
     versions: [],
     createdAt: now,

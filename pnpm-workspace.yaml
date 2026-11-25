@@ -1,2 +1,4 @@
 allowBuilds:
   better-sqlite3: true
+patchedDependencies:
+  next@15.5.28: patches/next@15.5.28.patch

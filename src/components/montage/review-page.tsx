@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Loader2, MessageSquareText, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
+import { ArrowLeft, CalendarPlus, Check, Columns2, Eye, EyeOff, Laptop, Loader2, MessageSquareText, PenLine, Play, RotateCcw, Sparkles, Wand2, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { edlDuration, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
+import { edlDuration, isVideoJob, splitAt, timeline, type CaptionStyle, type Edl, type FreeText, type MontageJob, type MontageMark, type MontageVersion, type Rush } from "@/lib/montage";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
@@ -18,8 +18,61 @@ import { SettingsPanel } from "./settings-panel";
 import { Timeline, type Selection } from "./timeline";
 import { useTimelineKeys, useUndo } from "./timeline-kit";
 import { montageApi, useMontage } from "./use-montage";
+import { VideoReview } from "./video-review";
 
 const ASPECT: Record<Edl["format"], string> = { "9:16": "9 / 16", "4:5": "4 / 5", "1:1": "1 / 1", "16:9": "16 / 9" };
+const RATIO: Record<Edl["format"], number> = { "9:16": 9 / 16, "4:5": 4 / 5, "1:1": 1, "16:9": 16 / 9 };
+
+/** A computer screen (Tailwind lg and up): the editing screen fits the window there instead of scrolling (as on the reel's screen). */
+const WIDE = "(min-width: 1024px)";
+const useWide = () =>
+  useSyncExternalStore(
+    (changed) => {
+      const q = window.matchMedia(WIDE);
+      q.addEventListener("change", changed);
+      return () => q.removeEventListener("change", changed);
+    },
+    () => window.matchMedia(WIDE).matches,
+    () => true,
+  );
+/** Below this width (px) the tools' tabs no longer hold on one line with their full names: Claude's tab takes a short one. */
+const TABS_FULL = 446;
+
+/** The width of a box, kept up to date (0 until it is measured). */
+function useWidth(box: React.RefObject<HTMLElement | null>, ready: boolean) {
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [box, ready]);
+  return width;
+}
+
+/** True while a box scrolls and has more to show below: its bottom edge then fades, a hint that it scrolls. */
+function useMoreBelow(box: React.RefObject<HTMLElement | null>, ready: boolean) {
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return setMore(false);
+    const check = () => setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, [box, ready]);
+  return more;
+}
+const FADE = "linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent)";
 
 export function ReviewPage({ id }: { id: string }) {
   const { data, refresh } = useMontage();
@@ -35,12 +88,14 @@ export function ReviewPage({ id }: { id: string }) {
         </Link>
       </div>
     );
+  // A continuous reel (video plan) has its own editing screen, over a timeline of beats; an older reel keeps its timeline of scenes.
+  if (isVideoJob(job)) return <VideoReview job={job} worker={data.worker} refresh={refresh} />;
   // An animated reel has its own editing screen: the same player, drawings and versions, over a timeline of scenes.
   if (job.kind === "motion") return <ReelReview job={job} worker={data.worker} refresh={refresh} />;
   return <Review job={job} worker={data.worker} rushes={data.rushes} refresh={refresh} />;
 }
 
-type Tab = "text" | "captions" | "texts" | "settings";
+type Tab = "claude" | "text" | "captions" | "texts" | "settings";
 
 function Review({
   job,
@@ -63,7 +118,8 @@ function Review({
   const [feedback, setFeedback] = useState("");
   const player = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
-  const [tab, setTab] = useState<Tab>("captions");
+  // Claude's notes and the request for another version have their own tab, first during the review (as on the reel's screen).
+  const [tab, setTab] = useState<Tab>(job.status === "review" ? "claude" : "captions");
   const [selection, setSelectionRaw] = useState<Selection>(null);
   /** The free text chosen on the timeline or in the Texts tab (one thing is chosen at a time). */
   const [textSel, setTextSelRaw] = useState<string | null>(null);
@@ -208,6 +264,7 @@ function Review({
     if (marks.length >= 8) return void toast.message("8 notes au plus par demande");
     player.current?.pause();
     setMarks((x) => [...x, { id: crypto.randomUUID(), version: version.n, t: Math.round((player.current?.currentTime ?? time) * 100) / 100, text: "" }]);
+    setTab("claude");
   };
   useTimelineKeys({
     enabled: !!draft && compareWith === null && !(drawing && canDraw) && !composerOpen,
@@ -225,18 +282,157 @@ function Review({
   // Another video on screen: nothing plays yet.
   useEffect(() => setPlaying(false), [version?.n, version?.preview, compareWith]);
 
+  /* ---- Layout on a computer screen: the page fits the window, the video takes the height left ---- */
+  const ratio = RATIO[version?.edl.format ?? "9:16"];
+  // A tall video spans the whole height, beside the tools and the timeline; a wide one sits above the timeline.
+  const portrait = ratio < 1;
+  const tlBox = useRef<HTMLDivElement>(null);
+  const [tlHeight, setTlHeight] = useState(320);
+  const hasDraft = !!draft;
+  useEffect(() => {
+    const el = tlBox.current;
+    if (!el || portrait) return;
+    const measure = () => setTlHeight(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [portrait, hasDraft]);
+  // The versions' height (they wrap when there are many): the drawing tools go under them.
+  const versionsRow = useRef<HTMLDivElement>(null);
+  const [versionsH, setVersionsH] = useState(28);
+  const hasVersion = !!version;
+  useEffect(() => {
+    const el = versionsRow.current;
+    if (!el) return;
+    const measure = () => setVersionsH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasVersion]);
+  // Heights in container units of the stage (its content box): the room the video has, its own width follows.
+  const room = !draft ? `(100cqh - ${versionsH + 12}px)` : portrait ? "100cqh" : `(100cqh - ${tlHeight + 12}px)`;
+  // The tools keep at least 28rem beside a tall video (the timeline under them needs it too), 24rem beside a wide one (the
+  // timeline is under everything; Claude's tab then takes a short name). Before / after puts two videos side by side,
+  // 8 px apart, under their names (32 px) and above "Lire les deux" (36 px).
+  const toolsMin = `calc(100cqw - ${portrait ? 29 : 25}rem)`;
+  const videoW = compareWith !== null ? `min(calc((${room} - 68px) * ${2 * ratio} + 8px), ${toolsMin})` : `min(calc(${room} * ${ratio}), ${portrait ? 46 : 62}cqw, ${toolsMin})`;
+  const drawingHere = drawing && canDraw && compareWith === null;
+  /** Claude's tab is there while a new version can be asked, or to read what Claude did. */
+  const hasClaude = job.status === "review" || !!version?.notes;
+  const view: Tab = tab === "claude" && !hasClaude ? "captions" : tab;
+  const wide = useWide();
+  /** On a computer the banners sit at the top of the tools, beside the video: they never push the video or the timeline out of the window. */
+  const beside = wide && !!version && !!draft;
+  const panel = useRef<HTMLDivElement>(null);
+  const more = useMoreBelow(panel, !!version && hasDraft);
+  // Another tab opens at its top (the banners and the note on changes not yet rendered are there), not where the last one was left.
+  useLayoutEffect(() => {
+    if (panel.current) panel.current.scrollTop = 0;
+  }, [view]);
+  const tools = useRef<HTMLDivElement>(null);
+  const toolsW = useWidth(tools, !!version && hasDraft);
+  const shortTabs = toolsW > 0 && toolsW < TABS_FULL;
+
+  /* ---- Drawing on a phone: the video gets smaller so that it and the drawing tools fit the screen together ---- */
+  const body = useRef<HTMLDivElement>(null);
+  const videoCol = useRef<HTMLDivElement>(null);
+  const [drawH, setDrawH] = useState(0);
+  const sketchSmall = drawingHere && !wide;
+  useLayoutEffect(() => {
+    const card = videoCol.current?.querySelector<HTMLElement>(":scope > div > div:nth-child(2)");
+    if (!sketchSmall || !card) return setDrawH(0);
+    const measure = () => setDrawH(card.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(card);
+    return () => ro.disconnect();
+  }, [sketchSmall]);
+  /** The versions stay in view above the video while drawing on a phone, unless there are so many that they take several lines. */
+  const rowRoom = versionsH <= 40 ? versionsH + 12 : 0;
+  // The note's box takes the focus and the page scrolls to it: once the drawing tools are measured, the versions (or the video)
+  // go back to the top and the whole video is in view.
+  const drawReady = drawH > 0;
+  useEffect(() => {
+    if (!sketchSmall || !drawReady) return;
+    const raf = requestAnimationFrame(() => {
+      const b = body.current;
+      const top = rowRoom ? versionsRow.current : videoCol.current;
+      if (b && top) b.scrollTop += top.getBoundingClientRect().top - b.getBoundingClientRect().top - 12;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [sketchSmall, drawReady, rowRoom]);
+
+  /** Changes made by hand wait for a new preview: they are applied, or dropped, here. */
+  const applyButtons = dirty && version && (
+    <>
+      <Button size="sm" variant="ghost" onClick={() => pick(version.n)}>
+        Annuler
+      </Button>
+      <Button size="sm" variant="primary" onClick={apply} disabled={busy || working}>
+        <Play className="size-3.5" /> Voir l&apos;aperçu
+      </Button>
+    </>
+  );
+
+  /** Status, warnings and errors of the montage. On a computer they are compact (the progress and the Mac's absence share
+      one line): they sit at the top of the tools and leave them their room. */
+  const banners = (
+    <>
+      {(job.status === "queued" || working) &&
+        (beside ? (
+          <StatusLine job={job} worker={worker} />
+        ) : (
+          <div className="rounded-xl border border-line bg-surface px-4 py-2.5">
+            <div className="mb-1.5 flex items-center gap-2 text-[13px]">
+              <Loader2 className="size-4 animate-spin text-accent" />
+              <span className="font-medium">{job.status === "queued" ? "En attente du Mac" : (job.step ?? "Le Mac travaille…")}</span>
+              {job.progress !== undefined && <span className="tabular ml-auto font-mono text-[12px] text-ink-3">{Math.round(job.progress * 100)}%</span>}
+            </div>
+            <Progress value={job.progress} />
+          </div>
+        ))}
+      {job.status === "queued" && !worker?.online && !beside && <WorkerBanner worker={worker} />}
+      {job.status === "failed" && (
+        <div className={cn("flex items-center gap-3 rounded-xl border border-danger/40 bg-danger/8 text-[13px]", beside ? "px-3 py-2" : "px-4 py-2.5")}>
+          <span className="min-w-0 flex-1 text-pretty">
+            <span className="font-medium text-danger">Le montage a échoué.</span> {job.error}
+          </span>
+          <Button size="sm" onClick={() => call({ revise: job.feedback ?? "" }, "Nouvel essai demandé")}>
+            <RotateCcw className="size-3.5" /> Réessayer
+          </Button>
+        </div>
+      )}
+      {job.status === "done" && (
+        <div className={cn("flex items-center gap-3 rounded-xl border border-ok/40 bg-ok/8 text-[13px]", beside ? "px-3 py-2" : "px-4 py-2.5")}>
+          <Check className="size-4 shrink-0 text-ok" />
+          <span className="flex-1">La vidéo finale est dans ta bibliothèque. Programme-la sur tes comptes quand tu veux.</span>
+          <Link href="/videos" className="shrink-0 font-medium text-accent">
+            Voir la bibliothèque
+          </Link>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <>
-      <header className="flex flex-wrap items-center gap-3 border-b border-line px-6 pt-5 pb-4 max-md:px-4">
-        <Link href="/videos/montage" aria-label="Retour aux montages" className="press grid size-8 place-items-center rounded-lg border border-line-strong bg-surface text-ink-2 hover:text-ink">
+      {/* On a computer the header keeps one line: a long title is cut, the button to validate stays in place (and the video keeps its height). */}
+      <header className="flex flex-wrap items-center gap-3 border-b border-line px-6 pt-4 pb-3 max-md:px-4 lg:flex-nowrap">
+        <Link href="/videos/montage" aria-label="Retour aux montages" className="press grid size-8 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-ink-2 hover:text-ink">
           <ArrowLeft className="size-4" />
         </Link>
         <div className="min-w-0">
           <p className="text-[12px] font-medium text-ink-3">Montage IA · {job.brief.format}</p>
-          <h1 className="truncate font-display text-[28px] leading-[1.1]">{job.title}</h1>
+          <h1 className="truncate font-display text-[24px] leading-[1.1]" title={job.title}>
+            {job.title}
+          </h1>
         </div>
-        <JobStatus job={job} />
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <span className="flex shrink-0">
+          <JobStatus job={job} />
+        </span>
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
           {job.status === "done" && job.mediaId && (
             <Button variant="primary" onClick={() => openComposer({ mediaId: job.mediaId })}>
               <CalendarPlus className="size-4" />
@@ -252,271 +448,299 @@ function Review({
         </div>
       </header>
 
-      <div className="scroll-thin flex-1 overflow-y-auto px-6 py-5 max-md:px-4">
-        <div className="mx-auto flex max-w-6xl flex-col gap-5">
-          {(job.status === "queued" || working) && (
-            <div className="rounded-xl border border-line bg-surface px-4 py-3">
-              <div className="mb-2 flex items-center gap-2 text-[13px]">
-                <Loader2 className="size-4 animate-spin text-accent" />
-                <span className="font-medium">{job.status === "queued" ? "En attente du Mac" : (job.step ?? "Le Mac travaille…")}</span>
-                {job.progress !== undefined && <span className="tabular ml-auto font-mono text-[12px] text-ink-3">{Math.round(job.progress * 100)}%</span>}
-              </div>
-              <Progress value={job.progress} />
-            </div>
-          )}
-          {job.status === "queued" && !worker?.online && <WorkerBanner worker={worker} />}
-          {job.status === "failed" && (
-            <div className="flex items-center gap-3 rounded-xl border border-danger/40 bg-danger/8 px-4 py-3 text-[13px]">
-              <span className="flex-1">
-                <span className="font-medium text-danger">Le montage a échoué.</span> {job.error}
-              </span>
-              <Button size="sm" onClick={() => call({ revise: job.feedback ?? "" }, "Nouvel essai demandé")}>
-                <RotateCcw className="size-3.5" /> Réessayer
-              </Button>
-            </div>
-          )}
-          {job.status === "done" && (
-            <div className="flex items-center gap-3 rounded-xl border border-ok/40 bg-ok/8 px-4 py-3 text-[13px]">
-              <Check className="size-4 text-ok" />
-              <span className="flex-1">La vidéo finale est dans ta bibliothèque. Programme-la sur tes comptes quand tu veux.</span>
-              <Link href="/videos" className="font-medium text-accent">
-                Voir la bibliothèque
-              </Link>
-            </div>
-          )}
+      {/* On a computer the page never scrolls: the video, the tools and the timeline share the window, only the tools scroll.
+          On a phone the page scrolls, and the video is never taller than what the screen shows under the header. */}
+      {/* Positioned: what is placed in it (a title kept for screen readers, a popover) stays inside it and never makes the frame around it scroll. */}
+      <div ref={body} className="relative flex min-h-0 flex-1 flex-col max-lg:overflow-y-auto max-lg:[container-type:size]">
+        {!beside && <div className="flex flex-col gap-2 px-6 pt-3 empty:hidden max-md:px-4">{banners}</div>}
 
-          {!version ? (
-            job.status !== "failed" && (
-              <div className="rounded-2xl border border-dashed border-line-strong px-6 py-12 text-center text-[13px] text-ink-3">
-                <Sparkles className="mx-auto mb-2 size-5 text-accent" />
-                Claude prépare une première proposition : transcription, choix des passages, sous-titres et recadrage.
+        {!version ? (
+          job.status !== "failed" && (
+            <div className="m-6 rounded-2xl border border-dashed border-line-strong px-6 py-12 text-center text-[13px] text-ink-3 max-md:mx-4">
+              <Sparkles className="mx-auto mb-2 size-5 text-accent" />
+              Claude prépare une première proposition : transcription, choix des passages, sous-titres et recadrage.
+            </div>
+          )
+        ) : (
+          /* The stage: its height is the window's, less the header; container units size the video from it. On a computer the
+             versions sit at the top of the tools, beside the video (as on the reel's screen): the video starts right under the header. */
+          <div
+            className={cn("grid gap-x-4 gap-y-3 px-6 py-3 max-md:px-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[auto_minmax(0,1fr)_auto] lg:[container-type:size]", draft ? "lg:grid-cols-[auto_minmax(0,1fr)]" : "lg:grid-cols-1")}
+            style={{ "--versions": `${versionsH}px` } as React.CSSProperties}
+          >
+            <div ref={versionsRow} className={cn("flex min-w-0 flex-wrap items-center gap-1.5", draft && "lg:col-start-2 lg:row-start-1")}>
+              {job.versions.map((v) => (
+                <VersionChip key={v.n} v={v} on={v.n === version.n} onClick={() => pick(v.n)} />
+              ))}
+              {canDraw && (
+                <button
+                  onClick={() => setDrawing((d) => !d)}
+                  className={cn("press inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", drawing ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
+                  title="Mets la vidéo en pause là où il faut changer quelque chose, dessine et explique"
+                >
+                  <PenLine className="size-3.5" /> Dessiner une note
+                </button>
+              )}
+              <div className="ml-auto flex items-center gap-2 empty:hidden">
+                {job.versions.length > 1 && (
+                  <button
+                    onClick={() => setCompareWith(compareWith === null ? (job.versions.find((v) => v.n !== version.n && v.preview)?.n ?? null) : null)}
+                    className={cn("press inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", compareWith !== null ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
+                  >
+                    <Columns2 className="size-3.5" /> Avant / après
+                  </button>
+                )}
+                {/* On a computer, changes are applied from here, under "Valider la version": the tabs keep their line. */}
+                {wide && applyButtons}
               </div>
-            )
-          ) : (
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,420px)_1fr]">
-              {/* ---------- Video ---------- */}
-              <div className="flex flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {job.versions.map((v) => (
-                    <VersionChip key={v.n} v={v} on={v.n === version.n} onClick={() => pick(v.n)} />
-                  ))}
-                  {canDraw && (
-                    <button
-                      onClick={() => setDrawing((d) => !d)}
-                      className={cn("press inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", drawing ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
-                      title="Mets la vidéo en pause là où il faut changer quelque chose, dessine et explique"
-                    >
-                      <PenLine className="size-3.5" /> Dessiner une note
-                    </button>
-                  )}
-                  {job.versions.length > 1 && (
-                    <button
-                      onClick={() => setCompareWith(compareWith === null ? (job.versions.find((v) => v.n !== version.n && v.preview)?.n ?? null) : null)}
-                      className={cn("press ml-auto inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium", compareWith !== null ? "border-accent bg-accent-soft" : "border-line-strong bg-surface")}
-                    >
-                      <Columns2 className="size-3.5" /> Avant / après
-                    </button>
-                  )}
-                </div>
-                {compareWith !== null ? (
-                  <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
-                ) : (
-                  <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m]))} onClose={() => setDrawing(false)}>
-                    <div className="relative" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
-                      <Preview job={job} v={version} ref={player} onTime={setTime} />
-                      {curText && draft && tab === "texts" && !drawing && (
-                        <TextGhost text={curText} aspect={(([w, h]) => w / h)(draft.format.split(":").map(Number))} onMove={(x, y, key) => setTexts(texts.map((t) => (t.id === curText.id ? { ...t, x, y } : t)), key)} />
-                      )}
-                    </div>
-                  </Annotator>
-                )}
-                {version.notes && (
-                  <div className="rounded-xl border border-line bg-surface-2/60 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-ink-2">
-                    <p className="mb-0.5 flex items-center gap-1.5 font-medium text-ink">
-                      <Sparkles className="size-3.5 text-accent" /> {version.by === "claude" ? "Ce que Claude a fait" : "Modifié à la main"}
-                    </p>
-                    {version.notes}
-                  </div>
-                )}
-                {job.status === "review" && (
-                  <div className="rounded-xl border border-line bg-surface p-3">
-                    <label htmlFor="feedback" className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium">
-                      <MessageSquareText className="size-3.5 text-accent" /> Demander une autre version à Claude
-                    </label>
-                    {marks.length > 0 && (
-                      <ul className="mb-2 flex flex-col gap-1.5">
-                        {marks.map((m) => (
-                          <li key={m.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/60 p-1.5 text-[12.5px]">
-                            {m.image ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={m.image} alt="" className="h-12 w-auto shrink-0 rounded-md" />
-                            ) : (
-                              <span className="grid h-12 w-8 shrink-0 place-items-center rounded-md bg-ink/5 text-ink-3">
-                                <PenLine className="size-3.5" />
-                              </span>
-                            )}
-                            <button onClick={() => seek(m.t)} className="tabular shrink-0 font-mono text-[11px] text-ink-3 hover:text-accent">
-                              {fmtSec(m.t)}
-                            </button>
-                            <input
-                              value={m.text}
-                              onChange={(e) => setMarks((x) => x.map((y) => (y.id === m.id ? { ...y, text: e.target.value } : y)))}
-                              autoFocus={!m.text && !m.image}
-                              maxLength={1000}
-                              placeholder={m.image ? "Dessin sans texte" : "Ta note à cet endroit"}
-                              aria-label={`Note à ${fmtSec(m.t)}`}
-                              className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-line-strong focus:border-accent/60 focus:bg-surface"
-                            />
-                            <button onClick={() => setMarks((x) => x.filter((y) => y.id !== m.id))} aria-label="Retirer la note" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink">
-                              <X className="size-3.5" />
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+            </div>
+
+            {/* ---------- Video ---------- */}
+            <div
+              ref={videoCol}
+              className={cn(
+                "flex min-w-0 flex-col max-lg:mx-auto lg:relative lg:min-h-0 lg:w-[var(--video)]",
+                // Two videos side by side are limited by the width: the pair sits in the middle of the height left to it.
+                // While drawing on a phone the drawing tools take the whole width, and the video (the first block of the annotator)
+                // leaves them room under it: the versions, the video and the note fit the screen together.
+                compareWith !== null
+                  ? "max-lg:w-full lg:justify-center"
+                  : sketchSmall
+                    ? "max-lg:w-full max-lg:[&>div>div:first-child]:mx-auto max-lg:[&>div>div:first-child]:w-[min(100%,calc(75dvh*var(--ratio)),max(9rem,calc((100cqh-var(--draw-room))*var(--ratio))))]"
+                    : "max-lg:w-[min(100%,calc(75dvh*var(--ratio)),max(12rem,calc((100cqh-4rem)*var(--ratio))))]",
+                draft && (portrait ? "lg:col-start-1 lg:row-span-3 lg:row-start-1" : "lg:col-start-1 lg:row-span-2 lg:row-start-1"),
+                // While drawing, the drawing tools (the second block of the annotator) take the place of the editing panels,
+                // beside the video and under the versions, as wide as them: the video keeps its size and the timeline stays where it is.
+                drawingHere && "lg:[&>div>div:nth-child(2)]:absolute lg:[&>div>div:nth-child(2)]:top-[calc(var(--versions)+0.75rem)] lg:[&>div>div:nth-child(2)]:left-[calc(100%+1rem)] lg:[&>div>div:nth-child(2)]:z-30 lg:[&>div>div:nth-child(2)]:w-[calc(100cqw-100%-1rem)]",
+              )}
+              // The room the phone keeps beside the video while drawing: the stage's top, the versions, the gaps and the drawing tools.
+              style={{ "--ratio": ratio, "--video": videoW, "--draw-room": `${12 + rowRoom + 8 + drawH + 12}px` } as React.CSSProperties}
+            >
+              {compareWith !== null ? (
+                <Compare job={job} before={compareWith} after={version.n} onBefore={setCompareWith} />
+              ) : (
+                <Annotator video={player} active={drawing && canDraw} version={version.n} onAdd={(m) => (setMarks((x) => (x.length >= 8 ? (toast.message("8 notes au plus par demande"), x) : [...x, m])), setTab("claude"))} onClose={() => setDrawing(false)}>
+                  <div className="relative" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}>
+                    <Preview job={job} v={version} ref={player} onTime={setTime} />
+                    {curText && draft && tab === "texts" && !drawing && (
+                      <TextGhost text={curText} aspect={(([w, h]) => w / h)(draft.format.split(":").map(Number))} onMove={(x, y, key) => setTexts(texts.map((t) => (t.id === curText.id ? { ...t, x, y } : t)), key)} />
                     )}
-                    <textarea
-                      id="feedback"
-                      value={feedback}
-                      onChange={(e) => setFeedback(e.target.value)}
-                      rows={2}
-                      placeholder={marks.length ? "Un mot de plus pour Claude (facultatif)" : "Par ex. « plus court, garde la prise 2 », ou dessine une note sur la vidéo"}
-                      className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60"
-                    />
-                    <div className="mt-2 flex justify-end">
-                      <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !filled.length)}>
-                        <Wand2 className="size-3.5" /> Nouvelle version
-                      </Button>
-                    </div>
                   </div>
-                )}
-              </div>
+                </Annotator>
+              )}
+            </div>
 
-              {/* ---------- Editing panels ---------- */}
-              {draft && (
-                <div className="flex min-w-0 flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
+            {/* ---------- Editing panels: only they scroll ---------- */}
+            {draft && (
+              <div ref={tools} className={cn("@container/tools flex min-w-0 flex-col gap-3 lg:col-start-2 lg:row-start-2 lg:min-h-0", drawingHere && "lg:invisible")}>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* The tabs never wrap their labels: on a narrow column Claude's tab takes a short name (and on a phone the tabs are
+                      tighter), so the five hold on one line; on a very narrow phone they scroll sideways. */}
+                  <div className="scroll-thin max-w-full overflow-x-auto whitespace-nowrap max-sm:[&_[role=radio]]:px-[5px]">
                     <Segmented
                       label="Outil"
-                      value={tab}
+                      value={view}
                       onChange={setTab}
                       options={[
+                        ...(hasClaude ? [{ value: "claude" as const, label: shortTabs ? "Claude" : job.status === "review" ? "Demander à Claude" : "Notes de Claude" }] : []),
                         { value: "captions", label: "Sous-titres" },
                         { value: "text", label: "Transcription" },
                         { value: "texts", label: "Textes" },
                         { value: "settings", label: "Réglages" },
                       ]}
                     />
-                    <span className="tabular text-[12px] text-ink-3">
-                      {segs.length}/{draft.segments.length} passages · {fmtSec(edlDuration(draft))}
-                    </span>
-                    {dirty && (
-                      <div className="ml-auto flex gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => pick(version.n)}>
-                          Annuler
-                        </Button>
-                        <Button size="sm" variant="primary" onClick={apply} disabled={busy || working}>
-                          <Play className="size-3.5" /> Voir l&apos;aperçu
-                        </Button>
+                  </div>
+                  {/* On a computer the count never takes a line of its own: it gives way on a narrow column (the timeline shows the length). */}
+                  <span className="tabular text-[12px] text-ink-3 lg:@max-[36rem]/tools:hidden">
+                    {segs.length}/{draft.segments.length} passages · {fmtSec(edlDuration(draft))}
+                  </span>
+                  {!wide && applyButtons && <div className="ml-auto flex gap-2">{applyButtons}</div>}
+                </div>
+
+                {/* Only this part scrolls; its bottom edge fades while there is more below. */}
+                <div ref={panel} className="scroll-thin lg:-mx-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-1 lg:pb-1" style={more ? { maskImage: FADE, WebkitMaskImage: FADE } : undefined}>
+                  <div className="flex flex-col gap-3">
+                    {beside && <div className="flex flex-col gap-2 empty:hidden">{banners}</div>}
+                    {dirty && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-pretty text-ink-2">Pas encore rendu : la vidéo montre encore la version {version.n}. « Voir l&apos;aperçu » la fait refaire par le Mac.</p>}
+
+                    {view === "claude" && version.notes && (
+                      <div className="rounded-xl border border-line bg-surface-2/60 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-ink-2">
+                        <p className="mb-0.5 flex items-center gap-1.5 font-medium text-ink">
+                          <Sparkles className="size-3.5 text-accent" /> {version.by === "claude" ? "Ce que Claude a fait" : "Modifié à la main"}
+                        </p>
+                        {version.notes}
                       </div>
                     )}
-                  </div>
-                  {dirty && <p className="rounded-lg bg-warn/10 px-2.5 py-1.5 text-[12px] text-ink-2">Modifications pas encore rendues : la vidéo montre encore la version {version.n}. Clique sur « Voir l&apos;aperçu » pour que le Mac la refasse.</p>}
-
-                  {tab === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
-                  {tab === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}
-                  {tab === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
-                  {tab === "text" && (
-                  <>
-                  <p className="text-[12px] text-ink-3">
-                    Clique sur l&apos;œil pour couper ou remettre un passage. Clique sur un mot pour corriger le sous-titre : son timing ne bouge pas.
-                  </p>
-                  <ol className="flex flex-col gap-1.5">
-                    {draft.segments.map((s, i) => {
-                      const placed = segs.find((x) => x.id === s.id);
-                      return (
-                        <li
-                          key={s.id}
-                          className={cn(
-                            "group flex gap-3 rounded-xl border px-3 py-2.5 transition-colors duration-150",
-                            s.kept ? "border-line bg-surface" : "border-dashed border-line bg-transparent",
-                          )}
-                        >
-                          <button
-                            onClick={() => edit((e) => ((e.segments[i].kept = !e.segments[i].kept), e))}
-                            aria-label={s.kept ? "Couper ce passage" : "Remettre ce passage"}
-                            title={s.kept ? "Couper ce passage" : "Remettre ce passage"}
-                            className={cn("press mt-0.5 grid size-7 shrink-0 place-items-center rounded-md", s.kept ? "text-ink-2 hover:bg-surface-2" : "text-ink-3 hover:bg-surface-2")}
-                          >
-                            {s.kept ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <div className="mb-0.5 flex items-center gap-2 text-[11px] text-ink-3">
-                              {placed ? (
-                                <button onClick={() => seek(placed.start)} className="tabular font-mono hover:text-accent">
-                                  {fmtSec(placed.start)}
+                    {view === "claude" && job.status === "review" && (
+                      <div className="rounded-xl border border-line bg-surface p-3">
+                        <label htmlFor="feedback" className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium">
+                          <MessageSquareText className="size-3.5 text-accent" /> Demander une autre version à Claude
+                        </label>
+                        {marks.length > 0 && (
+                          <ul className="mb-2 flex flex-col gap-1.5">
+                            {marks.map((m) => (
+                              <li key={m.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/60 p-1.5 text-[12.5px]">
+                                {m.image ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={m.image} alt="" className="h-12 w-auto shrink-0 rounded-md" />
+                                ) : (
+                                  <span className="grid h-12 w-8 shrink-0 place-items-center rounded-md bg-ink/5 text-ink-3">
+                                    <PenLine className="size-3.5" />
+                                  </span>
+                                )}
+                                <button onClick={() => seek(m.t)} className="tabular shrink-0 font-mono text-[11px] text-ink-3 hover:text-accent">
+                                  {fmtSec(m.t)}
                                 </button>
-                              ) : (
-                                <span className="rounded bg-ink/5 px-1.5 py-px font-medium">Coupé{s.reason ? ` · ${s.reason}` : ""}</span>
-                              )}
-                              <span className="tabular font-mono">{((s.out - s.in) / (s.speed ?? 1)).toFixed(1)} s</span>
-                            </div>
-                            <p className={cn("text-[13.5px] leading-relaxed", !s.kept && "text-ink-3 line-through decoration-ink-3/60")}>
-                              {s.words?.length
-                                ? s.words.map((w, wi) => (
-                                    <Word
-                                      key={wi}
-                                      value={w.w}
-                                      disabled={!s.kept}
-                                      onChange={(t) =>
-                                        edit((e) => {
-                                          e.segments[i].words![wi].w = t;
-                                          e.segments[i].text = e.segments[i].words!.map((x) => x.w).join(" ");
-                                          return e;
-                                        })
-                                      }
-                                    />
-                                  ))
-                                : s.text}
-                            </p>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+                                <input
+                                  value={m.text}
+                                  onChange={(e) => setMarks((x) => x.map((y) => (y.id === m.id ? { ...y, text: e.target.value } : y)))}
+                                  autoFocus={!m.text && !m.image}
+                                  maxLength={1000}
+                                  placeholder={m.image ? "Dessin sans texte" : "Ta note à cet endroit"}
+                                  aria-label={`Note à ${fmtSec(m.t)}`}
+                                  className="h-7 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 outline-none hover:border-line-strong focus:border-accent/60 focus:bg-surface"
+                                />
+                                <button onClick={() => setMarks((x) => x.filter((y) => y.id !== m.id))} aria-label="Retirer la note" className="press grid size-6 shrink-0 place-items-center rounded-md text-ink-3 hover:text-ink">
+                                  <X className="size-3.5" />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <textarea
+                          id="feedback"
+                          value={feedback}
+                          onChange={(e) => setFeedback(e.target.value)}
+                          rows={2}
+                          placeholder={marks.length ? "Un mot de plus pour Claude (facultatif)" : "Par ex. « plus court, garde la prise 2 », ou dessine une note sur la vidéo"}
+                          className="w-full resize-y rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent/60"
+                        />
+                        <div className="mt-2 flex justify-end">
+                          <Button size="sm" onClick={revise} disabled={busy || (!feedback.trim() && !filled.length)}>
+                            <Wand2 className="size-3.5" /> Nouvelle version
+                          </Button>
+                        </div>
+                      </div>
+                    )}
 
-          {version && draft && (
-            <Timeline
-              edl={draft}
-              onChange={setEdl}
-              time={time}
-              onSeek={seek}
-              marks={[...sentMarks, ...marks.filter((m) => m.version === version.n)]}
-              rushes={rushes}
-              selection={selection}
-              onSelect={setSelection}
-              textSel={textSel}
-              onTextSel={setTextSel}
-              workerVersion={worker?.version}
-              captionStyle={job.style}
-              src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
-              stale={dirty}
-              playing={playing}
-              undo={history}
-              zoomRef={zoomRef}
-              onRemove={removeSelection}
-              onMark={canDraw ? addNote : undefined}
-              onBrollAsk={working ? undefined : askBroll}
-            />
-          )}
-        </div>
+                    {view === "captions" && <CaptionsEditor edl={draft} fallback={job.style} onChange={(e) => setEdl(e, "captions")} onSeek={seek} time={time} onSaveStyle={job.projectId ? saveStyle : undefined} />}
+                    {view === "texts" && <TextPanel texts={texts} selected={textSel} onSelect={setTextSel} onChange={setTexts} time={time} total={edlDuration(draft)} onSeek={dirty ? undefined : seek} workerVersion={worker?.version} />}
+                    {view === "settings" && <SettingsPanel edl={draft} onChange={(e) => setEdl(e, "settings")} tracks={worker?.tracks} />}
+                    {view === "text" && (
+                      <>
+                        <p className="text-[12px] text-ink-3">Clique sur l&apos;œil pour couper ou remettre un passage. Clique sur un mot pour corriger le sous-titre : son timing ne bouge pas.</p>
+                        <ol className="flex flex-col gap-1.5">
+                          {draft.segments.map((s, i) => {
+                            const placed = segs.find((x) => x.id === s.id);
+                            return (
+                              <li key={s.id} className={cn("group flex gap-3 rounded-xl border px-3 py-2.5 transition-colors duration-150", s.kept ? "border-line bg-surface" : "border-dashed border-line bg-transparent")}>
+                                <button
+                                  onClick={() => edit((e) => ((e.segments[i].kept = !e.segments[i].kept), e))}
+                                  aria-label={s.kept ? "Couper ce passage" : "Remettre ce passage"}
+                                  title={s.kept ? "Couper ce passage" : "Remettre ce passage"}
+                                  className={cn("press mt-0.5 grid size-7 shrink-0 place-items-center rounded-md", s.kept ? "text-ink-2 hover:bg-surface-2" : "text-ink-3 hover:bg-surface-2")}
+                                >
+                                  {s.kept ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                                </button>
+                                <div className="min-w-0 flex-1">
+                                  <div className="mb-0.5 flex items-center gap-2 text-[11px] text-ink-3">
+                                    {placed ? (
+                                      <button onClick={() => seek(placed.start)} className="tabular font-mono hover:text-accent">
+                                        {fmtSec(placed.start)}
+                                      </button>
+                                    ) : (
+                                      <span className="rounded bg-ink/5 px-1.5 py-px font-medium">Coupé{s.reason ? ` · ${s.reason}` : ""}</span>
+                                    )}
+                                    <span className="tabular font-mono">{((s.out - s.in) / (s.speed ?? 1)).toFixed(1)} s</span>
+                                  </div>
+                                  <p className={cn("text-[13.5px] leading-relaxed", !s.kept && "text-ink-3 line-through decoration-ink-3/60")}>
+                                    {s.words?.length
+                                      ? s.words.map((w, wi) => (
+                                          <Word
+                                            key={wi}
+                                            value={w.w}
+                                            disabled={!s.kept}
+                                            onChange={(t) =>
+                                              edit((e) => {
+                                                e.segments[i].words![wi].w = t;
+                                                e.segments[i].text = e.segments[i].words!.map((x) => x.w).join(" ");
+                                                return e;
+                                              })
+                                            }
+                                          />
+                                        ))
+                                      : s.text}
+                                  </p>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ---------- Timeline: always in view, under the tools (or under everything for a wide video) ---------- */}
+            {draft && (
+              <div ref={tlBox} className={cn("min-w-0 lg:row-start-3", portrait ? "lg:col-start-2" : "lg:col-span-2")}>
+                <Timeline
+                  // Never taller than the stage less the versions and about a third of its height (13rem at least): the tools above keep room
+                  // for their tabs and a card or two even with every track shown, the tracks scroll instead.
+                  className="lg:max-h-[calc(100cqh-var(--versions)-0.75rem-max(13rem,36cqh))]"
+                  edl={draft}
+                  onChange={setEdl}
+                  time={time}
+                  onSeek={seek}
+                  marks={[...sentMarks, ...marks.filter((m) => m.version === version.n)]}
+                  rushes={rushes}
+                  selection={selection}
+                  onSelect={setSelection}
+                  textSel={textSel}
+                  onTextSel={setTextSel}
+                  workerVersion={worker?.version}
+                  captionStyle={job.style}
+                  src={version.preview ? `/api/montage/jobs/${job.id}/versions/${version.n}/preview` : undefined}
+                  stale={dirty}
+                  playing={playing}
+                  undo={history}
+                  zoomRef={zoomRef}
+                  onRemove={removeSelection}
+                  onMark={canDraw ? addNote : undefined}
+                  onBrollAsk={working ? undefined : askBroll}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
+  );
+}
+
+/** The progress of the montage on one line, with the Mac's absence when a request waits for it (a computer screen). */
+function StatusLine({ job, worker }: { job: MontageJob; worker: Parameters<typeof WorkerBanner>[0]["worker"] }) {
+  const away = job.status === "queued" && !worker?.online;
+  const seen = worker?.lastSeen && new Date(worker.lastSeen).toLocaleString("fr-CH", { dateStyle: "short", timeStyle: "short" });
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[12.5px]">
+      <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
+      <span className="min-w-0 truncate font-medium">{job.status === "queued" ? "En attente du Mac" : (job.step ?? "Le Mac travaille…")}</span>
+      {away && (
+        <span className="flex min-w-0 shrink-[3] items-center gap-1.5 text-ink-3" title={seen ? `Vu pour la dernière fois ${seen}. Les demandes attendent son retour.` : "Le programme de montage n'a pas encore été lancé sur le Mac. Les demandes attendent son retour."}>
+          <Laptop className="size-3.5 shrink-0 text-warn" />
+          <span className="truncate">
+            Ton Mac n&apos;est pas connecté{seen ? ` · vu ${seen}` : ""}
+          </span>
+        </span>
+      )}
+      <span className="ml-auto w-20 shrink-0">
+        <Progress value={job.progress} />
+      </span>
+      {job.progress !== undefined && <span className="tabular shrink-0 font-mono text-[12px] text-ink-3">{Math.round(job.progress * 100)}%</span>}
+    </div>
   );
 }
 

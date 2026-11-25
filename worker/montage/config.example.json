@@ -26,6 +26,21 @@
   "deepFilter": "~/Movies/Metricove/outils/deep-filter",
   "silenceDb": -35,
   "hyperframes": "hyperframes@0.8.137",
+  "gsapFile": "",
+  "gsapDir": "",
+  "fontsDir": "~/Movies/Metricove/polices",
+  "hyperframesReference": "~/.claude/skills/video-heds/references/hyperframes.md",
+  "reel": {
+    "review": true,
+    "effort": "",
+    "restricted": true,
+    "claudeWriteMin": 6,
+    "claudeReviewMin": 4,
+    "claudeReviseMin": 5,
+    "maxFrameMs": 400,
+    "jobMaxMin": 30,
+    "reviewWithinMin": 6
+  },
   "theme": {
     "font": "Inter",
     "fontFiles": [],

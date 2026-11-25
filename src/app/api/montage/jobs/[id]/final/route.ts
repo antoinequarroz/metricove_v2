@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ingestVideo } from "@/server/media";
-import { dropPreviews, getJob, release, takeUpload, UploadError } from "@/server/montage";
+import { dropPreviews, getJob, pageJob, release, takeUpload, UploadError } from "@/server/montage";
 
 /** The worker sends the final video: { upload, title?, notes? }. It goes into the library. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -15,7 +15,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (typeof b.notes === "string" && b.notes.trim()) job.notes = b.notes.trim().slice(0, 1000);
     dropPreviews(job.id);
     job.versions.forEach((v) => (v.preview = false));
-    return NextResponse.json({ job: release(job, "done"), media }, { status: 201 });
+    return NextResponse.json({ job: pageJob(release(job, "done")), media }, { status: 201 });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: e instanceof UploadError ? e.status : 500 });
   }

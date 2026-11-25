@@ -1,0 +1,319 @@
+{
+  "_doc": [
+    "Fixture du moteur : moments dans chaque zone devant (above : couvertures DrawSVG ; below : jauge MorphSVG) et un moment behind (halo) sur 4 temps forts qui se sert de anchors[beats[i].id].",
+    "Look : papier, grotesque, grain ; cible 25 s (Auto). Les moments sont ceux du corpus accepté de evil-static-attacks.json."
+  ],
+  "job": {
+    "id": "c3a9d5e2-1f48-4b7c-8d06-5e2b9f1a7c33",
+    "kind": "motion",
+    "motion": {
+      "mode": "video",
+      "request": "Idée : montrer qu’une publication régulière fait remonter l’engagement, avec des visuels simples",
+      "source": "idea",
+      "music": true,
+      "logo": false,
+      "look": {
+        "theme": "paper",
+        "accent": "#e8553a",
+        "font": "grotesque",
+        "fields": [],
+        "grid": false,
+        "pill": false,
+        "align": "left",
+        "valign": "middle",
+        "grain": true,
+        "numbers": true,
+        "handle": "@metricove"
+      }
+    }
+  },
+  "options": {
+    "request": "Idée : montrer qu’une publication régulière fait remonter l’engagement, avec des visuels simples",
+    "source": "idea",
+    "seed": 2881953857
+  },
+  "raw": {
+    "title": "La régularité se voit",
+    "shape": "orb",
+    "pace": "normal",
+    "beats": [
+      {
+        "id": "accroche",
+        "title": "Accroche",
+        "text": "Ton audience te cherche",
+        "emphasis": "te cherche",
+        "layout": "hero",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "push",
+        "seconds": 2.4
+      },
+      {
+        "id": "rythme",
+        "title": "Le rythme",
+        "text": "Trois posts par semaine, toujours",
+        "emphasis": "toujours",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "rest",
+        "camera": "drift",
+        "seconds": 4.4
+      },
+      {
+        "id": "repere",
+        "title": "Un repère",
+        "text": "Le même jour, la même heure",
+        "sub": "L’algorithme apprend ton rythme.",
+        "emphasis": "même heure",
+        "layout": "stack",
+        "bridge": "rise",
+        "actor": "bar",
+        "camera": "drift",
+        "seconds": 4.2
+      },
+      {
+        "id": "jauge",
+        "title": "L’engagement",
+        "text": "L’engagement remonte",
+        "emphasis": "remonte",
+        "layout": "stack",
+        "bridge": "morph",
+        "actor": "dot",
+        "camera": "still",
+        "seconds": 5
+      },
+      {
+        "id": "preuve",
+        "title": "La preuve",
+        "text": "+38 % en un mois",
+        "count": true,
+        "layout": "number",
+        "bridge": "rise",
+        "actor": "dot",
+        "camera": "drift",
+        "seconds": 4
+      },
+      {
+        "id": "abonne",
+        "title": "Abonne-toi",
+        "text": "Ton calendrier t’attend",
+        "sub": "Abonne-toi",
+        "emphasis": "calendrier",
+        "layout": "cta",
+        "bridge": "rise",
+        "actor": "underline",
+        "camera": "push",
+        "seconds": 4
+      }
+    ],
+    "moments": [
+      {
+        "id": "halo",
+        "brief": "Un grand anneau d'accent glisse derrière chaque idée et relie les quatre temps forts.",
+        "from": "accroche",
+        "to": "jauge",
+        "zone": "behind",
+        "html": "<div class=\"ring\"></div><div class=\"core\"></div>",
+        "css": ".ring{position:absolute;left:0;width:520px;height:520px;border-radius:50%;border:3px solid var(--accent)}.core{position:absolute;left:0;width:180px;height:180px;border-radius:50%;background:rgba(var(--accent-rgb),.35)}",
+        "js": "const ring = root.querySelector(\".ring\");\nconst core = root.querySelector(\".core\");\ngsap.set([ring, core], { xPercent: -50, yPercent: -50, scale: 0.5, opacity: 0 });\nfor (let i = 0; i < beats.length; i++) {\n  const a = anchors[beats[i].id].title;\n  const x = a.x + a.w * 0.62;\n  const y = a.y + a.h * 0.5;\n  const at = Math.max(0, beats[i].t - 0.15);\n  if (i === 0) mt.set([ring, core], { x: x, y: y }, 0);\n  mt.to(ring, { x: x, y: y, scale: 1 - (i % 2) * 0.18, opacity: 1, duration: 1.2, ease: \"expo.inOut\" }, at);\n  mt.to(core, { x: x, y: y, scale: 1, opacity: 1, duration: 1.4, ease: \"expo.inOut\" }, at + 0.06);\n}\nmt.to(ring, { rotation: 40, duration: D, ease: \"none\" }, 0);"
+      },
+      {
+        "id": "couvertures",
+        "brief": "Trois publications tombent du ciel et se rangent en éventail : la régularité se voit.",
+        "from": "rythme",
+        "to": "rythme",
+        "zone": "above",
+        "html": "<div class=\"deck\"><svg class=\"card c1\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg><svg class=\"card c2\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg><svg class=\"card c3\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg></div>",
+        "css": ".deck{position:absolute;inset:0}.card{position:absolute;width:260px;height:340px;top:150px;color:var(--ink)}.c1{left:130px}.c2{left:320px;color:var(--accent)}.c3{left:510px}.pic{opacity:.16}.line{opacity:.55}.short{opacity:.35}",
+        "js": "const cards = gsap.utils.toArray(\".card\");\nconst outlines = gsap.utils.toArray(\".frame\");\ngsap.set(cards, { y: -460, rotation: -10, opacity: 0, transformOrigin: \"50% 100%\" });\ngsap.set(outlines, { drawSVG: \"0%\" });\nfor (let i = 0; i < cards.length; i++) {\n  mt.to(cards[i], { y: 0, rotation: (i - 1) * 7, opacity: 1, duration: 0.95, ease: \"expo.out\" }, 0.15 + i * 0.13);\n  mt.to(outlines[i], { drawSVG: \"100%\", duration: 0.9, ease: \"power2.inOut\" }, 0.35 + i * 0.13);\n}\nmt.to(cards, { y: -14, duration: Math.max(0.8, D - 1.7), ease: \"sine.inOut\", stagger: 0.12 }, 1.4);"
+      },
+      {
+        "id": "jauge",
+        "brief": "Une jauge se remplit et son aiguille se redresse : l'engagement remonte.",
+        "from": "jauge",
+        "to": "jauge",
+        "zone": "below",
+        "html": "<svg class=\"g\" viewBox=\"0 0 900 540\" aria-hidden=\"true\"><path class=\"track\" d=\"M170 450 A280 280 0 0 1 730 450\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"30\" stroke-linecap=\"round\"/><path class=\"level\" d=\"M170 450 A280 280 0 0 1 730 450\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"30\" stroke-linecap=\"round\"/><path class=\"needle\" d=\"M430 450 L470 450 L470 450 L430 450 Z\" fill=\"currentColor\"/><path class=\"shape\" d=\"M450 210 L478 450 L450 470 L422 450 Z\" fill=\"none\"/><circle class=\"hub\" cx=\"450\" cy=\"450\" r=\"26\" fill=\"currentColor\"/></svg>",
+        "css": ".g{display:block;width:900px;height:540px}.track{color:var(--sub);opacity:.25}.level{color:var(--accent)}.needle,.hub{color:var(--ink)}",
+        "js": "const level = root.querySelector(\".level\");\nconst needle = root.querySelector(\".needle\");\nconst shape = root.querySelector(\".shape\");\nconst hub = root.querySelector(\".hub\");\ngsap.set(level, { drawSVG: \"0% 0%\" });\ngsap.set(hub, { scale: 0, transformOrigin: \"50% 50%\" });\nmt.to(hub, { scale: 1, duration: 0.5, ease: \"back.out(2)\" }, 0.2);\nmt.to(needle, { morphSVG: shape, duration: 0.9, ease: \"expo.inOut\" }, 0.35);\nmt.fromTo(needle, { rotation: -84, svgOrigin: \"450 450\" }, { rotation: 48, duration: 1.6, ease: \"expo.out\", immediateRender: false }, 0.45);\nmt.to(level, { drawSVG: \"0% 76%\", duration: 1.6, ease: \"expo.out\" }, 0.45);\nmt.to(needle, { rotation: 41, duration: Math.max(0.6, D - 2.4), ease: \"sine.inOut\" }, 2.1);"
+      }
+    ],
+    "caption": "Publier régulièrement, c’est donner un rendez-vous. Ton audience finit par t’attendre.\n\n#reels #instagram",
+    "notes": "Un anneau d’accent relie les quatre premières idées par derrière ; les couvertures tombent sur le rythme, la jauge remonte sur l’engagement."
+  },
+  "clean": {
+    "pace": "normal",
+    "fixes": [],
+    "findings": []
+  },
+  "timed": {
+    "duration": 24,
+    "frames": 720,
+    "settle": [
+      1.2,
+      3.6,
+      8,
+      12.2,
+      17.2,
+      21.2
+    ]
+  },
+  "plan": {
+    "scenes": [],
+    "look": {
+      "theme": "paper",
+      "accent": "#e8553a",
+      "font": "grotesque",
+      "fields": [],
+      "grid": false,
+      "pill": false,
+      "align": "left",
+      "valign": "middle",
+      "grain": true,
+      "numbers": true,
+      "handle": "@metricove",
+      "logo": ""
+    },
+    "logo": false,
+    "music": true,
+    "volume": 0.7,
+    "track": "",
+    "texts": [],
+    "pace": "normal",
+    "duration": 24,
+    "video": {
+      "engine": 1,
+      "request": "Idée : montrer qu’une publication régulière fait remonter l’engagement, avec des visuels simples",
+      "source": "idea",
+      "title": "La régularité se voit",
+      "shape": "orb",
+      "beats": [
+        {
+          "id": "accroche",
+          "title": "Accroche",
+          "text": "Ton audience te cherche",
+          "emphasis": "te cherche",
+          "layout": "hero",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "push",
+          "seconds": 2.4,
+          "start": 0,
+          "end": 2.4
+        },
+        {
+          "id": "rythme",
+          "title": "Le rythme",
+          "text": "Trois posts par semaine, toujours",
+          "emphasis": "toujours",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "rest",
+          "camera": "drift",
+          "seconds": 4.4,
+          "start": 2.4,
+          "end": 6.8
+        },
+        {
+          "id": "repere",
+          "title": "Un repère",
+          "text": "Le même jour, la même heure",
+          "sub": "L’algorithme apprend ton rythme.",
+          "emphasis": "même heure",
+          "layout": "stack",
+          "bridge": "rise",
+          "actor": "bar",
+          "camera": "drift",
+          "seconds": 4.2,
+          "start": 6.8,
+          "end": 11
+        },
+        {
+          "id": "jauge",
+          "title": "L’engagement",
+          "text": "L’engagement remonte",
+          "emphasis": "remonte",
+          "layout": "stack",
+          "bridge": "morph",
+          "actor": "dot",
+          "camera": "still",
+          "seconds": 5,
+          "start": 11,
+          "end": 16
+        },
+        {
+          "id": "preuve",
+          "title": "La preuve",
+          "text": "+38 % en un mois",
+          "count": true,
+          "layout": "number",
+          "bridge": "rise",
+          "actor": "dot",
+          "camera": "drift",
+          "seconds": 4,
+          "start": 16,
+          "end": 20
+        },
+        {
+          "id": "abonne",
+          "title": "Abonne-toi",
+          "text": "Ton calendrier t’attend",
+          "sub": "Abonne-toi",
+          "emphasis": "calendrier",
+          "layout": "cta",
+          "bridge": "rise",
+          "actor": "underline",
+          "camera": "push",
+          "seconds": 4,
+          "start": 20,
+          "end": 24
+        }
+      ],
+      "moments": [
+        {
+          "id": "halo",
+          "brief": "Un grand anneau d'accent glisse derrière chaque idée et relie les quatre temps forts.",
+          "from": "accroche",
+          "to": "jauge",
+          "zone": "behind",
+          "code": {
+            "html": "<div class=\"ring\"></div><div class=\"core\"></div>",
+            "css": ".ring{position:absolute;left:0;width:520px;height:520px;border-radius:50%;border:3px solid var(--accent)}.core{position:absolute;left:0;width:180px;height:180px;border-radius:50%;background:rgba(var(--accent-rgb),.35)}",
+            "js": "const ring = root.querySelector(\".ring\");\nconst core = root.querySelector(\".core\");\ngsap.set([ring, core], { xPercent: -50, yPercent: -50, scale: 0.5, opacity: 0 });\nfor (let i = 0; i < beats.length; i++) {\n  const a = anchors[beats[i].id].title;\n  const x = a.x + a.w * 0.62;\n  const y = a.y + a.h * 0.5;\n  const at = Math.max(0, beats[i].t - 0.15);\n  if (i === 0) mt.set([ring, core], { x: x, y: y }, 0);\n  mt.to(ring, { x: x, y: y, scale: 1 - (i % 2) * 0.18, opacity: 1, duration: 1.2, ease: \"expo.inOut\" }, at);\n  mt.to(core, { x: x, y: y, scale: 1, opacity: 1, duration: 1.4, ease: \"expo.inOut\" }, at + 0.06);\n}\nmt.to(ring, { rotation: 40, duration: D, ease: \"none\" }, 0);"
+          }
+        },
+        {
+          "id": "couvertures",
+          "brief": "Trois publications tombent du ciel et se rangent en éventail : la régularité se voit.",
+          "from": "rythme",
+          "to": "rythme",
+          "zone": "above",
+          "code": {
+            "html": "<div class=\"deck\"><svg class=\"card c1\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg><svg class=\"card c2\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg><svg class=\"card c3\" viewBox=\"0 0 260 340\" aria-hidden=\"true\"><rect class=\"frame\" x=\"6\" y=\"6\" width=\"248\" height=\"328\" rx=\"30\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\"/><rect class=\"pic\" x=\"30\" y=\"30\" width=\"200\" height=\"180\" rx=\"18\" fill=\"currentColor\"/><rect class=\"line\" x=\"30\" y=\"240\" width=\"150\" height=\"18\" rx=\"9\" fill=\"currentColor\"/><rect class=\"line short\" x=\"30\" y=\"274\" width=\"92\" height=\"18\" rx=\"9\" fill=\"currentColor\"/></svg></div>",
+            "css": ".deck{position:absolute;inset:0}.card{position:absolute;width:260px;height:340px;top:150px;color:var(--ink)}.c1{left:130px}.c2{left:320px;color:var(--accent)}.c3{left:510px}.pic{opacity:.16}.line{opacity:.55}.short{opacity:.35}",
+            "js": "const cards = gsap.utils.toArray(\".card\");\nconst outlines = gsap.utils.toArray(\".frame\");\ngsap.set(cards, { y: -460, rotation: -10, opacity: 0, transformOrigin: \"50% 100%\" });\ngsap.set(outlines, { drawSVG: \"0%\" });\nfor (let i = 0; i < cards.length; i++) {\n  mt.to(cards[i], { y: 0, rotation: (i - 1) * 7, opacity: 1, duration: 0.95, ease: \"expo.out\" }, 0.15 + i * 0.13);\n  mt.to(outlines[i], { drawSVG: \"100%\", duration: 0.9, ease: \"power2.inOut\" }, 0.35 + i * 0.13);\n}\nmt.to(cards, { y: -14, duration: Math.max(0.8, D - 1.7), ease: \"sine.inOut\", stagger: 0.12 }, 1.4);"
+          }
+        },
+        {
+          "id": "jauge",
+          "brief": "Une jauge se remplit et son aiguille se redresse : l'engagement remonte.",
+          "from": "jauge",
+          "to": "jauge",
+          "zone": "below",
+          "code": {
+            "html": "<svg class=\"g\" viewBox=\"0 0 900 540\" aria-hidden=\"true\"><path class=\"track\" d=\"M170 450 A280 280 0 0 1 730 450\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"30\" stroke-linecap=\"round\"/><path class=\"level\" d=\"M170 450 A280 280 0 0 1 730 450\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"30\" stroke-linecap=\"round\"/><path class=\"needle\" d=\"M430 450 L470 450 L470 450 L430 450 Z\" fill=\"currentColor\"/><path class=\"shape\" d=\"M450 210 L478 450 L450 470 L422 450 Z\" fill=\"none\"/><circle class=\"hub\" cx=\"450\" cy=\"450\" r=\"26\" fill=\"currentColor\"/></svg>",
+            "css": ".g{display:block;width:900px;height:540px}.track{color:var(--sub);opacity:.25}.level{color:var(--accent)}.needle,.hub{color:var(--ink)}",
+            "js": "const level = root.querySelector(\".level\");\nconst needle = root.querySelector(\".needle\");\nconst shape = root.querySelector(\".shape\");\nconst hub = root.querySelector(\".hub\");\ngsap.set(level, { drawSVG: \"0% 0%\" });\ngsap.set(hub, { scale: 0, transformOrigin: \"50% 50%\" });\nmt.to(hub, { scale: 1, duration: 0.5, ease: \"back.out(2)\" }, 0.2);\nmt.to(needle, { morphSVG: shape, duration: 0.9, ease: \"expo.inOut\" }, 0.35);\nmt.fromTo(needle, { rotation: -84, svgOrigin: \"450 450\" }, { rotation: 48, duration: 1.6, ease: \"expo.out\", immediateRender: false }, 0.45);\nmt.to(level, { drawSVG: \"0% 76%\", duration: 1.6, ease: \"expo.out\" }, 0.45);\nmt.to(needle, { rotation: 41, duration: Math.max(0.6, D - 2.4), ease: \"sine.inOut\" }, 2.1);"
+          }
+        }
+      ],
+      "caption": "Publier régulièrement, c’est donner un rendez-vous. Ton audience finit par t’attendre.\n\n#reels #instagram",
+      "seed": 2881953857,
+      "tools": {
+        "worker": "0.14.0",
+        "hyperframes": "0.8.137"
+      }
+    }
+  },
+  "notes": "Un anneau d’accent relie les quatre premières idées par derrière ; les couvertures tombent sur le rythme, la jauge remonte sur l’engagement."
+}

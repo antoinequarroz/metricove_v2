@@ -1,0 +1,18 @@
+{
+  "metricoveUrl": "http://localhost:3999",
+  "apiTokenFile": "",
+  "rushesDir": "/tmp/mc/rushes",
+  "workDir": "/tmp/mc/work",
+  "fontsDir": "/tmp/mc/fonts",
+  "musicDir": "/tmp/mc/music",
+  "brollDir": "/tmp/mc/broll",
+  "brollCache": "/tmp/mc/broll-cache",
+  "minFreeGb": 1,
+  "pollSeconds": 2,
+  "scanSeconds": 600,
+  "claude": { "bin": "/home/user/metricove_v2/worker/montage/test/claude-spy.sh", "model": "" },
+  "gsapDir": "/tmp/claude-0/mc/design/gsappkg/package/dist",
+  "gsapFile": "/tmp/claude-0/mc/design/gsappkg/package/dist/gsap.min.js",
+  "hyperframesReference": "/tmp/mc/pas-de-reference.md",
+  "reel": { "review": true, "effort": "", "restricted": true, "claudeWriteMin": 6, "claudeReviewMin": 4, "claudeReviseMin": 5, "maxFrameMs": 400, "jobMaxMin": 30 }
+}
