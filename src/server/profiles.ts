@@ -162,7 +162,9 @@ export function themeOf(projectId: string | undefined): VideoTheme | undefined {
     ...(text ? { text } : {}),
     ...(look.font === "grotesque"
       ? { font: "Bricolage Grotesque", googleFont: "Bricolage Grotesque:opsz,wdth,wght@12..96,75..100,200..800", fontStretch: "90%" }
-      : {}),
+      : look.font === "space"
+        ? { font: "Space Grotesk", googleFont: "Space Grotesk:wght@300..700" }
+        : {}),
   };
 }
 

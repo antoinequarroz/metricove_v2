@@ -138,6 +138,7 @@ export function LookControls({ look, onChange, suggestedHandle }: { look: Look; 
               { value: "serif", label: "Élégant" },
               { value: "sans", label: "Net" },
               { value: "grotesque", label: "Grotesque" },
+              { value: "space", label: "Tech" },
             ]}
           />
           <div className="flex rounded-lg border border-line bg-bg-2/70 p-0.5">
