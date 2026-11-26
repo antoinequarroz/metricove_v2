@@ -183,6 +183,16 @@ export function VisualsPage({ mode = "visuals" }: { mode?: "visuals" | "motion" 
   const { data, refresh } = useMontage();
   const [idea, setIdea] = useState("");
   const [count, setCount] = useState(5);
+  // An idea sent from the Stratégie page (?idee=…&n=…): it waits in the field, nothing is asked yet.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const sent = q.get("idee")?.trim();
+    if (!sent) return;
+    setIdea(sent.slice(0, 3000));
+    const n = parseInt(q.get("n") ?? "", 10);
+    if (n >= 1) setCount(Math.min(n, max));
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [jobId, setJobId] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   // Posts already taken into the editor: their request is being deleted, the list may still show it for a moment.

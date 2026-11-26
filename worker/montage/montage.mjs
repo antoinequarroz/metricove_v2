@@ -17,7 +17,7 @@ import { handle } from "./lib/jobs.mjs";
 import { listTracks } from "./lib/audio.mjs";
 import { macBrollList, setBrollApi } from "./lib/broll.mjs";
 
-const VERSION = "0.13.0";
+const VERSION = "0.14.1";
 const argv = new Set(process.argv.slice(2));
 const cfg = loadConfig();
 
