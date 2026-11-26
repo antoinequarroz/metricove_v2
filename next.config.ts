@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Self-contained server for the Docker image.
   output: "standalone",
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: ["better-sqlite3", "@sentry/node"],
   async rewrites() {
     return [
       // The MCP server at a short address, and the OAuth discovery documents where clients look for them.
